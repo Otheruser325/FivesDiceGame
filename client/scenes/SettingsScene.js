@@ -8,20 +8,10 @@ export default class SettingsScene extends Phaser.Scene {
     create() {
         this.add.text(400, 80, 'Settings', { fontSize: 48 }).setOrigin(0.5);
 
-        // Ensure settings always exist (prevents undefined errors)
-        const defaultSettings = {
-            audio: true,
-            music: true,
-            comboRules: false
-        };
-        
-        let settings = this.registry.get('settings');
-        if (!settings) {
-            settings = defaultSettings;
-            this.registry.set('settings', settings);
-        }
+        // Unified master settings source
+        const settings = GlobalAudio.getSettings(this);
 
-        // ---------- AUDIO TOGGLE ----------
+        // ---------- AUDIO (SFX) TOGGLE ----------
         const audioText = this.add.text(
             400, 200,
             `Sound Effects: ${settings.audio ? 'ON' : 'OFF'}`,
@@ -31,19 +21,16 @@ export default class SettingsScene extends Phaser.Scene {
         .setInteractive({ useHandCursor: true });
 
         audioText.on('pointerdown', () => {
-            if (GlobalAudio && GlobalAudio.playButton) {
-                GlobalAudio.playButton(this);
-            }
+            GlobalAudio.playButton(this);
 
             settings.audio = !settings.audio;
-            this.registry.set('settings', settings);
-			
-			GlobalAudio.settings.audio = settings.audio;
+            this.registry.set('settings', settings); // SAVE
 
             audioText.setText(`Sound Effects: ${settings.audio ? 'ON' : 'OFF'}`);
         });
-		
-		const musicText = this.add.text(
+
+        // ---------- MUSIC TOGGLE ----------
+        const musicText = this.add.text(
             400, 260,
             `Music: ${settings.music ? 'ON' : 'OFF'}`,
             { fontSize: 32 }
@@ -52,8 +39,12 @@ export default class SettingsScene extends Phaser.Scene {
         .setInteractive({ useHandCursor: true });
 
         musicText.on('pointerdown', () => {
+            GlobalAudio.playButton(this);
+
             GlobalAudio.toggleMusic(this);
-            musicText.setText(`Music: ${settings.music ? 'ON' : 'OFF'}`);
+
+            const newSettings = GlobalAudio.getSettings(this);
+            musicText.setText(`Music: ${newSettings.music ? 'ON' : 'OFF'}`);
         });
 
         // ---------- BACK BUTTON ----------
@@ -62,10 +53,7 @@ export default class SettingsScene extends Phaser.Scene {
             .setInteractive({ useHandCursor: true });
 
         backBtn.on('pointerdown', () => {
-            if (GlobalAudio && GlobalAudio.playButton) {
-                GlobalAudio.playButton(this);
-            }
-
+            GlobalAudio.playButton(this);
             this.scene.start('MenuScene');
         });
     }

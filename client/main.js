@@ -11,39 +11,35 @@ export const GlobalAudio = {
     music: null,
     currentTrack: null,
     tracks: ['hero_time', 'energy', 'powerhouse'],
+	
+	getSettings(scene) {
+        let settings = scene.registry.get('settings');
+        if (!settings) {
+            settings = { audio: true, music: true, comboRules: false };
+            scene.registry.set('settings', settings);
+        }
+        return settings;
+    },
 
     playMusic(scene) {
-        const settings = scene.registry.get('settings') || { music: true };
+        const settings = this.getSettings(scene);
         if (!settings.music) return;
 
-        // Already playing? Don't restart.
         if (this.music && this.music.isPlaying) return;
 
-        // Pick a random track on fresh start
         if (!this.currentTrack) {
             const index = Math.floor(Math.random() * this.tracks.length);
             this.currentTrack = this.tracks[index];
         }
 
-        this.music = scene.sound.add(this.currentTrack, {
-            loop: true,
-            volume: 0.6
-        });
-
+        this.music = scene.sound.add(this.currentTrack, { loop: true, volume: 0.6 });
         this.music.play();
     },
 
-    stopMusic() {
-        if (this.music) {
-            this.music.stop();
-            this.music = null;
-        }
-    },
-
     toggleMusic(scene) {
-        const settings = scene.registry.get('settings');
-
+        const settings = this.getSettings(scene);
         settings.music = !settings.music;
+
         scene.registry.set('settings', settings);
 
         if (settings.music) {
@@ -51,19 +47,17 @@ export const GlobalAudio = {
         } else {
             this.stopMusic();
         }
-    },
+    }
 
     playButton(scene) {
-        const settings = scene.registry.get('settings');
+        const settings = this.getSettings(scene);
         if (!settings.audio) return;
-
         scene.sound.play('button', { volume: 0.5 });
     }
 	
 	playDice(scene) {
-        const settings = scene.registry.get('settings');
+        const settings = this.getSettings(scene);
         if (!settings.audio) return;
-
         scene.sound.play('dice', { volume: 0.5 });
     }
 };
