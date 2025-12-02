@@ -100,10 +100,15 @@ export function checkCombo(values) {
     if (occurrences.includes(3)) {
         return { type: "TRIPLE!", multiplier: 3, intensity: 1.2 };
     }
+	
+	// ----- TWO PAIR -----
+    if (occurrences.includes(2)) && occurrences.includes(2)) {
+        return { type: "TWO PAIR!", multiplier: 2, intensity: 1.1 };
+    }
 
     // ----- PAIR -----
     if (occurrences.includes(2)) {
-        return { type: "PAIR!", multiplier: 2, intensity: 1 };
+        return { type: "PAIR!", multiplier: 1.5, intensity: 1 };
     }
 
     return null;

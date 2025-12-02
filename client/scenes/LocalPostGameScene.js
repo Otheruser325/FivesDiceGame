@@ -8,12 +8,16 @@ export default class LocalPostGameScene extends Phaser.Scene {
     create() {
         const stats = this.registry.get("localPostGame");
 
-        this.add.text(400, 50, "Local Game — Results",
-            { fontSize: 40 }).setOrigin(0.5);
+        this.add.text(400, 50, "Local Game — Results", {
+            fontSize: 40
+        }).setOrigin(0.5);
 
         // -------- Determine Rankings --------
         const scoredPlayers = stats.scores
-            .map((score, index) => ({ index, score }))
+            .map((score, index) => ({
+                index,
+                score
+            }))
             .sort((a, b) => b.score - a.score);
 
         const placements = new Array(stats.players);
@@ -26,18 +30,34 @@ export default class LocalPostGameScene extends Phaser.Scene {
             3: "#CD7F32", // Bronze
         };
 
-        // Positive message per placement
-        const messages = {
-            1: "Winner winner!",
-            2: "Excellent performance!",
-            3: "Good game!",
-            4: "You did well!",
-            5: "Better luck next time!",
-            default: "Dicetastic!"
+        // Positive buzzword per placement
+        const buzzwords = {
+            1: [
+                "Winner winner!",
+                "Dicetastic!",
+                "Dice-tacular!"
+            ],
+            2: [
+                "Excellent performance!",
+                "In-deucible!",
+                "Outstanding!"
+            ],
+            3: [
+                "Good game!",
+                "You did well!",
+                "You show no mercy!"
+            ],
+            other: [
+                "Better luck next time!",
+                "Pray to RNGesus!",
+                "You'll be later gifted..."
+            ]
         };
 
         // -------- Display Stats --------
-        let y = 130;
+        let startY = 140;
+        const colX = [250, 550]; // Left + right columns
+        const columnWidth = 300;
 
         for (let i = 0; i < stats.players; i++) {
             const c = stats.combos[i];
@@ -45,33 +65,52 @@ export default class LocalPostGameScene extends Phaser.Scene {
             const score = stats.scores[i];
             const placement = placements[i];
 
+            // Determine X,Y positioning
+            const row = Math.floor(i / 2);
+            const col = i % 2;
+            const x = stats.players > 1 ? colX[col] : 400;
+            const y = startY + row * 220;
+
+            // Select buzzword (random)
+            const pool = buzzwords[placement] || buzzwords.other;
+            const message = pool[Math.floor(Math.random() * pool.length)];
+
+            // Placement colour
             const placeColor = rankColors[placement] || "#ffffff";
-            const placeText = `#${placement}`;
 
-            const message =
-                messages[placement] ||
-                messages.default;
-
-            const text =
-`${name} — ${placeText}
-Score: ${score}
+            const title = `${name} — #${placement}`;
+            const combosText =
+                `Score: ${score}
 
 Pairs: ${c.pair}
+Two Pairs: ${c.twoPair}
 Triples: ${c.triple}
 Full Houses: ${c.fullHouse}
 Four-of-a-Kinds: ${c.fourKind}
 Five-of-a-Kinds: ${c.fiveKind}
-Straights: ${c.straight}
+Straights: ${c.straight}`;
 
-"${message}"`;
-
-            this.add.text(400, y, text, {
-                fontSize: 22,
-                align: "center",
-                color: placeColor
+            // Title (larger + coloured)
+            this.add.text(x, y, title, {
+                fontSize: 26,
+                color: placeColor,
+                align: "center"
             }).setOrigin(0.5);
 
-            y += 200;
+            // Stats block
+            this.add.text(x, y + 40, combosText, {
+                fontSize: 20,
+                color: "#ffffff",
+                align: "center"
+            }).setOrigin(0.5);
+
+            // Buzzword (highlighted slightly bigger)
+            this.add.text(x, y + 170, `"${message}"`, {
+                fontSize: 22,
+                color: placeColor,
+                fontStyle: "italic",
+                align: "center"
+            }).setOrigin(0.5);
         }
 
         // -------- Back Button --------

@@ -22,6 +22,7 @@ export default class LocalGameScene extends Phaser.Scene {
 		
 		this.comboStats = Array(this.totalPlayers).fill(null).map(() => ({
             pair: 0,
+			twoPair: 0,
             triple: 0,
             fullHouse: 0,
             fourKind: 0,
@@ -71,11 +72,12 @@ export default class LocalGameScene extends Phaser.Scene {
 			if (combo) {
                 let statName =
                     combo.type.includes("PAIR!") ? "pair" :
+					combo.type.includes("TWO PAIR!") ? "twoPair" :
                     combo.type.includes("TRIPLE!") ? "triple" :
                     combo.type.includes("FULL HOUSE!!!") ? "fullHouse" :
                     combo.type.includes("FOUR OF A KIND!!!!") ? "fourKind" :
                     combo.type.includes("FIVE OF A KIND?!!?!") ? "fiveKind" :
-                    combo.type.includes("STRAIGHT") ? "straight" :
+                    combo.type.includes("STRAIGHT!") ? "straight" :
                     null;
 
                 if (statName) {
