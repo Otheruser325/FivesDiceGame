@@ -1,4 +1,4 @@
-import { playButtonSFX } from '../utils/AudioManager.js';
+import { GlobalAudio } from '../main.js';
 
 export default class MenuScene extends Phaser.Scene {
     constructor() {
@@ -21,17 +21,17 @@ export default class MenuScene extends Phaser.Scene {
             .setInteractive();
 			
 		playBtn.on('pointerdown', () => {
-            playButtonSFX(this);
+            GlobalAudio.playButton(this);
             this.scene.start('PlayModeScene');
         });
         
 		settingsBtn.on('pointerdown', () => {
-            playButtonSFX(this);
+            GlobalAudio.playButton(this);
             this.scene.start('SettingsScene');
         });
 		
 		helpBtn.on('pointerdown', () => {
-            playButtonSFX(this);
+            GlobalAudio.playButton(this);
             this.scene.start('HelpScene');
         });
     }

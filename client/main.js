@@ -8,6 +8,23 @@ import OnlineGameScene from './scenes/OnlineGameScene.js';
 import SettingsScene from './scenes/SettingsScene.js';
 import HelpScene from './scenes/HelpScene.js';
 
+export let GlobalAudio = {
+    settings: {
+        audio: true,
+        music: true
+    },
+    playButton(scene) {
+        if (this.settings.audio) {
+            scene.sound.play('button', { volume: 0.5 });
+        }
+    },
+    playDice(scene) {
+        if (this.settings.audio) {
+            scene.sound.play('dice', { volume: 0.5 });
+        }
+    }
+};
+
 const config = {
     type: Phaser.AUTO,
     width: 1200,
