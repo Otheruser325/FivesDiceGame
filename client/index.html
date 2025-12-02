@@ -8,6 +8,13 @@
     <!-- Stylesheet -->
     <link rel="stylesheet" href="styles.css" />
 
+    <!-- DEBUG: Verify audio loads -->
+    <audio id="test-audio-button" src="assets/audio/button.mp3" preload="auto"></audio>
+    <audio id="test-audio-music" src="assets/music/example.mp3" preload="auto"></audio>
+
+    <!-- Optional: Favicon -->
+    <link rel="icon" type="image/png" href="assets/images/favicon.png" />
+
     <!-- Phaser CDN -->
     <script src="https://cdn.jsdelivr.net/npm/phaser@3/dist/phaser.min.js"></script>
 </head>
@@ -16,7 +23,22 @@
     <!-- Game Container -->
     <div id="game-container"></div>
 
-    <!-- Your Game Code -->
+    <!-- Game Code -->
     <script type="module" src="main.js"></script>
+
+    <!-- DEBUG: Log audio caching -->
+    <script>
+        window.addEventListener("load", () => {
+            const btn = document.getElementById("test-audio-button");
+            const music = document.getElementById("test-audio-music");
+
+            console.log("Button audio readyState:", btn.readyState);
+            console.log("Music audio readyState:", music.readyState);
+
+            btn.addEventListener("canplaythrough", () => console.log("Button SFX loaded."));
+            music.addEventListener("canplaythrough", () => console.log("Music loaded."));
+        });
+    </script>
+
 </body>
 </html>
