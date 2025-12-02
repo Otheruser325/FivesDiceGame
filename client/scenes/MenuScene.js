@@ -21,17 +21,23 @@ export default class MenuScene extends Phaser.Scene {
             .setInteractive();
 			
 		playBtn.on('pointerdown', () => {
-            GlobalAudio.playButton(this);
+            if (GlobalAudio && GlobalAudio.playButton) {
+                GlobalAudio.playButton(this);
+            }
             this.scene.start('PlayModeScene');
         });
         
 		settingsBtn.on('pointerdown', () => {
-            GlobalAudio.playButton(this);
+            if (GlobalAudio && GlobalAudio.playButton) {
+                GlobalAudio.playButton(this);
+            }
             this.scene.start('SettingsScene');
         });
 		
 		helpBtn.on('pointerdown', () => {
-            GlobalAudio.playButton(this);
+            if (GlobalAudio && GlobalAudio.playButton) {
+                GlobalAudio.playButton(this);
+            }
             this.scene.start('HelpScene');
         });
     }

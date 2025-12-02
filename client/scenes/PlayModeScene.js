@@ -21,17 +21,23 @@ export default class PlayModeScene extends Phaser.Scene {
             .setInteractive();
         
 		localBtn.on('pointerdown', () => {
-            GlobalAudio.playButton(this);
+            if (GlobalAudio && GlobalAudio.playButton) {
+                GlobalAudio.playButton(this);
+            }
             this.scene.start('LocalConfigScene');
         });
 		
 		onlineBtn.on('pointerdown', () => {
-            GlobalAudio.playButton(this);
+            if (GlobalAudio && GlobalAudio.playButton) {
+                GlobalAudio.playButton(this);
+            }
             this.scene.start('OnlineGameScene');
         });
 		
 		backBtn.on('pointerdown', () => {
-            GlobalAudio.playButton(this);
+            if (GlobalAudio && GlobalAudio.playButton) {
+                GlobalAudio.playButton(this);
+            }
             this.scene.start('MenuScene');
         });
     }

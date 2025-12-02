@@ -30,7 +30,9 @@ export default class LocalGameScene extends Phaser.Scene {
         }).setOrigin(0.5).setInteractive();
 
         this.rollBtn.on('pointerdown', () => {
-            GlobalAudio.playButton(this);
+            if (GlobalAudio && GlobalAudio.playButton) {
+                GlobalAudio.playButton(this);
+            }
             this.playRound();
         });
 
@@ -38,7 +40,9 @@ export default class LocalGameScene extends Phaser.Scene {
     }
 
     playRound() {
-        GlobalAudio.playDice(this);
+        if (GlobalAudio && GlobalAudio.playDice) {
+            GlobalAudio.playDice(this);
+        }
 
         const roll = () => Math.ceil(Math.random() * 6);
         const playerRolls = [];
@@ -118,7 +122,9 @@ export default class LocalGameScene extends Phaser.Scene {
         }).setInteractive();
 
         back.on('pointerdown', () => {
-            GlobalAudio.playButton(this);
+            if (GlobalAudio && GlobalAudio.playButton) {
+                GlobalAudio.playButton(this);
+            }
             this.showConfirmExit();
         });
     }
@@ -142,12 +148,16 @@ export default class LocalGameScene extends Phaser.Scene {
         }).setOrigin(0.5).setInteractive();
 
         yesBtn.on('pointerdown', () => {
-            GlobalAudio.playButton(this);
+            if (GlobalAudio && GlobalAudio.playButton) {
+                GlobalAudio.playButton(this);
+            }
             this.scene.start('MenuScene');
         });
 
         noBtn.on('pointerdown', () => {
-            GlobalAudio.playButton(this);
+            if (GlobalAudio && GlobalAudio.playButton) {
+                GlobalAudio.playButton(this);
+            }
             bg.destroy();
             msg.destroy();
             yesBtn.destroy();

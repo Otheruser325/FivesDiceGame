@@ -13,7 +13,9 @@ export default class OnlineGameScene extends Phaser.Scene {
             .setInteractive();
 			
 		backBtn.on('pointerdown', () => {
-            GlobalAudio.playButton(this);
+            if (GlobalAudio && GlobalAudio.playButton) {
+                GlobalAudio.playButton(this);
+            }
             this.scene.start('PlayModeScene');
         });
     }
