@@ -10,8 +10,8 @@ import HelpScene from './scenes/HelpScene.js';
 
 const config = {
     type: Phaser.AUTO,
-    width: 800,
-    height: 600,
+    width: 1200,
+    height: 900,
     parent: 'game-container',
     backgroundColor: '#1f1f1f',
     scene: [
