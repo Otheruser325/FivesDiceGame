@@ -20,6 +20,8 @@ export default class MenuScene extends Phaser.Scene {
             .setOrigin(0.5)
             .setInteractive();
 			
+		GlobalAudio.playMusic(this);
+			
 		playBtn.on('pointerdown', () => {
             if (GlobalAudio && GlobalAudio.playButton) {
                 GlobalAudio.playButton(this);
