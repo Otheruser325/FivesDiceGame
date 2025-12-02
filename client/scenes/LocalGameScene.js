@@ -6,22 +6,28 @@ export default class LocalGameScene extends Phaser.Scene {
     }
 
     init(data) {
-        this.totalPlayers = data.players || 2;
+
+        // Load settings (comboRules now stored globally)
+        const settings = GlobalAudio.getSettings(this);
+
+        this.totalPlayers = data.players || 2;     // total players including you
         this.totalRounds = data.rounds || 20;
-        this.comboRules = data.combos || false;
+        this.comboRules = settings.comboRules ?? false;
 
         this.currentRound = 1;
 
+        // Player 0 = you
         this.scores = Array(this.totalPlayers).fill(0);
     }
 
     create() {
-        this.add.text(400, 50, `Local Game — Round ${this.currentRound}/${this.totalRounds}`, {
-            fontSize: 32
-        }).setOrigin(0.5);
+        this.roundTitle = this.add.text(400, 50,
+            `Local Game — Round ${this.currentRound}/${this.totalRounds}`,
+            { fontSize: 32 }
+        ).setOrigin(0.5);
 
-        this.info = this.add.text(400, 150, '', {
-            fontSize: 26,
+        this.info = this.add.text(400, 180, '', {
+            fontSize: 24,
             align: 'center'
         }).setOrigin(0.5);
 
@@ -30,9 +36,7 @@ export default class LocalGameScene extends Phaser.Scene {
         }).setOrigin(0.5).setInteractive();
 
         this.rollBtn.on('pointerdown', () => {
-            if (GlobalAudio && GlobalAudio.playButton) {
-                GlobalAudio.playButton(this);
-            }
+            GlobalAudio.playButton(this);
             this.playRound();
         });
 
@@ -40,32 +44,35 @@ export default class LocalGameScene extends Phaser.Scene {
     }
 
     playRound() {
-        if (GlobalAudio && GlobalAudio.playDice) {
-            GlobalAudio.playDice(this);
-        }
+        GlobalAudio.playDice(this);
 
         const roll = () => Math.ceil(Math.random() * 6);
-        const playerRolls = [];
-        const botRolls = [];
 
-        for (let i = 0; i < 5; i++) {
-            playerRolls.push(roll());
-            botRolls.push(roll());
+        const rollsByPlayer = [];
+
+        // Roll dice for each player
+        for (let p = 0; p < this.totalPlayers; p++) {
+            const dice = [roll(), roll(), roll(), roll(), roll()];
+            rollsByPlayer.push(dice);
+
+            const base = dice.reduce((a,b) => a + b, 0);
+            const scored = this.applyBonus(dice, base);
+
+            this.scores[p] += scored;
         }
 
-        const playerTotal = playerRolls.reduce((a, b) => a + b);
-        const botTotal = botRolls.reduce((a, b) => a + b);
+        // Build output log
+        let msg = "";
 
-        const scoredPlayer = this.applyBonus(playerRolls, playerTotal);
-        const scoredBot = this.applyBonus(botRolls, botTotal);
+        // You
+        msg += `You rolled: ${rollsByPlayer[0].join(', ')}\n`;
 
-        this.scores[0] += scoredPlayer;
-        this.scores[1] += scoredBot;
+        // Opponents
+        for (let i = 1; i < this.totalPlayers; i++) {
+            msg += `Bot ${i} rolled: ${rollsByPlayer[i].join(', ')}\n`;
+        }
 
-        this.info.setText(
-            `You rolled: ${playerRolls.join(', ')} = ${scoredPlayer}\n` +
-            `Bot rolled: ${botRolls.join(', ')} = ${scoredBot}`
-        );
+        this.info.setText(msg);
 
         this.currentRound++;
 
@@ -82,37 +89,73 @@ export default class LocalGameScene extends Phaser.Scene {
         const counts = {};
         dice.forEach(n => counts[n] = (counts[n] || 0) + 1);
 
-        if (Object.values(counts).includes(2)) score *= 1.2;
-        if (Object.values(counts).includes(3)) score *= 1.5;
+        const values = Object.values(counts);
 
-        const sorted = [...dice].sort();
-        if (JSON.stringify(sorted) === JSON.stringify([1,2,3,4,5]) ||
-            JSON.stringify(sorted) === JSON.stringify([2,3,4,5,6])) {
-            score *= 2.5;
+        // 5-of-a-kind
+        if (values.includes(5)) score *= 10;
+
+        // 4-of-a-kind
+        else if (values.includes(4)) score *= 4;
+
+        // 3-of-a-kind
+        else if (values.includes(3)) score *= 2;
+
+        // Pair
+        else if (values.includes(2)) score *= 1.5;
+
+        // Straights
+        const sorted = [...dice].sort((a,b)=>a-b);
+
+        // Large straight (5-in-a-row)
+        const large1 = [1,2,3,4,5];
+        const large2 = [2,3,4,5,6];
+
+        if (JSON.stringify(sorted) === JSON.stringify(large1) ||
+            JSON.stringify(sorted) === JSON.stringify(large2)) {
+            score *= 3;
+        }
+
+        // Small straight (any 4-in-a-row)
+        const unique = [...new Set(sorted)];
+        for (let i = 0; i <= unique.length - 4; i++) {
+            if (unique[i]+1 === unique[i+1] &&
+                unique[i]+2 === unique[i+2] &&
+                unique[i]+3 === unique[i+3]) {
+                score *= 2.5;
+                break;
+            }
         }
 
         return Math.floor(score);
     }
 
     updateRoundTitle() {
-        this.add.text(400, 50,
-            `Local Game — Round ${this.currentRound}/${this.totalRounds}`,
-            { fontSize: 32, color: '#ffffff' }
-        ).setOrigin(0.5);
+        this.roundTitle.setText(
+            `Local Game — Round ${this.currentRound}/${this.totalRounds}`
+        );
     }
 
     endGame() {
-        const result =
-            this.scores[0] > this.scores[1] ? "You Win!" :
-            this.scores[0] < this.scores[1] ? "Bot Wins!" :
-            "It's a Draw!";
+        // Determine winner
+        let result = "";
+        const maxScore = Math.max(...this.scores);
+        const winners = this.scores.map((s,i)=> s === maxScore ? i : null).filter(i=>i!==null);
+
+        if (winners.includes(0)) {
+            result = (winners.length === 1) ? "You Win!" : "It's a Tie!";
+        } else {
+            result = `Bot ${winners[0]} Wins!`;
+        }
 
         this.info.setText(
-            `GAME OVER\n\n` +
-            `Your Score: ${this.scores[0]}\nBot Score: ${this.scores[1]}\n\n${result}`
+            `GAME OVER\n\nScores:\n` +
+            this.scores.map((s,i)=> i===0 ? `You: ${s}` : `Bot ${i}: ${s}`).join('\n') +
+            `\n\n${result}`
         );
 
         this.rollBtn.disableInteractive();
+
+        this.exitLocked = true;
     }
 
     addBackButton() {
@@ -122,10 +165,13 @@ export default class LocalGameScene extends Phaser.Scene {
         }).setInteractive();
 
         back.on('pointerdown', () => {
-            if (GlobalAudio && GlobalAudio.playButton) {
-                GlobalAudio.playButton(this);
+            GlobalAudio.playButton(this);
+
+            if (this.exitLocked) {
+                this.scene.start('MenuScene');
+            } else {
+                this.showConfirmExit();
             }
-            this.showConfirmExit();
         });
     }
 
@@ -148,20 +194,13 @@ export default class LocalGameScene extends Phaser.Scene {
         }).setOrigin(0.5).setInteractive();
 
         yesBtn.on('pointerdown', () => {
-            if (GlobalAudio && GlobalAudio.playButton) {
-                GlobalAudio.playButton(this);
-            }
+            GlobalAudio.playButton(this);
             this.scene.start('MenuScene');
         });
 
         noBtn.on('pointerdown', () => {
-            if (GlobalAudio && GlobalAudio.playButton) {
-                GlobalAudio.playButton(this);
-            }
-            bg.destroy();
-            msg.destroy();
-            yesBtn.destroy();
-            noBtn.destroy();
+            GlobalAudio.playButton(this);
+            bg.destroy(); msg.destroy(); yesBtn.destroy(); noBtn.destroy();
         });
     }
 }

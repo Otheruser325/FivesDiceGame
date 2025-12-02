@@ -70,6 +70,9 @@ export default class LocalConfigScene extends Phaser.Scene {
 
         this.comboBtn.on('pointerdown', () => {
             this.comboRules = !this.comboRules;
+			const settings = this.registry.get('settings');
+            settings.comboRules = this.comboRules;
+            this.registry.set('settings', settings);
             this.refreshScene();
         });
 

@@ -48,6 +48,13 @@ export const GlobalAudio = {
             this.stopMusic();
         }
     },
+	
+	stopMusic() {
+        if (this.music) {
+            this.music.stop();
+            this.music = null;
+        }
+    },
 
     playButton(scene) {
         const settings = this.getSettings(scene);
