@@ -28,6 +28,7 @@ export default class PreloadScene extends Phaser.Scene {
         // Load all assets
         this.load.audio('button', 'assets/audio/button.mp3');
         this.load.audio('dice', 'assets/audio/dice.mp3');
+		this.load.audio('music', 'assets/music/hero_time.mp3');
     }
 
     create() {

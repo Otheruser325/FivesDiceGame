@@ -83,7 +83,9 @@ export default class LocalConfigScene extends Phaser.Scene {
         }).setOrigin(0.5).setInteractive();
 
         startBtn.on('pointerdown', () => {
-			playButtonSFX(this);
+			if (GlobalAudio && GlobalAudio.playButton) {
+                GlobalAudio.playButton(this);
+            }
             this.scene.start('LocalGameScene', {
                 players: this.selectedPlayers,
                 rounds: this.selectedRounds,

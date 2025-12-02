@@ -12,14 +12,39 @@ export let GlobalAudio = {
         audio: true,
         music: true
     },
+
+    bgm: null,
+
     playButton(scene) {
         if (this.settings.audio) {
             scene.sound.play('button', { volume: 0.5 });
         }
     },
+
     playDice(scene) {
         if (this.settings.audio) {
             scene.sound.play('dice', { volume: 0.5 });
+        }
+    },
+
+    playMusic(scene) {
+        if (!this.settings.music) return;
+
+        // Prevent double-playing
+        if (this.bgm && this.bgm.isPlaying) return;
+
+        this.bgm = scene.sound.add('music', {
+            volume: 0.4,
+            loop: true
+        });
+
+        this.bgm.play();
+    },
+
+    stopMusic() {
+        if (this.bgm) {
+            this.bgm.stop();
+            this.bgm = null;
         }
     }
 };
