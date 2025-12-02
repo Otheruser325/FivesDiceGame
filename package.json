@@ -1,0 +1,12 @@
+{
+  "name": "fivesdicegame",
+  "version": "1.0.0",
+  "description": "A simple yet popular dice game that can be played locally or interally.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
