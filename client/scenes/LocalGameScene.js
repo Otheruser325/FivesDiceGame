@@ -26,8 +26,7 @@ export default class LocalGameScene extends Phaser.Scene {
             fullHouse: 0,
             fourKind: 0,
             fiveKind: 0,
-            smStraight: 0,
-			lgStraight: 0,
+            straight: 0,
         }));
     }
 
@@ -66,29 +65,27 @@ export default class LocalGameScene extends Phaser.Scene {
             rollsByPlayer.push(dice);
 
             const base = dice.reduce((a,b) => a + b, 0);
-            const scored = this.applyBonus(dice, base);
+            let scored = this.applyBonus(dice, base);
 			const combo = checkCombo(dice);
 			
 			if (combo) {
-                const statName =
+                let statName =
                     combo.type.includes("PAIR!") ? "pair" :
                     combo.type.includes("TRIPLE!") ? "triple" :
                     combo.type.includes("FULL HOUSE!!!") ? "fullHouse" :
                     combo.type.includes("FOUR OF A KIND!!!!") ? "fourKind" :
                     combo.type.includes("FIVE OF A KIND?!!?!") ? "fiveKind" :
-                    combo.type.includes("STRAIGHT!") ? "smStraight" : null;
-					combo.type.includes("LARGE STRAIGHT!!") ? "lgStraight" : null;
+                    combo.type.includes("STRAIGHT") ? "straight" :
+                    null;
 
                 if (statName) {
                     this.comboStats[p][statName]++;
                 }
             }
 			
-			if (p === 0) {
+			if (p === 0 && combo && this.comboRules) {
                 showComboText.call(this, combo.type, combo.intensity);
             }
-
-            scored = base * combo.multiplier;
 
             this.scores[p] += scored;
         }
