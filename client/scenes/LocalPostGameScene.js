@@ -98,7 +98,7 @@ Straights: ${c.straight}`;
             }).setOrigin(0.5);
 
             // Stats block
-            this.add.text(x, y + 40, combosText, {
+            this.add.text(x, y + 90, combosText, {
                 fontSize: 20,
                 color: "#ffffff",
                 align: "center"
