@@ -98,14 +98,14 @@ Straights: ${c.straight}`;
             }).setOrigin(0.5);
 
             // Stats block
-            this.add.text(x, y + 90, combosText, {
+            this.add.text(x, y + 110, combosText, {
                 fontSize: 20,
                 color: "#ffffff",
                 align: "center"
             }).setOrigin(0.5);
 
             // Buzzword (highlighted slightly bigger)
-            this.add.text(x, y + 170, `"${message}"`, {
+            this.add.text(x, y + 220, `"${message}"`, {
                 fontSize: 22,
                 color: placeColor,
                 fontStyle: "italic",
@@ -114,7 +114,7 @@ Straights: ${c.straight}`;
         }
 
         // -------- Back Button --------
-        const back = this.add.text(700, 560, "Return to Menu", {
+        const back = this.add.text(750, 600, "Return to Menu", {
             fontSize: 26,
             color: "#ff6666"
         }).setOrigin(0.5).setInteractive();
