@@ -18,7 +18,7 @@ export default class SplashScene extends Phaser.Scene {
             color: '#ffffff'
         }).setOrigin(0.5);
 
-        this.time.delayedCall(3000, () => {
+        this.time.delayedCall(5000, () => {
             this.scene.start('MenuScene');
         });
     }
