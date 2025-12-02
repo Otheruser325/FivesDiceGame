@@ -1,12 +1,11 @@
-import SplashScene from './scenes/SplashScene.js';
-import BootScene from './scenes/BootScene.js';
+import PreloadScene from './scenes/PreloadScene.js';
 import MenuScene from './scenes/MenuScene.js';
+import SettingsScene from './scenes/SettingsScene.js';
+import HelpScene from './scenes/HelpScene.js';
 import PlayModeScene from './scenes/PlayModeScene.js';
 import LocalConfigScene from './scenes/LocalConfigScene.js';
 import LocalGameScene from './scenes/LocalGameScene.js';
 import OnlineGameScene from './scenes/OnlineGameScene.js';
-import SettingsScene from './scenes/SettingsScene.js';
-import HelpScene from './scenes/HelpScene.js';
 
 export let GlobalAudio = {
     settings: {
@@ -32,15 +31,14 @@ const config = {
     parent: 'game-container',
     backgroundColor: '#1f1f1f',
     scene: [
-        SplashScene,
-        BootScene,
-		SettingsScene,
+        PreloadScene,
         MenuScene,
+        SettingsScene,
+		HelpScene,
         PlayModeScene,
-		LocalConfigScene,
+        LocalConfigScene,
         LocalGameScene,
         OnlineGameScene,
-        HelpScene
     ]
 };
 
