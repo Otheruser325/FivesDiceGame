@@ -1,77 +1,109 @@
 export function showComboText(comboName, intensity = 1) {
+
+    // RAINBOW FIVE-OF-A-KIND EFFECT
+    const isRainbow = comboName.includes("FIVE OF A KIND");
+
     const text = this.add.text(400, 200, comboName, {
         fontSize: 48 * intensity,
         fontStyle: "bold",
-        color: "#ffdd44",
+        color: isRainbow ? "#ffffff" : "#ffdd44",
+        stroke: isRainbow ? "#000000" : null,
+        strokeThickness: isRainbow ? 8 : 0,
     }).setOrigin(0.5);
 
-    // Slight curve effect
     text.setAngle(-5);
 
+    // If it's FIVE OF A KIND: apply rainbow tween
+    if (isRainbow) {
+        // Cycle through hues 0–360 continuously
+        this.tweens.addCounter({
+            from: 0,
+            to: 360,
+            duration: 1500,
+            repeat: -1,
+            onUpdate: (tween) => {
+                const hue = tween.getValue();
+                text.setColor(Phaser.Display.Color.HSLToColor(hue / 360, 1, 0.6).rgba);
+            }
+        });
+
+        // Pulse scale
+        this.tweens.add({
+            targets: text,
+            scale: { from: 1.2, to: 1.0 },
+            duration: 300,
+            yoyo: true,
+            repeat: -1,
+        });
+    }
+
+    // Move + fade animation for all combos
     this.tweens.add({
         targets: text,
         y: 150,
         alpha: 0,
         angle: 5,
-        duration: 800,
+        duration: isRainbow ? 1100 : 800,
         ease: 'Cubic.easeOut',
         onComplete: () => text.destroy()
     });
 }
-	
+
+
 export function checkCombo(values) {
     // Count occurrences
     const count = {};
     for (let v of values) {
         count[v] = (count[v] || 0) + 1;
     }
-	
-	const sorted = [...values].sort((a, b) => a - b);
+
+    const sorted = [...values].sort((a, b) => a - b);
     const unique = [...new Set(sorted)];
-
-    const large1 = [1,2,3,4,5];
-    const large2 = [2,3,4,5,6];
-
     const occurrences = Object.values(count);
-	
-	// 5-of-a-kind
+
+    // ----- LARGE STRAIGHT -----
+    const large1 = [1, 2, 3, 4, 5];
+    const large2 = [2, 3, 4, 5, 6];
+
+    if (JSON.stringify(unique) === JSON.stringify(large1) ||
+        JSON.stringify(unique) === JSON.stringify(large2)) {
+        return { type: "STRAIGHT!", multiplier: 3, intensity: 1.4 };
+    }
+
+    // ----- SMALL STRAIGHT (4-in-a-row inside unique values) -----
+    if (unique.length >= 4) {
+        for (let i = 0; i < unique.length - 3; i++) {
+            if (unique[i] + 1 === unique[i + 1] &&
+                unique[i] + 2 === unique[i + 2] &&
+                unique[i] + 3 === unique[i + 3]) {
+                return { type: "STRAIGHT!", multiplier: 2.5, intensity: 1.2 };
+            }
+        }
+    }
+
+    // ----- FIVE OF A KIND -----
     if (occurrences.includes(5)) {
         return { type: "FIVE OF A KIND?!!?!", multiplier: 10, intensity: 1.8 };
     }
 
-    // 4-of-a-kind
+    // ----- FOUR OF A KIND -----
     if (occurrences.includes(4)) {
         return { type: "FOUR OF A KIND!!!!", multiplier: 5, intensity: 1.5 };
     }
-	
-	// Full House: 3 + 2
+
+    // ----- FULL HOUSE -----
     if (occurrences.includes(3) && occurrences.includes(2)) {
         return { type: "FULL HOUSE!!!", multiplier: 4, intensity: 1.4 };
     }
 
-    // 3-of-a-kind
+    // ----- THREE OF A KIND -----
     if (occurrences.includes(3)) {
         return { type: "TRIPLE!", multiplier: 3, intensity: 1.2 };
     }
 
-    // Pair
+    // ----- PAIR -----
     if (occurrences.includes(2)) {
         return { type: "PAIR!", multiplier: 2, intensity: 1 };
-    }
-	
-	// Large straight
-	if (JSON.stringify(unique) === JSON.stringify(large1) ||
-        JSON.stringify(unique) === JSON.stringify(large2)) {
-        return { type: "LARGE STRAIGHT!!", multiplier: 3, intensity: 1.4 };
-    }
-
-    // Small straight
-    for (let i = 0; i <= unique.length - 4; i++) {
-        if (unique[i]+1 === unique[i+1] &&
-            unique[i]+2 === unique[i+2] &&
-            unique[i]+3 === unique[i+3]) {
-            return { type: "STRAIGHT!", multiplier: 2.5, intensity: 1.2 };
-        }
     }
 
     return null;
