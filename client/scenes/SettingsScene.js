@@ -44,29 +44,17 @@ export default class SettingsScene extends Phaser.Scene {
         });
 		
 		const musicText = this.add.text(
-    400, 260,
-    `Music: ${settings.music ? 'ON' : 'OFF'}`,
-    { fontSize: 32 }
-).setOrigin(0.5).setInteractive({ useHandCursor: true });
+            400, 260,
+            `Music: ${settings.music ? 'ON' : 'OFF'}`,
+            { fontSize: 32 }
+        )
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: true });
 
-musicText.on('pointerdown', () => {
-    if (GlobalAudio.settings.audio) {
-        GlobalAudio.playButton(this);
-    }
-
-    settings.music = !settings.music;
-    this.registry.set('settings', settings);
-
-    GlobalAudio.settings.music = settings.music;
-
-    if (!settings.music) {
-        GlobalAudio.stopMusic();
-    } else {
-        GlobalAudio.playMusic(this);
-    }
-
-    musicText.setText(`Music: ${settings.music ? 'ON' : 'OFF'}`);
-});
+        musicText.on('pointerdown', () => {
+            GlobalAudio.toggleMusic(this);
+            musicText.setText(`Music: ${settings.music ? 'ON' : 'OFF'}`);
+        });
 
         // ---------- BACK BUTTON ----------
         const backBtn = this.add.text(400, 360, 'Back', { fontSize: 28 })

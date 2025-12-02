@@ -7,45 +7,64 @@ import LocalConfigScene from './scenes/LocalConfigScene.js';
 import LocalGameScene from './scenes/LocalGameScene.js';
 import OnlineGameScene from './scenes/OnlineGameScene.js';
 
-export let GlobalAudio = {
-    settings: {
-        audio: true,
-        music: true
-    },
-
-    bgm: null,
-
-    playButton(scene) {
-        if (this.settings.audio) {
-            scene.sound.play('button', { volume: 0.5 });
-        }
-    },
-
-    playDice(scene) {
-        if (this.settings.audio) {
-            scene.sound.play('dice', { volume: 0.5 });
-        }
-    },
+export const GlobalAudio = {
+    music: null,
+    currentTrack: null,
+    tracks: ['hero_time', 'energy', 'powerhouse'],
 
     playMusic(scene) {
-        if (!this.settings.music) return;
+        const settings = scene.registry.get('settings') || { music: true };
+        if (!settings.music) return;
 
-        // Prevent double-playing
-        if (this.bgm && this.bgm.isPlaying) return;
+        // Already playing? Don't restart.
+        if (this.music && this.music.isPlaying) return;
 
-        this.bgm = scene.sound.add('music', {
-            volume: 0.4,
-            loop: true
+        // Pick a random track on fresh start
+        if (!this.currentTrack) {
+            const index = Math.floor(Math.random() * this.tracks.length);
+            this.currentTrack = this.tracks[index];
+        }
+
+        this.music = scene.sound.add(this.currentTrack, {
+            loop: true,
+            volume: 0.6
         });
 
-        this.bgm.play();
+        this.music.play();
     },
 
     stopMusic() {
-        if (this.bgm) {
-            this.bgm.stop();
-            this.bgm = null;
+        if (this.music) {
+            this.music.stop();
+            this.music = null;
         }
+    },
+
+    toggleMusic(scene) {
+        const settings = scene.registry.get('settings');
+
+        settings.music = !settings.music;
+        scene.registry.set('settings', settings);
+
+        if (settings.music) {
+            this.playMusic(scene);
+        } else {
+            this.stopMusic();
+        }
+    },
+
+    playButton(scene) {
+        const settings = scene.registry.get('settings');
+        if (!settings.audio) return;
+
+        scene.sound.play('button', { volume: 0.5 });
+    }
+	
+	playDice(scene) {
+        const settings = scene.registry.get('settings');
+        if (!settings.audio) return;
+
+        scene.sound.play('dice', { volume: 0.5 });
     }
 };
 
