@@ -47,7 +47,6 @@ export default class LocalGameScene extends Phaser.Scene {
         }).setOrigin(0.5).setInteractive();
 
         this.rollBtn.on('pointerdown', () => {
-            GlobalAudio.playButton(this);
             this.playRound();
         });
 

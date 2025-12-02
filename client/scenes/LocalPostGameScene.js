@@ -1,3 +1,5 @@
+import { GlobalAudio } from '../main.js';
+
 export default class LocalPostGameScene extends Phaser.Scene {
     constructor() {
         super('LocalPostGameScene');
@@ -42,6 +44,7 @@ Straights: ${c.straight}
         }).setOrigin(0.5).setInteractive();
 
         back.on("pointerdown", () => {
+			GlobalAudio.playButton(this);
             this.scene.start('MenuScene');
         });
     }
