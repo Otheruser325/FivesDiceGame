@@ -5,6 +5,7 @@ import HelpScene from './scenes/HelpScene.js';
 import PlayModeScene from './scenes/PlayModeScene.js';
 import LocalConfigScene from './scenes/LocalConfigScene.js';
 import LocalGameScene from './scenes/LocalGameScene.js';
+import LocalPostGameScene from './scenes/LocalGameScene.js';
 import OnlineGameScene from './scenes/OnlineGameScene.js';
 
 export const GlobalAudio = {
@@ -83,6 +84,7 @@ const config = {
         PlayModeScene,
         LocalConfigScene,
         LocalGameScene,
+		LocalPostGameScene,
         OnlineGameScene,
     ]
 };

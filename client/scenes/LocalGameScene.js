@@ -1,4 +1,5 @@
 import { GlobalAudio } from '../main.js';
+import { checkCombo, showComboText } from '../utils/ComboManager.js';
 
 export default class LocalGameScene extends Phaser.Scene {
     constructor() {
@@ -18,6 +19,16 @@ export default class LocalGameScene extends Phaser.Scene {
 
         // Player 0 = you
         this.scores = Array(this.totalPlayers).fill(0);
+		
+		this.comboStats = Array(this.totalPlayers).fill(null).map(() => ({
+            pair: 0,
+            triple: 0,
+            fullHouse: 0,
+            fourKind: 0,
+            fiveKind: 0,
+            smStraight: 0,
+			lgStraight: 0,
+        }));
     }
 
     create() {
@@ -57,6 +68,28 @@ export default class LocalGameScene extends Phaser.Scene {
 
             const base = dice.reduce((a,b) => a + b, 0);
             const scored = this.applyBonus(dice, base);
+			const combo = checkCombo(dice);
+			
+			if (combo) {
+                const statName =
+                    combo.type.includes("PAIR!") ? "pair" :
+                    combo.type.includes("TRIPLE!") ? "triple" :
+                    combo.type.includes("FULL HOUSE!!!") ? "fullHouse" :
+                    combo.type.includes("FOUR OF A KIND!!!!") ? "fourKind" :
+                    combo.type.includes("FIVE OF A KIND?!!?!") ? "fiveKind" :
+                    combo.type.includes("STRAIGHT!") ? "smStraight" : null;
+					combo.type.includes("LARGE STRAIGHT!!") ? "lgStraight" : null;
+
+                if (statName) {
+                    this.comboStats[p][statName]++;
+                }
+            }
+			
+			if (p === 0) {
+                showComboText.call(this, combo.type, combo.intensity);
+            }
+
+            scored = base * combo.multiplier;
 
             this.scores[p] += scored;
         }
@@ -83,47 +116,16 @@ export default class LocalGameScene extends Phaser.Scene {
         }
     }
 
-    applyBonus(dice, score) {
-        if (!this.comboRules) return score;
+    applyBonus(dice, baseScore) {
+        if (!this.comboRules) return baseScore;
 
-        const counts = {};
-        dice.forEach(n => counts[n] = (counts[n] || 0) + 1);
+        let score = baseScore;
 
-        const values = Object.values(counts);
+        // ==== COMBO MANAGER CHECK ====
+        const combo = checkCombo(dice);
 
-        // 5-of-a-kind
-        if (values.includes(5)) score *= 10;
-
-        // 4-of-a-kind
-        else if (values.includes(4)) score *= 4;
-
-        // 3-of-a-kind
-        else if (values.includes(3)) score *= 2;
-
-        // Pair
-        else if (values.includes(2)) score *= 1.5;
-
-        // Straights
-        const sorted = [...dice].sort((a,b)=>a-b);
-
-        // Large straight (5-in-a-row)
-        const large1 = [1,2,3,4,5];
-        const large2 = [2,3,4,5,6];
-
-        if (JSON.stringify(sorted) === JSON.stringify(large1) ||
-            JSON.stringify(sorted) === JSON.stringify(large2)) {
-            score *= 3;
-        }
-
-        // Small straight (any 4-in-a-row)
-        const unique = [...new Set(sorted)];
-        for (let i = 0; i <= unique.length - 4; i++) {
-            if (unique[i]+1 === unique[i+1] &&
-                unique[i]+2 === unique[i+2] &&
-                unique[i]+3 === unique[i+3]) {
-                score *= 2.5;
-                break;
-            }
+        if (combo) {
+            score = baseScore * combo.multiplier;
         }
 
         return Math.floor(score);
@@ -156,6 +158,15 @@ export default class LocalGameScene extends Phaser.Scene {
         this.rollBtn.disableInteractive();
 
         this.exitLocked = true;
+		
+		this.registry.set("localPostGame", {
+            players: this.totalPlayers,
+            scores: this.scores,
+            combos: this.comboStats,
+            rounds: this.totalRounds,
+        });
+		
+		this.scene.start('LocalPostGameScene');
     }
 
     addBackButton() {
