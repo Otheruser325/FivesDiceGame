@@ -3,7 +3,10 @@ export default class BootScene extends Phaser.Scene {
         super('BootScene');
     }
 
-    preload() {}
+    preload() {
+        this.load.audio('button', '../assets/audio/button.mp3');
+        this.load.audio('dice', '../assets/audio/dice.mp3');
+    }
 
     create() {
 		GlobalAudio.settings = {
