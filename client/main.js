@@ -47,13 +47,13 @@ export const GlobalAudio = {
         } else {
             this.stopMusic();
         }
-    }
+    },
 
     playButton(scene) {
         const settings = this.getSettings(scene);
         if (!settings.audio) return;
         scene.sound.play('button', { volume: 0.5 });
-    }
+    },
 	
 	playDice(scene) {
         const settings = this.getSettings(scene);
