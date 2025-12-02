@@ -17,12 +17,12 @@ const config = {
     scene: [
         SplashScene,
         BootScene,
+		SettingsScene,
         MenuScene,
         PlayModeScene,
 		LocalConfigScene,
         LocalGameScene,
         OnlineGameScene,
-        SettingsScene,
         HelpScene
     ]
 };

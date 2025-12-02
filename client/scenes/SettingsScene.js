@@ -7,8 +7,12 @@ export default class SettingsScene extends Phaser.Scene {
 
     create() {
         this.add.text(400, 80, 'Settings', { fontSize: 48 }).setOrigin(0.5);
-
-        const settings = this.registry.get('settings');
+		
+        let settings = this.registry.get('settings') || {
+            audio: true,
+            music: true,
+            comboRules: false
+        };
 
         // Audio toggle
         const audioText = this.add.text(
@@ -21,7 +25,7 @@ export default class SettingsScene extends Phaser.Scene {
             playButtonSFX(this);
             settings.audio = !settings.audio;
             this.registry.set('settings', settings);
-            sfxText.setText(`Sound Effects: ${settings.audio ? 'ON' : 'OFF'}`);
+            audioText.setText(`Sound Effects: ${settings.audio ? 'ON' : 'OFF'}`);
         });
 
         // Back
