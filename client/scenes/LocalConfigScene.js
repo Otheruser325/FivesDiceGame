@@ -108,11 +108,11 @@ for (let i = 0; i < this.selectedPlayers; i++) {
         // Additional Rules
         // --------------------------------------
 
-        this.add.text(400, 580, 'Additional rules:', {
+        this.add.text(400, 620, 'Additional rules:', {
             fontSize: 26
         }).setOrigin(0.5);
 
-        this.comboBtn = this.add.text(400, 620,
+        this.comboBtn = this.add.text(400, 660,
             `More points for combos: ${this.comboRules ? "YES" : "NO"}`,
             { fontSize: 24 }
         ).setOrigin(0.5).setInteractive();
@@ -129,7 +129,7 @@ for (let i = 0; i < this.selectedPlayers; i++) {
         // Continue Button
         // --------------------------------------
 
-        const startBtn = this.add.text(400, 700, 'Start Game', {
+        const startBtn = this.add.text(400, 720, 'Start Game', {
             fontSize: 32,
             color: '#66ff66'
         }).setOrigin(0.5).setInteractive();
@@ -146,7 +146,7 @@ for (let i = 0; i < this.selectedPlayers; i++) {
         });
 		
 		// Back button
-        const backBtn = this.add.text(50, 750, 'Back', { fontSize: 24 })
+        const backBtn = this.add.text(50, 50, 'Back', { fontSize: 24 })
             .setOrigin(0.5)
             .setInteractive();
 
