@@ -31,7 +31,7 @@ export const GlobalAudio = {
 	saveSettings(scene) {
         const settings = scene.registry.get('settings');
         localStorage.setItem('fives_settings', JSON.stringify(settings));
-    }
+    },
 
     // ------------ CORE MUSIC PLAYBACK ------------
     playMusic(scene) {
