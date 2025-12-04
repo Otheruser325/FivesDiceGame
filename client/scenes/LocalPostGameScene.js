@@ -118,8 +118,8 @@ Five-of-a-Kinds: ${c.fiveKind}
 Straights: ${c.straight}`;
 
             const spacing = {
-                titleToStats: statSize * 3.5,
-                statsToBuzz: buzzSize * 4,
+                titleToStats: statSize * 4,
+                statsToBuzz: buzzSize * 4.5,
             };
 
             // Title (larger + coloured)
