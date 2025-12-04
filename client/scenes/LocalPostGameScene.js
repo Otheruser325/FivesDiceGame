@@ -66,10 +66,10 @@ export default class LocalPostGameScene extends Phaser.Scene {
             titleSize *= 1.5;
             statSize *= 1.5;
             buzzSize *= 1.5;
-            colX = [400, 700];
+            colX = [300, 700];
         }
 		else if (totalPlayers === 4) {
-            colX = [400, 700];
+            colX = [300, 700];
         }
         else {
             colX = [200, 500, 800];
@@ -84,7 +84,7 @@ export default class LocalPostGameScene extends Phaser.Scene {
             let row, col, x, y;
 			
 			if (totalPlayers === 2) {
-                row = 0;
+                row = 60;
                 col = i;
                 x = colX[col];
                 y = startY;
