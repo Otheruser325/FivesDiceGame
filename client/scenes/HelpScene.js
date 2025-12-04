@@ -6,8 +6,8 @@ export default class HelpScene extends Phaser.Scene {
     }
 
     create() {
-
-        // --- Title ---
+        this.popupOpen = false;
+		
         this.add.text(400, 70, 'Help', {
             fontSize: '52px',
             color: '#ffffff'
@@ -18,8 +18,6 @@ export default class HelpScene extends Phaser.Scene {
             color: '#ffff66'
         }).setOrigin(0.5);
 
-
-        // --- Main Help Text ---
         const helpText =
             "Fives is a simple but strategic dice game.\n\n" +
             "• You and your opponent each roll five dice per round.\n" +
@@ -40,10 +38,6 @@ export default class HelpScene extends Phaser.Scene {
             wordWrap: { width: 620 }
         }).setOrigin(0.5);
 
-
-        // ===================================================
-        // 🎛 COMBO HELP BUTTON (top-right)
-        // ===================================================
         const comboBtn = this.add.text(750, 40, 'Combo Rules', {
             fontSize: '22px',
             color: '#ffdd66'
@@ -58,7 +52,6 @@ export default class HelpScene extends Phaser.Scene {
             this.showComboPopup();
         });
 
-        // --- Back button ---
         const backBtn = this.add.text(400, 650, 'Back', {
             fontSize: 28,
             color: '#66aaff'
@@ -74,11 +67,12 @@ export default class HelpScene extends Phaser.Scene {
         });
     }
 
-
-    // ===================================================
-    // 📌 POP-UP WINDOW FOR COMBO RULES
-    // ===================================================
     showComboPopup() {
+		this.popupOpen = true;
+		
+		this.backBtn.disableInteractive();
+        if (this.comboBtn) this.comboBtn.disableInteractive();
+		
         const bg = this.add.rectangle(400, 300, 600, 380, 0x000000, 0.75)
             .setStrokeStyle(3, 0xffffff);
 
@@ -122,6 +116,10 @@ export default class HelpScene extends Phaser.Scene {
             title.destroy();
             rulesText.destroy();
             closeBtn.destroy();
+			
+			this.popupOpen = false;
+            this.backBtn.setInteractive();
+            if (this.comboBtn) this.comboBtn.setInteractive();
         });
     }
 }
