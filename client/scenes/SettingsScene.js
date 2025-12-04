@@ -68,6 +68,7 @@ export default class SettingsScene extends Phaser.Scene {
             if (GlobalAudio) GlobalAudio.playButton(this);
             this.showJukeboxPopup(jukeboxBtn);
         });
+		
         // ---------- BACK BUTTON ----------
         const backBtn = this.add.text(400, 360, 'Back', {
                 fontSize: 28
