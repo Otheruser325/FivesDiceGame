@@ -84,10 +84,10 @@ export default class LocalPostGameScene extends Phaser.Scene {
             let row, col, x, y;
 			
 			if (totalPlayers === 2) {
-                row = 60;
+                row = 1;
                 col = i;
                 x = colX[col];
-                y = startY;
+                y = startY + row * 260;
             } else if (totalPlayers === 4) {
                 row = Math.floor(i / 2);
                 col = i % 2;
