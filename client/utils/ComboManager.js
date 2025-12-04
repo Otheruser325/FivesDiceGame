@@ -67,7 +67,7 @@ export function checkCombo(values) {
 
     if (JSON.stringify(unique) === JSON.stringify(large1) ||
         JSON.stringify(unique) === JSON.stringify(large2)) {
-        return { type: "STRAIGHT!", multiplier: 3, intensity: 1.4 };
+        return { type: "STRAIGHT!", key: "straight", multiplier: 3, intensity: 1.4 };
     }
 
     // ----- SMALL STRAIGHT (4-in-a-row inside unique values) -----
@@ -76,40 +76,40 @@ export function checkCombo(values) {
             if (unique[i] + 1 === unique[i + 1] &&
                 unique[i] + 2 === unique[i + 2] &&
                 unique[i] + 3 === unique[i + 3]) {
-                return { type: "STRAIGHT!", multiplier: 2.5, intensity: 1.2 };
+                return { type: "STRAIGHT!", key: "straight", multiplier: 2.5, intensity: 1.2 };
             }
         }
     }
 
     // ----- FIVE OF A KIND -----
     if (occurrences.includes(5)) {
-        return { type: "FIVE OF A KIND?!!?!", multiplier: 10, intensity: 1.8 };
+        return { type: "FIVE OF A KIND?!!?!", key: "fiveKind", multiplier: 10, intensity: 1.8 };
     }
 
     // ----- FOUR OF A KIND -----
     if (occurrences.includes(4)) {
-        return { type: "FOUR OF A KIND!!!!", multiplier: 5, intensity: 1.5 };
+        return { type: "FOUR OF A KIND!!!!", key: "fourKind", multiplier: 5, intensity: 1.5 };
     }
 
     // ----- FULL HOUSE -----
     if (occurrences.includes(3) && occurrences.includes(2)) {
-        return { type: "FULL HOUSE!!!", multiplier: 4, intensity: 1.4 };
+        return { type: "FULL HOUSE!!!", key: "fullHouse", multiplier: 4, intensity: 1.4 };
     }
 
     // ----- THREE OF A KIND -----
     if (occurrences.includes(3)) {
-        return { type: "TRIPLE!", multiplier: 3, intensity: 1.2 };
+        return { type: "TRIPLE!", key: "triple", multiplier: 3, intensity: 1.2 };
     }
 	
 	// ----- TWO PAIR -----
     const pairs = occurrences.filter(c => c === 2).length;
     if (pairs === 2) {
-        return { type: "TWO PAIR!", multiplier: 2, intensity: 1.1 };
+        return { type: "TWO PAIR!", key: "twoPair", multiplier: 2, intensity: 1.1 };
     }
 
     // ----- PAIR -----
     if (occurrences.includes(2)) {
-        return { type: "PAIR!", multiplier: 1.5, intensity: 1 };
+        return { type: "PAIR!", key: "pair", multiplier: 1.5, intensity: 1 };
     }
 
     return null;

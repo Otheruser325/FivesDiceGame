@@ -92,18 +92,8 @@ export default class LocalGameScene extends Phaser.Scene {
 		let scored = this.applyBonus(dice, base);
 			
 		if (combo) {
-            let statName =
-                combo.type.includes("PAIR!") ? "pair" :
-			    combo.type.includes("TWO PAIR!") ? "twoPair" :
-                combo.type.includes("TRIPLE!") ? "triple" :
-                combo.type.includes("FULL HOUSE!!!") ? "fullHouse" :
-                combo.type.includes("FOUR OF A KIND!!!!") ? "fourKind" :
-                combo.type.includes("FIVE OF A KIND?!!?!") ? "fiveKind" :
-                combo.type.includes("STRAIGHT!") ? "straight" :
-                null;
-
-            if (statName) {
-                this.comboStats[this.currentPlayer][statName]++;
+            if (combo.key) {
+                this.comboStats[this.currentPlayer][combo.key]++;
             }
 			
 			if (!this.isAI[this.currentPlayer] && this.comboRules) {
