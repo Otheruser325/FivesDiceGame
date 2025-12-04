@@ -16,6 +16,11 @@ export default class LocalGameScene extends Phaser.Scene {
         this.comboRules = settings.comboRules ?? false;
 
         this.currentRound = 1;
+		this.playerNames = data.names;
+        this.isAI = data.ai;
+
+        this.currentPlayer = 0;
+        this.waitingForRoll = true;
 
         // Player 0 = you
         this.scores = Array(this.totalPlayers).fill(0);
@@ -47,71 +52,96 @@ export default class LocalGameScene extends Phaser.Scene {
         }).setOrigin(0.5).setInteractive();
 
         this.rollBtn.on('pointerdown', () => {
-            this.playRound();
+            if (this.isAI[this.currentPlayer]) return;
+            this.processTurn();
         });
 
         this.addBackButton();
+		this.startTurn();
+    }
+	
+	startTurn() {
+
+    const isBot = this.isAI[this.currentPlayer];
+    const name = this.playerNames[this.currentPlayer];
+
+    this.info.setText(`${name}'s turn`);
+
+    if (!isBot) {
+        // Human: waits for "Roll Dice"
+        this.rollBtn.setInteractive();
+        return;
     }
 
-    playRound() {
+    // AI rolls automatically after 1 second
+    this.rollBtn.disableInteractive();
+    this.time.delayedCall(1000, () => {
+        this.processTurn();
+    });
+}
+
+    processTurn() {
         GlobalAudio.playDice(this);
 
         const roll = () => Math.ceil(Math.random() * 6);
-
-        const rollsByPlayer = [];
-
-        // Roll dice for each player
-        for (let p = 0; p < this.totalPlayers; p++) {
-            const dice = [roll(), roll(), roll(), roll(), roll()];
-            rollsByPlayer.push(dice);
-
-            const base = dice.reduce((a,b) => a + b, 0);
-            let scored = this.applyBonus(dice, base);
-			const combo = checkCombo(dice);
+		
+		const dice = [roll(), roll(), roll(), roll(), roll()];
+		
+		const base = dice.reduce((a,b) => a + b, 0);
+		const combo = checkCombo(dice);
+		let scored = this.applyBonus(dice, base);
 			
-			if (combo) {
-                let statName =
-                    combo.type.includes("PAIR!") ? "pair" :
-					combo.type.includes("TWO PAIR!") ? "twoPair" :
-                    combo.type.includes("TRIPLE!") ? "triple" :
-                    combo.type.includes("FULL HOUSE!!!") ? "fullHouse" :
-                    combo.type.includes("FOUR OF A KIND!!!!") ? "fourKind" :
-                    combo.type.includes("FIVE OF A KIND?!!?!") ? "fiveKind" :
-                    combo.type.includes("STRAIGHT!") ? "straight" :
-                    null;
+		if (combo) {
+            let statName =
+                combo.type.includes("PAIR!") ? "pair" :
+			    combo.type.includes("TWO PAIR!") ? "twoPair" :
+                combo.type.includes("TRIPLE!") ? "triple" :
+                combo.type.includes("FULL HOUSE!!!") ? "fullHouse" :
+                combo.type.includes("FOUR OF A KIND!!!!") ? "fourKind" :
+                combo.type.includes("FIVE OF A KIND?!!?!") ? "fiveKind" :
+                combo.type.includes("STRAIGHT!") ? "straight" :
+                null;
 
-                if (statName) {
-                    this.comboStats[p][statName]++;
-                }
+            if (statName) {
+                this.comboStats[this.currentPlayer][statName]++;
             }
 			
-			if (p === 0 && combo && this.comboRules) {
-                showComboText.call(this, combo.type, combo.intensity);
+			if (!this.isAI[this.currentPlayer] && this.comboRules) {
+                showComboText.call(this, comboInfo.type, comboInfo.intensity);
+            }
+        }
+
+        this.scores[this.currentPlayer] += scored;
+        
+
+        // Display the result
+        this.info.setText(
+            `${this.playerNames[this.currentPlayer]} rolled:\n${dice.join(", ")}`
+        );
+
+        // Switch player after 3 seconds
+        this.time.delayedCall(3000, () => {
+            this.nextPlayer();
+        });
+    }
+	
+	nextPlayer() {
+        this.currentPlayer++;
+
+        // Next round
+        if (this.currentPlayer >= this.totalPlayers) {
+            this.currentPlayer = 0;
+            this.currentRound++;
+
+            if (this.currentRound > this.totalRounds) {
+                this.endGame();
+                return;
             }
 
-            this.scores[p] += scored;
-        }
-
-        // Build output log
-        let msg = "";
-
-        // You
-        msg += `You rolled: ${rollsByPlayer[0].join(', ')}\n`;
-
-        // Opponents
-        for (let i = 1; i < this.totalPlayers; i++) {
-            msg += `Bot ${i} rolled: ${rollsByPlayer[i].join(', ')}\n`;
-        }
-
-        this.info.setText(msg);
-
-        this.currentRound++;
-
-        if (this.currentRound > this.totalRounds) {
-            this.endGame();
-        } else {
             this.updateRoundTitle();
         }
+
+        this.startTurn();
     }
 
     applyBonus(dice, baseScore) {
@@ -162,6 +192,7 @@ export default class LocalGameScene extends Phaser.Scene {
             scores: this.scores,
             combos: this.comboStats,
             rounds: this.totalRounds,
+			names: this.playerNames,
         });
 		
 		this.scene.start('LocalPostGameScene');

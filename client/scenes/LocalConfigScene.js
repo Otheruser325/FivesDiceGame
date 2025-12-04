@@ -7,6 +7,8 @@ export default class LocalConfigScene extends Phaser.Scene {
         this.selectedPlayers = 2;
         this.selectedRounds = 20;
         this.comboRules = false;
+		this.playerNames = ["You", "Player 2", "Player 3", "Player 4", "Player 5", "Player 6"];
+        this.isAI = [false, true, true, true, true, true];
     }
 
     create() {
@@ -20,7 +22,7 @@ export default class LocalConfigScene extends Phaser.Scene {
 
         this.add.text(400, 120, 'How many players?', { fontSize: 28 }).setOrigin(0.5);
 
-        const playerOptions = [2, 3, 4];
+        const playerOptions = [2, 3, 4, 5, 6];
         playerOptions.forEach((num, i) => {
             const btn = this.add.text(400, 160 + i * 40, `${num}`, {
                 fontSize: 26,
@@ -32,6 +34,53 @@ export default class LocalConfigScene extends Phaser.Scene {
                 this.refreshScene();
             });
         });
+		
+		this.add.text(400, 260, "Players:", { fontSize: 28 }).setOrigin(0.5);
+
+for (let i = 0; i < this.selectedPlayers; i++) {
+
+    const y = 300 + i * 60;
+
+    // Player label
+    this.add.text(140, y, `Player ${i + 1}`, { fontSize: 24 }).setOrigin(0.5);
+
+    // Name box
+    const nameText = this.add.text(350, y, this.playerNames[i], {
+        fontSize: 24,
+        backgroundColor: "#222222",
+        padding: { x: 10, y: 4 }
+    })
+        .setOrigin(0.5)
+        .setInteractive();
+
+    nameText.on("pointerdown", () => {
+        const newName = prompt(`Enter name for Player ${i + 1}:`, this.playerNames[i]);
+        if (newName) {
+            this.playerNames[i] = newName.substring(0, 12);
+            this.refreshScene();
+        }
+    });
+
+    // AI toggle (disabled for Player 1)
+    if (i > 0) {
+        const toggle = this.add.text(550, y,
+            this.isAI[i] ? "Computer" : "Human",
+            {
+                fontSize: 24,
+                color: this.isAI[i] ? "#66ff66" : "#ffffff"
+            }
+        )
+            .setOrigin(0.5)
+            .setInteractive();
+
+        toggle.on("pointerdown", () => {
+            this.isAI[i] = !this.isAI[i];
+            this.refreshScene();
+        });
+    } else {
+        this.add.text(550, y, "Human", { fontSize: 24, color: "#999999" }).setOrigin(0.5);
+    }
+}
 
         // --------------------------------------
         // Rounds
@@ -86,13 +135,13 @@ export default class LocalConfigScene extends Phaser.Scene {
         }).setOrigin(0.5).setInteractive();
 
         startBtn.on('pointerdown', () => {
-			if (GlobalAudio && GlobalAudio.playButton) {
-                GlobalAudio.playButton(this);
-            }
+			GlobalAudio.playButton(this);
             this.scene.start('LocalGameScene', {
                 players: this.selectedPlayers,
                 rounds: this.selectedRounds,
-                combos: this.comboRules
+                combos: this.comboRules,
+				names: this.playerNames.slice(0, this.selectedPlayers),
+                ai: this.isAI.slice(0, this.selectedPlayers)
             });
         });
 		
@@ -102,9 +151,7 @@ export default class LocalConfigScene extends Phaser.Scene {
             .setInteractive();
 
         backBtn.on('pointerdown', () => {
-            if (GlobalAudio && GlobalAudio.playButton) {
-                GlobalAudio.playButton(this);
-            }
+            GlobalAudio.playButton(this);
             this.scene.start('PlayModeScene');
         });
     }

@@ -61,13 +61,13 @@ export default class LocalPostGameScene extends Phaser.Scene {
 
         for (let i = 0; i < stats.players; i++) {
             const c = stats.combos[i];
-            const name = i === 0 ? "You" : `Bot ${i}`;
+            const name = stats.names[i];
             const score = stats.scores[i];
             const placement = placements[i];
 
             // Determine X,Y positioning
-            const row = Math.floor(i / 2);
-            const col = i % 2;
+            const row = Math.floor(i / 3);
+            const col = i % 3;
             const x = stats.players > 1 ? colX[col] : 400;
             const y = startY + row * 220;
 
@@ -114,7 +114,7 @@ Straights: ${c.straight}`;
         }
 
         // -------- Back Button --------
-        const back = this.add.text(750, 600, "Return to Menu", {
+        const back = this.add.text(600, 900, "Return to Menu", {
             fontSize: 26,
             color: "#ff6666"
         }).setOrigin(0.5).setInteractive();
