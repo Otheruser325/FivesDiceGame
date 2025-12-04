@@ -56,7 +56,7 @@ export default class LocalPostGameScene extends Phaser.Scene {
 
         // -------- Display Stats --------
         let startY = 140;
-        const colX = [250, 550]; // Left + right columns
+        const colX = [400, 700]; // Left + right columns
         const columnWidth = 300;
 
         for (let i = 0; i < stats.players; i++) {
@@ -69,7 +69,7 @@ export default class LocalPostGameScene extends Phaser.Scene {
             const row = Math.floor(i / 3);
             const col = i % 3;
             const x = stats.players > 1 ? colX[col] : 400;
-            const y = startY + row * 220;
+            const y = startY + row * 260;
 
             // Select buzzword (random)
             const pool = buzzwords[placement] || buzzwords.other;
