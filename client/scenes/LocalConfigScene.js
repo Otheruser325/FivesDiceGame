@@ -35,17 +35,17 @@ export default class LocalConfigScene extends Phaser.Scene {
             });
         });
 		
-		this.add.text(700, 180, "Players:", { fontSize: 28 }).setOrigin(0.5);
+		this.add.text(900, 170, "Players:", { fontSize: 28 }).setOrigin(0.5);
 
 for (let i = 0; i < this.selectedPlayers; i++) {
 
-    const y = 600 + i * 60;
+    const y = 200 + i * 60;
 
     // Player label
-    this.add.text(140, y, `Player ${i + 1}`, { fontSize: 24 }).setOrigin(0.5);
+    this.add.text(720, y, `Player ${i + 1}`, { fontSize: 24 }).setOrigin(0.5);
 
     // Name box
-    const nameText = this.add.text(650, y, this.playerNames[i], {
+    const nameText = this.add.text(750, y, this.playerNames[i], {
         fontSize: 24,
         backgroundColor: "#222222",
         padding: { x: 10, y: 4 }
@@ -63,7 +63,7 @@ for (let i = 0; i < this.selectedPlayers; i++) {
 
     // AI toggle (disabled for Player 1)
     if (i > 0) {
-        const toggle = this.add.text(850, y,
+        const toggle = this.add.text(950, y,
             this.isAI[i] ? "Computer" : "Human",
             {
                 fontSize: 24,
@@ -78,7 +78,7 @@ for (let i = 0; i < this.selectedPlayers; i++) {
             this.refreshScene();
         });
     } else {
-        this.add.text(850, y, "Human", { fontSize: 24, color: "#999999" }).setOrigin(0.5);
+        this.add.text(950, y, "Human", { fontSize: 24, color: "#999999" }).setOrigin(0.5);
     }
 }
 
