@@ -69,7 +69,7 @@ export default class SettingsScene extends Phaser.Scene {
 
         this.jukeboxBtn.on('pointerdown', () => {
             if (GlobalAudio) GlobalAudio.playButton(this);
-            this.showJukeboxPopup(this.jukeboxBtn);
+            this.showJukeboxPopup();
         });
 		
         // ---------- BACK BUTTON ----------
@@ -87,7 +87,7 @@ export default class SettingsScene extends Phaser.Scene {
         });
     }
 
-    showJukeboxPopup(this.jukeboxBtn) {
+    showJukeboxPopup() {
         // ---- LOCK UI ----
 		this.audioText.disableInteractive()
 		this.musicText.disableInteractive()
