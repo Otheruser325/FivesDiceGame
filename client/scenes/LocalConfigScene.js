@@ -35,17 +35,17 @@ export default class LocalConfigScene extends Phaser.Scene {
             });
         });
 		
-		this.add.text(400, 260, "Players:", { fontSize: 28 }).setOrigin(0.5);
+		this.add.text(700, 180, "Players:", { fontSize: 28 }).setOrigin(0.5);
 
 for (let i = 0; i < this.selectedPlayers; i++) {
 
-    const y = 300 + i * 60;
+    const y = 600 + i * 60;
 
     // Player label
     this.add.text(140, y, `Player ${i + 1}`, { fontSize: 24 }).setOrigin(0.5);
 
     // Name box
-    const nameText = this.add.text(350, y, this.playerNames[i], {
+    const nameText = this.add.text(650, y, this.playerNames[i], {
         fontSize: 24,
         backgroundColor: "#222222",
         padding: { x: 10, y: 4 }
@@ -63,7 +63,7 @@ for (let i = 0; i < this.selectedPlayers; i++) {
 
     // AI toggle (disabled for Player 1)
     if (i > 0) {
-        const toggle = this.add.text(550, y,
+        const toggle = this.add.text(850, y,
             this.isAI[i] ? "Computer" : "Human",
             {
                 fontSize: 24,
@@ -78,7 +78,7 @@ for (let i = 0; i < this.selectedPlayers; i++) {
             this.refreshScene();
         });
     } else {
-        this.add.text(550, y, "Human", { fontSize: 24, color: "#999999" }).setOrigin(0.5);
+        this.add.text(850, y, "Human", { fontSize: 24, color: "#999999" }).setOrigin(0.5);
     }
 }
 
@@ -86,14 +86,14 @@ for (let i = 0; i < this.selectedPlayers; i++) {
         // Rounds
         // --------------------------------------
 
-        this.add.text(400, 300, 'How long will the game last?', {
+        this.add.text(400, 360, 'How long will the game last?', {
             fontSize: 28
         }).setOrigin(0.5);
 
         const roundOptions = [10, 15, 20, 25, 30];
 
         roundOptions.forEach((r, i) => {
-            const btn = this.add.text(400, 340 + i * 40, `${r} rounds`, {
+            const btn = this.add.text(400, 400 + i * 40, `${r} rounds`, {
                 fontSize: 24,
                 color: r === this.selectedRounds ? '#ffff66' : '#ffffff'
             }).setOrigin(0.5).setInteractive();
@@ -108,11 +108,11 @@ for (let i = 0; i < this.selectedPlayers; i++) {
         // Additional Rules
         // --------------------------------------
 
-        this.add.text(400, 540, 'Additional rules:', {
+        this.add.text(400, 580, 'Additional rules:', {
             fontSize: 26
         }).setOrigin(0.5);
 
-        this.comboBtn = this.add.text(400, 580,
+        this.comboBtn = this.add.text(400, 620,
             `More points for combos: ${this.comboRules ? "YES" : "NO"}`,
             { fontSize: 24 }
         ).setOrigin(0.5).setInteractive();
@@ -129,7 +129,7 @@ for (let i = 0; i < this.selectedPlayers; i++) {
         // Continue Button
         // --------------------------------------
 
-        const startBtn = this.add.text(400, 640, 'Start Game', {
+        const startBtn = this.add.text(400, 700, 'Start Game', {
             fontSize: 32,
             color: '#66ff66'
         }).setOrigin(0.5).setInteractive();
@@ -146,7 +146,7 @@ for (let i = 0; i < this.selectedPlayers; i++) {
         });
 		
 		// Back button
-        const backBtn = this.add.text(50, 650, 'Back', { fontSize: 24 })
+        const backBtn = this.add.text(50, 750, 'Back', { fontSize: 24 })
             .setOrigin(0.5)
             .setInteractive();
 
