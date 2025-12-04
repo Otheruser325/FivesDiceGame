@@ -27,11 +27,13 @@ export default class SettingsScene extends Phaser.Scene {
 
         this.audioText.on('pointerdown', () => {
             if (GlobalAudio) GlobalAudio.playButton(this);
-
+			
             settings.audio = !settings.audio;
-            this.registry.set('settings', settings); // SAVE
-
-            audioText.setText(`Sound Effects: ${settings.audio ? 'ON' : 'OFF'}`);
+            this.registry.set('settings', settings);
+				
+            this.audioText.setText(`Sound Effects: ${settings.audio ? 'ON' : 'OFF'}`);
+			
+			if (GlobalAudio) GlobalAudio.saveSettings(this);
         });
 
         // ---------- MUSIC TOGGLE ----------
@@ -49,9 +51,10 @@ export default class SettingsScene extends Phaser.Scene {
         this.musicText.on('pointerdown', () => {
             if (GlobalAudio) GlobalAudio.playButton(this);
             if (GlobalAudio) GlobalAudio.toggleMusic(this);
-
-            const newSettings = GlobalAudio.getSettings(this);
-            musicText.setText(`Music: ${newSettings.music ? 'ON' : 'OFF'}`);
+				
+            this.musicText.setText(`Music: ${settings.music ? 'ON' : 'OFF'}`);
+			
+			if (GlobalAudio) GlobalAudio.saveSettings(this);
         });
 
         // ---------- JUKEBOX HEADER ----------
@@ -66,7 +69,7 @@ export default class SettingsScene extends Phaser.Scene {
 
         this.jukeboxBtn.on('pointerdown', () => {
             if (GlobalAudio) GlobalAudio.playButton(this);
-            this.showJukeboxPopup(jukeboxBtn);
+            this.showJukeboxPopup(this.jukeboxBtn);
         });
 		
         // ---------- BACK BUTTON ----------
@@ -84,7 +87,7 @@ export default class SettingsScene extends Phaser.Scene {
         });
     }
 
-    showJukeboxPopup(jukeboxBtn) {
+    showJukeboxPopup(this.jukeboxBtn) {
         // ---- LOCK UI ----
 		this.audioText.disableInteractive()
 		this.musicText.disableInteractive()

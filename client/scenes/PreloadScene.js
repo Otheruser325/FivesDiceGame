@@ -34,10 +34,20 @@ export default class PreloadScene extends Phaser.Scene {
     }
 
     create() {
-        this.registry.set('settings', {
+        const saved = JSON.parse(localStorage.getItem('fives_settings')) || {};
+
+        const defaults = {
             audio: true,
-            music: true
-        });
+            music: true,
+            comboRules: false,
+            trackIndex: 0
+        };
+
+        // Merge saved overrides
+        const finalSettings = { ...defaults, ...saved };
+
+        // Store in registry
+        this.registry.set('settings', finalSettings);
 
         this.time.delayedCall(5000, () => {
             this.scene.start('MenuScene');

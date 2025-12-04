@@ -27,6 +27,11 @@ export const GlobalAudio = {
         }
         return settings;
     },
+	
+	saveSettings(scene) {
+        const settings = scene.registry.get('settings');
+        localStorage.setItem('fives_settings', JSON.stringify(settings));
+    }
 
     // ------------ CORE MUSIC PLAYBACK ------------
     playMusic(scene) {
@@ -40,6 +45,16 @@ export const GlobalAudio = {
         if (this.music && this.music.isPlaying) return;
 
         const trackKey = this.tracks[this.currentTrack];
+		
+		// Failsafe: prevent crash if index invalid
+        if (!trackKey) {
+            console.warn('Invalid trackIndex:', this.currentTrack);
+            this.currentTrack = 0;
+            settings.trackIndex = 0;
+            scene.registry.set('settings', settings);
+            this.saveSettings(scene);
+            return;
+        }
 
         this.music = scene.sound.add(trackKey, { volume: 0.6 });
 
