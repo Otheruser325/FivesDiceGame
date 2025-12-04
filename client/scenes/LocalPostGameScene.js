@@ -55,9 +55,23 @@ export default class LocalPostGameScene extends Phaser.Scene {
         };
 
         // -------- Display Stats --------
-        let startY = 260;
-        const colX = [400, 700]; // Left + right columns
-        const columnWidth = 300;
+        const totalPlayers = stats.players;
+        let startY = 140;
+        let titleSize = 26;
+        let statSize = 20;
+        let buzzSize = 22;
+        let colX = [];
+
+        if (totalPlayers === 2) {
+            titleSize *= 1.5;
+            statSize *= 1.5;
+            buzzSize *= 1.5;
+
+            colX = [300, 700];
+        }
+        else {
+            colX = [200, 500, 800];
+        }
 
         for (let i = 0; i < stats.players; i++) {
             const c = stats.combos[i];
@@ -65,17 +79,23 @@ export default class LocalPostGameScene extends Phaser.Scene {
             const score = stats.scores[i];
             const placement = placements[i];
 
-            // Determine X,Y positioning
-            const row = Math.floor(i / 3);
-            const col = i % 3;
-            const x = stats.players > 1 ? colX[col] : 400;
-            const y = startY + row * 260;
+            let row, col, x, y;
+			
+			if (totalPlayers === 2) {
+                row = 0;
+                col = i;
+                x = colX[col];
+                y = startY;
+            } else {
+                row = Math.floor(i / 3);
+                col = i % 3;
+                x = colX[col];
+                y = startY + row * 260;
+            }
 
-            // Select buzzword (random)
             const pool = buzzwords[placement] || buzzwords.other;
             const message = pool[Math.floor(Math.random() * pool.length)];
 
-            // Placement colour
             const placeColor = rankColors[placement] || "#ffffff";
 
             const title = `${name} — #${placement}`;
@@ -92,21 +112,21 @@ Straights: ${c.straight}`;
 
             // Title (larger + coloured)
             this.add.text(x, y, title, {
-                fontSize: 26,
+                fontSize: titleSize,
                 color: placeColor,
                 align: "center"
             }).setOrigin(0.5);
 
             // Stats block
             this.add.text(x, y + 110, combosText, {
-                fontSize: 20,
+                fontSize: statSize,
                 color: "#ffffff",
                 align: "center"
             }).setOrigin(0.5);
 
             // Buzzword (highlighted slightly bigger)
             this.add.text(x, y + 220, `"${message}"`, {
-                fontSize: 22,
+                fontSize: buzzSize,
                 color: placeColor,
                 fontStyle: "italic",
                 align: "center"
