@@ -7,7 +7,7 @@ export default class LocalConfigScene extends Phaser.Scene {
         this.selectedPlayers = 2;
         this.selectedRounds = 20;
         this.comboRules = false;
-		this.playerNames = ["You", "Player 2", "Player 3", "Player 4", "Player 5", "Player 6"];
+		this.playerNames = ["Player 1", "Player 2", "Player 3", "Player 4", "Player 5", "Player 6"];
         this.isAI = [false, true, true, true, true, true];
     }
 
@@ -35,17 +35,17 @@ export default class LocalConfigScene extends Phaser.Scene {
             });
         });
 		
-		this.add.text(900, 170, "Players:", { fontSize: 28 }).setOrigin(0.5);
+		this.add.text(850, 165, "Players:", { fontSize: 28 }).setOrigin(0.5);
 
 for (let i = 0; i < this.selectedPlayers; i++) {
 
     const y = 200 + i * 60;
 
     // Player label
-    this.add.text(720, y, `Player ${i + 1}`, { fontSize: 24 }).setOrigin(0.5);
+    this.add.text(750, y, `Player ${i + 1}`, { fontSize: 24 }).setOrigin(0.5);
 
     // Name box
-    const nameText = this.add.text(750, y, this.playerNames[i], {
+    const nameText = this.add.text(900, y, this.playerNames[i], {
         fontSize: 24,
         backgroundColor: "#222222",
         padding: { x: 10, y: 4 }
@@ -63,7 +63,7 @@ for (let i = 0; i < this.selectedPlayers; i++) {
 
     // AI toggle (disabled for Player 1)
     if (i > 0) {
-        const toggle = this.add.text(950, y,
+        const toggle = this.add.text(1050, y,
             this.isAI[i] ? "Computer" : "Human",
             {
                 fontSize: 24,
@@ -78,7 +78,7 @@ for (let i = 0; i < this.selectedPlayers; i++) {
             this.refreshScene();
         });
     } else {
-        this.add.text(950, y, "Human", { fontSize: 24, color: "#999999" }).setOrigin(0.5);
+        this.add.text(1050, y, "Human", { fontSize: 24, color: "#999999" }).setOrigin(0.5);
     }
 }
 
