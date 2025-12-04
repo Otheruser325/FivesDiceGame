@@ -53,6 +53,7 @@ export default class LocalGameScene extends Phaser.Scene {
 
         this.rollBtn.on('pointerdown', () => {
             if (this.isAI[this.currentPlayer]) return;
+            this.rollBtn.disableInteractive();
             this.processTurn();
         });
 
@@ -68,7 +69,6 @@ export default class LocalGameScene extends Phaser.Scene {
     this.info.setText(`${name}'s turn`);
 
     if (!isBot) {
-        // Human: waits for "Roll Dice"
         this.rollBtn.setInteractive();
         return;
     }
@@ -107,7 +107,7 @@ export default class LocalGameScene extends Phaser.Scene {
             }
 			
 			if (!this.isAI[this.currentPlayer] && this.comboRules) {
-                showComboText.call(this, comboInfo.type, comboInfo.intensity);
+                showComboText.call(this, combo.type, combo.intensity);
             }
         }
 
