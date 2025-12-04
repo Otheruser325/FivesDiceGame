@@ -118,7 +118,7 @@ Five-of-a-Kinds: ${c.fiveKind}
 Straights: ${c.straight}`;
 
             const spacing = {
-                titleToStats: statSize * 4.5,
+                titleToStats: statSize * 5,
                 statsToBuzz: buzzSize * 4.5,
             };
 
