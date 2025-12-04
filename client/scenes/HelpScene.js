@@ -60,9 +60,8 @@ export default class HelpScene extends Phaser.Scene {
         .setInteractive();
 
         this.backBtn.on('pointerdown', () => {
-            if (GlobalAudio?.playButton) {
-                GlobalAudio.playButton(this);
-            }
+			if (this.popupOpen) return; 
+            GlobalAudio?.playButton?.(this);
             this.scene.start('MenuScene');
         });
     }
@@ -109,9 +108,8 @@ export default class HelpScene extends Phaser.Scene {
         .setInteractive();
 
         closeBtn.on('pointerdown', () => {
-            if (GlobalAudio?.playButton) {
-                GlobalAudio.playButton(this);
-            }
+            GlobalAudio?.playButton?.(this);
+			
             bg.destroy();
             title.destroy();
             rulesText.destroy();
