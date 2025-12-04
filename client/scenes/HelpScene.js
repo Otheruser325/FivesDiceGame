@@ -38,20 +38,6 @@ export default class HelpScene extends Phaser.Scene {
             wordWrap: { width: 620 }
         }).setOrigin(0.5);
 
-        const comboBtn = this.add.text(750, 40, 'Combo Rules', {
-            fontSize: '22px',
-            color: '#ffdd66'
-        })
-        .setOrigin(1, 0.5)
-        .setInteractive();
-
-        comboBtn.on('pointerdown', () => {
-            if (GlobalAudio?.playButton) {
-                GlobalAudio.playButton(this);
-            }
-            this.showComboPopup();
-        });
-
         const backBtn = this.add.text(400, 650, 'Back', {
             fontSize: 28,
             color: '#66aaff'
@@ -64,6 +50,20 @@ export default class HelpScene extends Phaser.Scene {
                 GlobalAudio.playButton(this);
             }
             this.scene.start('MenuScene');
+        });
+		
+		const comboBtn = this.add.text(750, 40, 'Combo Rules', {
+            fontSize: '22px',
+            color: '#ffdd66'
+        })
+        .setOrigin(1, 0.5)
+        .setInteractive();
+
+        comboBtn.on('pointerdown', () => {
+            if (GlobalAudio?.playButton) {
+                GlobalAudio.playButton(this);
+            }
+            this.showComboPopup();
         });
     }
 
