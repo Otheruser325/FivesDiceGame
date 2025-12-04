@@ -33,7 +33,7 @@ export default class HelpScene extends Phaser.Scene {
             "The player with the highest total score at the end\n" +
             "of the game wins!";
 
-        this.add.text(400, 340, helpText, {
+        this.add.text(400, 390, helpText, {
             fontSize: '22px',
             color: '#ffffff',
             align: 'center',
@@ -59,7 +59,7 @@ export default class HelpScene extends Phaser.Scene {
         });
 
         // --- Back button ---
-        const backBtn = this.add.text(400, 550, 'Back', {
+        const backBtn = this.add.text(400, 650, 'Back', {
             fontSize: 28,
             color: '#66aaff'
         })
