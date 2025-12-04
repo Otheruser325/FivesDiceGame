@@ -46,24 +46,6 @@ export default class SettingsScene extends Phaser.Scene {
             const newSettings = GlobalAudio.getSettings(this);
             musicText.setText(`Music: ${newSettings.music ? 'ON' : 'OFF'}`);
         });
-		
-		// ---------- NEXT SONG ----------
-const nextSongText = this.add.text(
-    400, 320,
-    'Next Song ▶',
-    { fontSize: 28, color: '#66aaff' }
-)
-.setOrigin(0.5)
-.setInteractive({ useHandCursor: true });
-
-nextSongText.on('pointerdown', () => {
-    GlobalAudio.playButton(this);
-    GlobalAudio.nextTrack(this);
-
-    // Optional: show the current track name
-    const currentTrack = GlobalAudio.currentTrack || 'Unknown';
-    nextSongText.setText(`Next Song ▶  (${currentTrack})`);
-});
 
         // ---------- BACK BUTTON ----------
         const backBtn = this.add.text(400, 360, 'Back', { fontSize: 28 })
