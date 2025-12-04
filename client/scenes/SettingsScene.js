@@ -104,7 +104,7 @@ export default class SettingsScene extends Phaser.Scene {
             .setDepth(21);
 
         // ---- Popup title ----
-        this.add.text(400, 170, 'Music Tracks', {
+        this.jukeboxTitle = this.add.text(400, 170, 'Music Tracks', {
             fontSize: 34,
             color: '#ffffaa'
         }).setOrigin(0.5).setDepth(22);
@@ -163,6 +163,9 @@ export default class SettingsScene extends Phaser.Scene {
             popup.destroy();
             closeBtn.destroy();
             trackBtns.forEach(btn => btn.destroy());
+			
+			// hide jukebox title
+			this.jukeboxTitle.setVisible(false);
 
             // RE-ENABLE UI
 			this.audioText.setInteractive()
