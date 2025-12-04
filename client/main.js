@@ -56,6 +56,30 @@ export const GlobalAudio = {
             this.music = null;
         }
     },
+	
+	nextTrack(scene) {
+        const settings = this.getSettings(scene);
+
+        // If music is off, turn it on AND advance track.
+        if (!settings.music) {
+            settings.music = true;
+            scene.registry.set('settings', settings);
+        }
+
+        // Stop existing music
+        if (this.music) {
+            this.music.stop();
+            this.music = null;
+        }
+
+        // Advance to next track
+        const currentIndex = this.tracks.indexOf(this.currentTrack);
+        const nextIndex = (currentIndex + 1) % this.tracks.length;
+        this.currentTrack = this.tracks[nextIndex];
+
+        // Play new track
+        this.playMusic(scene);
+    }
 
     playButton(scene) {
         const settings = this.getSettings(scene);
