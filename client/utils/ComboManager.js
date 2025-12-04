@@ -102,7 +102,8 @@ export function checkCombo(values) {
     }
 	
 	// ----- TWO PAIR -----
-    if (occurrences.includes(2) && occurrences.includes(2)) {
+    const pairs = occurrences.filter(c => c === 2).length;
+    if (pairs === 2) {
         return { type: "TWO PAIR!", multiplier: 2, intensity: 1.1 };
     }
 
