@@ -100,7 +100,7 @@ export default class HelpScene extends Phaser.Scene {
             wordWrap: { width: 520 }
         }).setOrigin(0.5);
 
-        const closeBtn = this.add.text(400, 450, 'Close', {
+        const closeBtn = this.add.text(400, 480, 'Close', {
             fontSize: 26,
             color: '#66aaff'
         })
