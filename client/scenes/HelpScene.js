@@ -93,7 +93,7 @@ export default class HelpScene extends Phaser.Scene {
             "Rolling effective combos can make a massive difference\n" +
             "in your performance!";
 
-        const rulesText = this.add.text(400, 280, comboRules, {
+        const rulesText = this.add.text(400, 320, comboRules, {
             fontSize: '20px',
             color: '#ffffff',
             align: 'center',
