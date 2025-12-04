@@ -55,7 +55,7 @@ export default class LocalPostGameScene extends Phaser.Scene {
         };
 
         // -------- Display Stats --------
-        let startY = 140;
+        let startY = 260;
         const colX = [400, 700]; // Left + right columns
         const columnWidth = 300;
 
@@ -114,7 +114,7 @@ Straights: ${c.straight}`;
         }
 
         // -------- Back Button --------
-        const back = this.add.text(600, 900, "Return to Menu", {
+        const back = this.add.text(500, 800, "Return to Menu", {
             fontSize: 26,
             color: "#ff6666"
         }).setOrigin(0.5).setInteractive();
