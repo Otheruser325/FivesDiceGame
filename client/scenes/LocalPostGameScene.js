@@ -67,7 +67,7 @@ export default class LocalPostGameScene extends Phaser.Scene {
             statSize *= 1.5;
             buzzSize *= 1.5;
 
-            colX = [300, 700];
+            colX = [400, 700];
         }
         else {
             colX = [200, 500, 800];
