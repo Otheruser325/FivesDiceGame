@@ -84,10 +84,10 @@ export default class LocalPostGameScene extends Phaser.Scene {
             let row, col, x, y;
 			
 			if (totalPlayers === 2) {
-                row = 1;
+                row = 0;
                 col = i;
                 x = colX[col];
-                y = startY + row * 260;
+                y = startY;
             } else if (totalPlayers === 4) {
                 row = Math.floor(i / 2);
                 col = i % 2;
@@ -117,6 +117,11 @@ Four-of-a-Kinds: ${c.fourKind}
 Five-of-a-Kinds: ${c.fiveKind}
 Straights: ${c.straight}`;
 
+            const spacing = {
+                titleToStats: statSize * 3.5,
+                statsToBuzz: buzzSize * 4,
+            };
+
             // Title (larger + coloured)
             this.add.text(x, y, title, {
                 fontSize: titleSize,
@@ -125,14 +130,14 @@ Straights: ${c.straight}`;
             }).setOrigin(0.5);
 
             // Stats block
-            this.add.text(x, y + 110, combosText, {
+            this.add.text(x, y + spacing.titleToStats, combosText, {
                 fontSize: statSize,
                 color: "#ffffff",
                 align: "center"
             }).setOrigin(0.5);
 
             // Buzzword (highlighted slightly bigger)
-            this.add.text(x, y + 220, `"${message}"`, {
+            this.add.text(x, y + spacing.titleToStats + spacing.statsToBuzz, `"${message}"`, {
                 fontSize: buzzSize,
                 color: placeColor,
                 fontStyle: "italic",
