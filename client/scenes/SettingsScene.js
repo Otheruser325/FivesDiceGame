@@ -14,7 +14,7 @@ export default class SettingsScene extends Phaser.Scene {
         const settings = GlobalAudio.getSettings(this);
 
         // ---------- AUDIO (SFX) TOGGLE ----------
-        const audioText = this.add.text(
+        this.audioText = this.add.text(
                 400, 200,
                 `Sound Effects: ${settings.audio ? 'ON' : 'OFF'}`, {
                     fontSize: 32
@@ -25,7 +25,7 @@ export default class SettingsScene extends Phaser.Scene {
                 useHandCursor: true
             });
 
-        audioText.on('pointerdown', () => {
+        this.audioText.on('pointerdown', () => {
             if (GlobalAudio) GlobalAudio.playButton(this);
 
             settings.audio = !settings.audio;
@@ -35,7 +35,7 @@ export default class SettingsScene extends Phaser.Scene {
         });
 
         // ---------- MUSIC TOGGLE ----------
-        const musicText = this.add.text(
+        this.musicText = this.add.text(
                 400, 260,
                 `Music: ${settings.music ? 'ON' : 'OFF'}`, {
                     fontSize: 32
@@ -46,7 +46,7 @@ export default class SettingsScene extends Phaser.Scene {
                 useHandCursor: true
             });
 
-        musicText.on('pointerdown', () => {
+        this.musicText.on('pointerdown', () => {
             if (GlobalAudio) GlobalAudio.playButton(this);
             if (GlobalAudio) GlobalAudio.toggleMusic(this);
 
@@ -55,7 +55,7 @@ export default class SettingsScene extends Phaser.Scene {
         });
 
         // ---------- JUKEBOX HEADER ----------
-        const jukeboxBtn = this.add.text(400, 330, 'Jukebox', {
+        this.jukeboxBtn = this.add.text(400, 330, 'Jukebox', {
                 fontSize: 28,
                 color: '#ffff99'
             })
@@ -64,13 +64,13 @@ export default class SettingsScene extends Phaser.Scene {
                 useHandCursor: true
             });
 
-        jukeboxBtn.on('pointerdown', () => {
+        this.jukeboxBtn.on('pointerdown', () => {
             if (GlobalAudio) GlobalAudio.playButton(this);
             this.showJukeboxPopup(jukeboxBtn);
         });
 		
         // ---------- BACK BUTTON ----------
-        const backBtn = this.add.text(400, 360, 'Back', {
+        this.backBtn = this.add.text(400, 360, 'Back', {
                 fontSize: 28
             })
             .setOrigin(0.5)
@@ -78,7 +78,7 @@ export default class SettingsScene extends Phaser.Scene {
                 useHandCursor: true
             });
 
-        backBtn.on('pointerdown', () => {
+        this.backBtn.on('pointerdown', () => {
             if (GlobalAudio) GlobalAudio.playButton(this);
             this.scene.start('MenuScene');
         });
@@ -86,7 +86,9 @@ export default class SettingsScene extends Phaser.Scene {
 
     showJukeboxPopup(jukeboxBtn) {
         // ---- LOCK UI ----
-        jukeboxBtn.disableInteractive();
+		this.audioText.disableInteractive()
+		this.musicText.disableInteractive()
+        this.jukeboxBtn.disableInteractive();
         this.backBtn.disableInteractive();
 
         // ---- Dark background overlay ----
@@ -160,7 +162,9 @@ export default class SettingsScene extends Phaser.Scene {
             trackBtns.forEach(btn => btn.destroy());
 
             // RE-ENABLE UI
-            jukeboxBtn.setInteractive();
+			this.audioText.setInteractive()
+		    this.musicText.setInteractive()
+            this.jukeboxBtn.setInteractive();
             this.backBtn.setInteractive();
         });
     }
