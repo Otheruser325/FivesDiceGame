@@ -1,4 +1,5 @@
 import { GlobalAudio } from '../main.js';
+import { animateDiceRoll } from '../utils/AnimationManager.js';
 import { checkCombo, showComboText } from '../utils/ComboManager.js';
 
 export default class LocalGameScene extends Phaser.Scene {
@@ -69,6 +70,9 @@ export default class LocalGameScene extends Phaser.Scene {
             const sprite = this.add.image(startX + i * 70, y, 'dice1')
                 .setScale(0.9)
                 .setVisible(false);
+				
+			sprite.originalX = sprite.x;
+            sprite.originalY = sprite.y;
 
             this.diceSprites.push(sprite);
         }
@@ -147,12 +151,14 @@ export default class LocalGameScene extends Phaser.Scene {
         });
     }
 
-    processTurn() {
+    async processTurn() {
         GlobalAudio.playDice(this);
 
         const roll = () => Math.ceil(Math.random() * 6);
 
         const dice = [roll(), roll(), roll(), roll(), roll()];
+		
+		await this.animateDiceRoll(dice);
 
         const base = dice.reduce((a, b) => a + b, 0);
         const combo = checkCombo(dice);
