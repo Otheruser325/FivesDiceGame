@@ -72,7 +72,7 @@ export default class LocalGameScene extends Phaser.Scene {
         }
 
         // --- Score text ---
-        this.scoreBreakdown = this.add.text(400, 340, "", {
+        this.scoreBreakdown = this.add.text(400, 380, "", {
             fontSize: 24,
             color: '#ffffaa',
             align: 'center'
