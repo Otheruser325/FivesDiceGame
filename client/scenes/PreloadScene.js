@@ -28,6 +28,12 @@ export default class PreloadScene extends Phaser.Scene {
         // Load all assets
         this.load.audio('button', 'assets/audio/button.mp3');
         this.load.audio('dice', 'assets/audio/dice.mp3');
+		this.load.audio('combo_pair', 'assets/audio/combo_pair.mp3');
+        this.load.audio('combo_triple', 'assets/audio/combo_triple.mp3');
+        this.load.audio('combo_fullHouse', 'assets/audio/combo_fullHouse.mp3');
+        this.load.audio('combo_fourKind', 'assets/audio/combo_fourKind.mp3');
+        this.load.audio('combo_fiveKind', 'assets/audio/combo_fiveKind.mp3');
+		this.load.audio('combo_straight', 'assets/audio/combo_straight.mp3');
 		this.load.audio('hero_time', 'assets/music/hero_time.mp3');
         this.load.audio('energy', 'assets/music/energy.mp3');
         this.load.audio('powerhouse', 'assets/music/powerhouse.mp3');

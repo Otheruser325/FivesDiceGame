@@ -1,6 +1,6 @@
 import { GlobalAudio } from '../main.js';
 import { animateDiceRoll } from '../utils/AnimationManager.js';
-import { checkCombo, showComboText } from '../utils/ComboManager.js';
+import { checkCombo, showComboText, playComboFX } from '../utils/ComboManager.js';
 
 export default class LocalGameScene extends Phaser.Scene {
     constructor() {
@@ -161,6 +161,8 @@ export default class LocalGameScene extends Phaser.Scene {
     const scored = this.applyBonus(dice, base);
 
     if (combo) {
+        playComboFX(this, combo.type);
+		
         if (combo.key) {
             this.comboStats[this.currentPlayer][combo.key]++;
         }

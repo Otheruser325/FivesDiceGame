@@ -141,6 +141,24 @@ export const GlobalAudio = {
         if (!settings.audio) return;
         scene.sound.play('dice', { volume: 0.5 });
     }
+	
+	comboSFX(scene, comboName) {
+        if (!scene.sound) return;
+
+        const key = {
+            pair: 'combo_pair',
+			twoPair: 'combo_pair',
+            triple: 'combo_triple',
+            fullHouse: 'combo_fullHouse',
+            fourKind: 'combo_fourKind',
+            fiveKind: 'combo_fiveKind',
+			straight: 'combo_straight'
+        }[comboName];
+
+        if (key) {
+            scene.sound.play(key, { volume: 0.6 });
+        }
+    }
 };
 
 const config = {
