@@ -169,10 +169,6 @@ export default class LocalGameScene extends Phaser.Scene {
             playComboFX(this, combo.key);
         }
 		
-        if (!this.isAI[this.currentPlayer] && this.comboRules) {
-            showComboText.call(this, combo.type, combo.intensity);
-        }
-		
 		// Determines which combo plays a specific sound effect
 		if (combo.type == "FIVE OF A KIND?!!?!") {
             GlobalAudio.comboSFX(this, 'fiveKind');
@@ -188,6 +184,10 @@ export default class LocalGameScene extends Phaser.Scene {
             GlobalAudio.comboSFX(this, 'pair');
         } else if (combo.type == "PAIR!") {
             GlobalAudio.comboSFX(this, 'pair');
+        }
+		
+        if (!this.isAI[this.currentPlayer] && this.comboRules) {
+            showComboText.call(this, combo.type, combo.intensity);
         }
     }
 
