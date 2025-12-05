@@ -1,5 +1,3 @@
-import { GlobalAudio } from '../main.js';
-
 export function showComboText(comboName, intensity = 1) {
 
     // RAINBOW FIVE-OF-A-KIND EFFECT
@@ -146,43 +144,33 @@ export function playComboFX(scene, comboName) {
     switch (comboName) {
 
         case "TRIPLE!":
-		    GlobalAudio.comboSFX(this, 'triple');
             comboFlash(scene, 0xD4D45B, 600, 0.45);  // olive-yellow
             comboShake(scene, 5, 400);
             break;
 
         case "FOUR OF A KIND!!!!":
-		    GlobalAudio.comboSFX(this, 'fourKind');
             comboFlash(scene, 0x550000, 1000, 0.55); // deep maroon
             comboShake(scene, 8, 600);
             break;
 
         case "FIVE OF A KIND?!!?!":
-		    GlobalAudio.comboSFX(this, 'fiveKind');
             comboFlash(scene, 0xffffff, 2000, 0.75); // rainbow handled inside ComboText glow
             comboShake(scene, 14, 1000); // DiceQuake™
             break;
 
         case "FULL HOUSE!!!":
-		    GlobalAudio.comboSFX(this, 'fullHouse');
             comboFlash(scene, 0xAA11BB, 800, 0.6); // magenta-purple
             comboShake(scene, 6, 500);
             break;
 
         case "STRAIGHT!":
-            GlobalAudio.comboSFX(this, 'straight');
             const color = 0x228833;
             comboFlash(scene, color, 600, 0.4); // Light green flash (darker for large)
             comboShake(scene, 4, 400);
             break;
 
         case "TWO PAIR!":
-		    GlobalAudio.comboSFX(this, 'pair');
             comboShake(scene, 3, 300);
-            break;
-			
-		case "PAIR!":
-		    GlobalAudio.comboSFX(this, 'pair');
             break;
 
         default:
