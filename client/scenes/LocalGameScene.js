@@ -168,7 +168,6 @@ export default class LocalGameScene extends Phaser.Scene {
 
         this.scores[this.currentPlayer] += scored;
 
-
         // Update dice icons
         for (let i = 0; i < 5; i++) {
             const face = dice[i];
@@ -176,9 +175,6 @@ export default class LocalGameScene extends Phaser.Scene {
                 .setTexture(`dice${face}`)
                 .setVisible(true);
         }
-
-        // Score breakdown
-        const base = dice.reduce((a, b) => a + b, 0);
 
         let breakdownText = `Rolled: ${dice.join(", ")}\nBase Score: ${base}`;
 
