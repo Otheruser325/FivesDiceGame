@@ -180,9 +180,12 @@ export function playComboFX(scene, comboName) {
 		    GlobalAudio.comboSFX(this, 'pair');
             comboShake(scene, 3, 300);
             break;
+			
+		case "PAIR!":
+		    GlobalAudio.comboSFX(this, 'pair');
+            break;
 
         default:
-            GlobalAudio.comboSFX(this, 'pair');
             break;
     }
 }
