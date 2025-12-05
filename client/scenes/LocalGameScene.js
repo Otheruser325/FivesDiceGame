@@ -158,7 +158,7 @@ export default class LocalGameScene extends Phaser.Scene {
 
         const dice = [roll(), roll(), roll(), roll(), roll()];
 		
-		await this.animateDiceRoll(dice);
+		await animateDiceRoll(dice);
 
         const base = dice.reduce((a, b) => a + b, 0);
         const combo = checkCombo(dice);
