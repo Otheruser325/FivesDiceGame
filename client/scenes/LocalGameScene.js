@@ -166,7 +166,7 @@ export default class LocalGameScene extends Phaser.Scene {
         }
 		
 		if (this.comboRules) {
-            playComboFX(this, combo.type);
+            playComboFX(this, combo.key);
         }
 		
         if (!this.isAI[this.currentPlayer] && this.comboRules) {
