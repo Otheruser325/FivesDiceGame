@@ -161,12 +161,14 @@ export default class LocalGameScene extends Phaser.Scene {
     const scored = this.applyBonus(dice, base);
 
     if (combo) {
-        playComboFX(this, combo.type);
-		
         if (combo.key) {
             this.comboStats[this.currentPlayer][combo.key]++;
         }
-
+		
+		if (this.comboRules) {
+            playComboFX(this, combo.type);
+        }
+		
         if (!this.isAI[this.currentPlayer] && this.comboRules) {
             showComboText.call(this, combo.type, combo.intensity);
         }
