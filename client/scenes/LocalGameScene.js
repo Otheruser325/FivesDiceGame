@@ -37,6 +37,8 @@ export default class LocalGameScene extends Phaser.Scene {
     }
 
     create() {
+		this.exitLocked = false;
+		
         this.roundTitle = this.add.text(400, 50,
             `Local Game — Round ${this.currentRound}/${this.totalRounds}`, {
                 fontSize: 32
@@ -88,7 +90,7 @@ export default class LocalGameScene extends Phaser.Scene {
 
         const spacing = 200;
         const startX = 400 - ((this.totalPlayers - 1) * spacing) / 2;
-        const y = 850;
+        const y = 1050;
 
         for (let i = 0; i < this.totalPlayers; i++) {
             const iconKey = this.isAI[i] ? "botIcon" : "playerIcon";
