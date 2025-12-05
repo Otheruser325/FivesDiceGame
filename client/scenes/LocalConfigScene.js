@@ -15,6 +15,8 @@ export default class LocalConfigScene extends Phaser.Scene {
         this.add.text(400, 60, 'Game Configuration', {
             fontSize: 40
         }).setOrigin(0.5);
+		
+		const settings = GlobalAudio.getSettings(this);
 
         // --------------------------------------
         // Players
@@ -119,7 +121,6 @@ for (let i = 0; i < this.selectedPlayers; i++) {
 
         this.comboBtn.on('pointerdown', () => {
             this.comboRules = !this.comboRules;
-			const settings = this.registry.get('settings');
             settings.comboRules = this.comboRules;
             this.registry.set('settings', settings);
 			if (GlobalAudio) GlobalAudio.saveSettings(this);
