@@ -11,12 +11,12 @@ export default class LocalGameScene extends Phaser.Scene {
         // Load settings (comboRules now stored globally)
         const settings = GlobalAudio.getSettings(this);
 
-        this.totalPlayers = data.players || 2;     // total players including you
+        this.totalPlayers = data.players || 2; // total players including you
         this.totalRounds = data.rounds || 20;
         this.comboRules = settings.comboRules ?? false;
 
         this.currentRound = 1;
-		this.playerNames = data.names;
+        this.playerNames = data.names;
         this.isAI = data.ai;
 
         this.currentPlayer = 0;
@@ -24,10 +24,10 @@ export default class LocalGameScene extends Phaser.Scene {
 
         // Player 0 = you
         this.scores = Array(this.totalPlayers).fill(0);
-		
-		this.comboStats = Array(this.totalPlayers).fill(null).map(() => ({
+
+        this.comboStats = Array(this.totalPlayers).fill(null).map(() => ({
             pair: 0,
-			twoPair: 0,
+            twoPair: 0,
             triple: 0,
             fullHouse: 0,
             fourKind: 0,
@@ -38,8 +38,9 @@ export default class LocalGameScene extends Phaser.Scene {
 
     create() {
         this.roundTitle = this.add.text(400, 50,
-            `Local Game — Round ${this.currentRound}/${this.totalRounds}`,
-            { fontSize: 32 }
+            `Local Game — Round ${this.currentRound}/${this.totalRounds}`, {
+                fontSize: 32
+            }
         ).setOrigin(0.5);
 
         this.info = this.add.text(400, 180, '', {
@@ -57,65 +58,155 @@ export default class LocalGameScene extends Phaser.Scene {
             this.processTurn();
         });
 
+        // --- Dice display positions ---
+        this.diceSprites = [];
+        const startX = 400 - (5 * 70) / 2; // center dice row
+        const y = 240;
+
+        for (let i = 0; i < 5; i++) {
+            const sprite = this.add.image(startX + i * 70, y, 'dice1')
+                .setScale(0.9)
+                .setVisible(false);
+
+            this.diceSprites.push(sprite);
+        }
+
+        // --- Score text ---
+        this.scoreBreakdown = this.add.text(400, 340, "", {
+            fontSize: 24,
+            color: '#ffffaa',
+            align: 'center'
+        }).setOrigin(0.5);
+
+        this.createPlayerBar();
         this.addBackButton();
-		this.startTurn();
-    }
-	
-	startTurn() {
-
-    const isBot = this.isAI[this.currentPlayer];
-    const name = this.playerNames[this.currentPlayer];
-
-    this.info.setText(`${name}'s turn`);
-
-    if (!isBot) {
-        this.rollBtn.setInteractive();
-        return;
+        this.startTurn();
     }
 
-    // AI rolls automatically after 1 second
-    this.rollBtn.disableInteractive();
-    this.time.delayedCall(1000, () => {
-        this.processTurn();
-    });
-}
+    createPlayerBar() {
+        this.playerBar = [];
+
+        const spacing = 200;
+        const startX = 400 - ((this.totalPlayers - 1) * spacing) / 2;
+        const y = 850;
+
+        for (let i = 0; i < this.totalPlayers; i++) {
+            const iconKey = this.isAI[i] ? "botIcon" : "playerIcon";
+
+            const container = this.add.container(0, 0);
+
+            const icon = this.add.image(startX + i * spacing, y, iconKey)
+                .setScale(0.7);
+
+            const tag = this.add.text(startX + i * spacing, y + 70, `P${i+1}`, {
+                fontSize: 28,
+                color: '#ffffff'
+            }).setOrigin(0.5);
+
+            // highlight ring
+            const ring = this.add.rectangle(startX + i * spacing, y, 90, 90, 0x66ccff, 0.25)
+                .setStrokeStyle(3, 0x66ccff)
+                .setVisible(false);
+
+            container.add([ring, icon, tag]);
+
+            this.playerBar.push({
+                ring,
+                icon,
+                tag
+            });
+        }
+
+        this.updatePlayerBar();
+    }
+
+    updatePlayerBar() {
+        this.playerBar.forEach((p, index) => {
+            p.ring.setVisible(index === this.currentPlayer);
+        });
+    }
+
+    startTurn() {
+
+        const isBot = this.isAI[this.currentPlayer];
+        const name = this.playerNames[this.currentPlayer];
+
+        this.info.setText(`${name}'s turn`);
+
+        if (!isBot) {
+            this.rollBtn.setInteractive();
+            return;
+        }
+
+        // AI rolls automatically after 1 second
+        this.rollBtn.disableInteractive();
+        this.time.delayedCall(1000, () => {
+            this.processTurn();
+        });
+    }
 
     processTurn() {
         GlobalAudio.playDice(this);
 
         const roll = () => Math.ceil(Math.random() * 6);
-		
-		const dice = [roll(), roll(), roll(), roll(), roll()];
-		
-		const base = dice.reduce((a,b) => a + b, 0);
-		const combo = checkCombo(dice);
-		let scored = this.applyBonus(dice, base);
-			
-		if (combo) {
+
+        const dice = [roll(), roll(), roll(), roll(), roll()];
+
+        const base = dice.reduce((a, b) => a + b, 0);
+        const combo = checkCombo(dice);
+        let scored = this.applyBonus(dice, base);
+
+        if (combo) {
             if (combo.key) {
                 this.comboStats[this.currentPlayer][combo.key]++;
             }
-			
-			if (!this.isAI[this.currentPlayer] && this.comboRules) {
+
+            if (!this.isAI[this.currentPlayer] && this.comboRules) {
                 showComboText.call(this, combo.type, combo.intensity);
             }
         }
 
         this.scores[this.currentPlayer] += scored;
-        
 
-        // Display the result
-        this.info.setText(
-            `${this.playerNames[this.currentPlayer]} rolled:\n${dice.join(", ")}`
-        );
+
+        // Update dice icons
+        for (let i = 0; i < 5; i++) {
+            const face = dice[i];
+            this.diceSprites[i]
+                .setTexture(`dice${face}`)
+                .setVisible(true);
+        }
+
+        // Score breakdown
+        const base = dice.reduce((a, b) => a + b, 0);
+
+        let breakdownText = `Rolled: ${dice.join(", ")}\nBase Score: ${base}`;
+
+        if (this.comboRules) {
+            const combo = checkCombo(dice);
+            if (combo) {
+                breakdownText += `\nCombo: x${combo.multiplier.toFixed(1)}\nFinal Score: ${scored}`;
+            } else {
+                breakdownText += `\nFinal Score: ${base}`;
+            }
+        } else {
+            breakdownText += `\nFinal Score: ${base}`;
+        }
+
+        this.scoreBreakdown.setText(breakdownText);
+
+        // Now show info with just the player's name
+        this.info.setText(`${this.playerNames[this.currentPlayer]}'s roll`);
+
+        this.updatePlayerBar();
 
         // Switch player after 3 seconds
         this.time.delayedCall(3000, () => {
             this.nextPlayer();
         });
     }
-	
-	nextPlayer() {
+
+    nextPlayer() {
         this.currentPlayer++;
 
         // Next round
@@ -132,6 +223,7 @@ export default class LocalGameScene extends Phaser.Scene {
         }
 
         this.startTurn();
+        this.updatePlayerBar();
     }
 
     applyBonus(dice, baseScore) {
@@ -159,7 +251,7 @@ export default class LocalGameScene extends Phaser.Scene {
         // Determine winner
         let result = "";
         const maxScore = Math.max(...this.scores);
-        const winners = this.scores.map((s,i)=> s === maxScore ? i : null).filter(i=>i!==null);
+        const winners = this.scores.map((s, i) => s === maxScore ? i : null).filter(i => i !== null);
 
         if (winners.includes(0)) {
             result = (winners.length === 1) ? "You Win!" : "It's a Tie!";
@@ -169,23 +261,23 @@ export default class LocalGameScene extends Phaser.Scene {
 
         this.info.setText(
             `GAME OVER\n\nScores:\n` +
-            this.scores.map((s,i)=> i===0 ? `You: ${s}` : `Bot ${i}: ${s}`).join('\n') +
+            this.scores.map((s, i) => i === 0 ? `You: ${s}` : `Bot ${i}: ${s}`).join('\n') +
             `\n\n${result}`
         );
 
         this.rollBtn.disableInteractive();
 
         this.exitLocked = true;
-		
-		this.registry.set("localPostGame", {
+
+        this.registry.set("localPostGame", {
             players: this.totalPlayers,
             scores: this.scores,
             combos: this.comboStats,
             rounds: this.totalRounds,
-			names: this.playerNames,
+            names: this.playerNames,
         });
-		
-		this.scene.start('LocalPostGameScene');
+
+        this.scene.start('LocalPostGameScene');
     }
 
     addBackButton() {
@@ -209,8 +301,10 @@ export default class LocalGameScene extends Phaser.Scene {
         const bg = this.add.rectangle(400, 300, 500, 250, 0x000000, 0.8);
 
         const msg = this.add.text(400, 260,
-            "Are you sure you want\n to return to the main menu?",
-            { fontSize: 26, align: 'center' }
+            "Are you sure you want\n to return to the main menu?", {
+                fontSize: 26,
+                align: 'center'
+            }
         ).setOrigin(0.5);
 
         const yesBtn = this.add.text(350, 340, "Yes", {
@@ -230,7 +324,10 @@ export default class LocalGameScene extends Phaser.Scene {
 
         noBtn.on('pointerdown', () => {
             GlobalAudio.playButton(this);
-            bg.destroy(); msg.destroy(); yesBtn.destroy(); noBtn.destroy();
+            bg.destroy();
+            msg.destroy();
+            yesBtn.destroy();
+            noBtn.destroy();
         });
     }
 }
