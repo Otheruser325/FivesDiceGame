@@ -140,7 +140,7 @@ export const GlobalAudio = {
         const settings = this.getSettings(scene);
         if (!settings.audio) return;
         scene.sound.play('dice', { volume: 0.5 });
-    }
+    },
 	
 	comboSFX(scene, comboName) {
         if (!scene.sound) return;
