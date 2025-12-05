@@ -152,63 +152,60 @@ export default class LocalGameScene extends Phaser.Scene {
     }
 
     async processTurn() {
-        GlobalAudio.playDice(this);
+    const dice = this.rollFiveDice();
 
-        const roll = () => Math.ceil(Math.random() * 6);
+    await animateDiceRoll(this, dice);
 
-        const dice = [roll(), roll(), roll(), roll(), roll()];
-		
-		await animateDiceRoll(dice);
+    const base = dice.reduce((a, b) => a + b, 0);
+    const combo = checkCombo(dice);
+    const scored = this.applyBonus(dice, base);
 
-        const base = dice.reduce((a, b) => a + b, 0);
-        const combo = checkCombo(dice);
-        let scored = this.applyBonus(dice, base);
-
-        if (combo) {
-            if (combo.key) {
-                this.comboStats[this.currentPlayer][combo.key]++;
-            }
-
-            if (!this.isAI[this.currentPlayer] && this.comboRules) {
-                showComboText.call(this, combo.type, combo.intensity);
-            }
+    if (combo) {
+        if (combo.key) {
+            this.comboStats[this.currentPlayer][combo.key]++;
         }
 
-        this.scores[this.currentPlayer] += scored;
-
-        // Update dice icons
-        for (let i = 0; i < 5; i++) {
-            const face = dice[i];
-            this.diceSprites[i]
-                .setTexture(`dice${face}`)
-                .setVisible(true);
+        if (!this.isAI[this.currentPlayer] && this.comboRules) {
+            showComboText.call(this, combo.type, combo.intensity);
         }
-
-        let breakdownText = `Rolled: ${dice.join(", ")}\nBase Score: ${base}`;
-
-        if (this.comboRules) {
-            const combo = checkCombo(dice);
-            if (combo) {
-                breakdownText += `\nCombo: x${combo.multiplier.toFixed(1)}\nFinal Score: ${scored}`;
-            } else {
-                breakdownText += `\nFinal Score: ${base}`;
-            }
-        } else {
-            breakdownText += `\nFinal Score: ${base}`;
-        }
-
-        this.scoreBreakdown.setText(breakdownText);
-
-        // Now show info with just the player's name
-        this.info.setText(`${this.playerNames[this.currentPlayer]}'s roll`);
-
-        this.updatePlayerBar();
-
-        // Switch player after 3 seconds
-        this.time.delayedCall(3000, () => {
-            this.nextPlayer();
-        });
     }
+
+    this.scores[this.currentPlayer] += scored;
+
+    // update textures
+    dice.forEach((face, i) =>
+        this.diceSprites[i].setTexture(`dice${face}`).setVisible(true)
+    );
+
+    this.updateDiceScoreDisplay(dice, scored);
+
+    this.info.setText(`${this.playerNames[this.currentPlayer]}'s roll`);
+
+    this.updatePlayerBar();
+
+    this.time.delayedCall(3000, () => this.nextPlayer());
+}
+
+rollFiveDice() {
+    GlobalAudio.playDice(this);
+    const r = () => Math.ceil(Math.random() * 6);
+    return [r(), r(), r(), r(), r()];
+}
+
+updateDiceScoreDisplay(dice, scored) {
+    const base = dice.reduce((a, b) => a + b, 0);
+    const combo = checkCombo(dice);
+
+    let breakdown = `Rolled: ${dice.join(", ")}\nBase Score: ${base}`;
+
+    if (this.comboRules && combo) {
+        breakdown += `\nCombo: x${combo.multiplier.toFixed(1)}\nFinal Score: ${scored}`;
+    } else {
+        breakdown += `\nFinal Score: ${scored}`;
+    }
+
+    this.scoreBreakdown.setText(breakdown);
+}
 
     nextPlayer() {
         this.currentPlayer++;
