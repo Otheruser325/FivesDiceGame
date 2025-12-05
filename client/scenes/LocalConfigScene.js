@@ -122,6 +122,7 @@ for (let i = 0; i < this.selectedPlayers; i++) {
 			const settings = this.registry.get('settings');
             settings.comboRules = this.comboRules;
             this.registry.set('settings', settings);
+			if (GlobalAudio) GlobalAudio.saveSettings(this);
             this.refreshScene();
         });
 
