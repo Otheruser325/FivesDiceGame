@@ -90,7 +90,7 @@ export default class LocalGameScene extends Phaser.Scene {
 
         const spacing = 200;
         const startX = 400 - ((this.totalPlayers - 1) * spacing) / 2;
-        const y = 1050;
+        const y = 750;
 
         for (let i = 0; i < this.totalPlayers; i++) {
             const iconKey = this.isAI[i] ? "botIcon" : "playerIcon";
