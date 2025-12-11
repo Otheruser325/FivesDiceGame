@@ -91,9 +91,9 @@ export default class OnlineConfigScene extends Phaser.Scene {
                 combos: this.comboRules
             };
 
-            getSocket.emit('create-lobby', payload);
+            getSocket().emit('create-lobby', payload);
 
-            getSocket.once("lobby-created", code => {
+            getSocket().once("lobby-created", code => {
               this.scene.start("OnlineLobbyScene", { code });
             });
         });
