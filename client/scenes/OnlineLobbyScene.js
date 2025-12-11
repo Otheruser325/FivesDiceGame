@@ -1,4 +1,4 @@
-import { OnlineSocket } from '../utils/SocketManager.js';
+import { getSocket } from '../utils/SocketManager.js';
 import { GlobalAudio } from '../utils/AudioManager.js';
 
 export default class OnlineLobbyScene extends Phaser.Scene {
@@ -53,7 +53,7 @@ export default class OnlineLobbyScene extends Phaser.Scene {
             .setOrigin(0.5).setInteractive();
         leaveBtn.on("pointerdown", () => {
             GlobalAudio.playButton(this);
-            OnlineSocket.emit("leave-lobby", this.code);
+            getSocket.emit("leave-lobby", this.code);
             this.scene.start("OnlineMenuScene");
         });
 
@@ -63,7 +63,7 @@ export default class OnlineLobbyScene extends Phaser.Scene {
         this.readyBtn.on("pointerdown", () => {
             GlobalAudio.playButton(this);
             // server handler accepts a single code string — pass an object to be explicit and robust
-            OnlineSocket.emit("toggle-ready", this.code);
+            getSocket.emit("toggle-ready", this.code);
         });
 
         // HOST START BUTTON
@@ -74,23 +74,23 @@ export default class OnlineLobbyScene extends Phaser.Scene {
             const allReady = this.players.every(p => p.ready);
             if (allReady) {
                 GlobalAudio.playButton(this);
-                OnlineSocket.emit("start-game", this.code);
+                getSocket.emit("start-game", this.code);
             }
         });
 
         // SOCKET LISTENERS
-        OnlineSocket.on("lobby-data", data => {
+        getSocket.on("lobby-data", data => {
             this.updateLobbyData(data);
         });
-        OnlineSocket.on("lobby-updated", data => {
+        getSocket.on("lobby-updated", data => {
             this.updateLobbyData(data);
         });
-        OnlineSocket.on("game-starting", (data = {}) => {
+        getSocket.on("game-starting", (data = {}) => {
             this.scene.start("OnlineGameScene", { code: this.code, config: data.config || {} });
         });
 
         // Request initial data
-        OnlineSocket.emit("request-lobby-data", this.code);
+        getSocket.emit("request-lobby-data", this.code);
     }
 
     updateLobbyData(data) {
@@ -117,8 +117,8 @@ export default class OnlineLobbyScene extends Phaser.Scene {
         }
 
         // determine whether this client is host:
-        const mySocketId = OnlineSocket?.id || null;
-        const myUserId = OnlineSocket?.data?.user?.id || OnlineSocket?.userId || null;
+        const mySocketId = getSocket?.id || null;
+        const myUserId = getSocket?.data?.user?.id || getSocket?.userId || null;
 
         this.host = false;
         if (this.hostUserId && myUserId) {
@@ -143,7 +143,7 @@ export default class OnlineLobbyScene extends Phaser.Scene {
             return;
         }
 
-        const myId = OnlineSocket?.data?.user?.id || OnlineSocket?.userId || null;
+        const myId = getSocket?.data?.user?.id || getSocket?.userId || null;
         const hostUserId = this.hostUserId || (this.players[0] && this.players[0].id) || null;
 
         const list = this.players.map(p => {
@@ -185,9 +185,9 @@ export default class OnlineLobbyScene extends Phaser.Scene {
 
     shutdown() {
         // remove event listeners
-        OnlineSocket.off("lobby-data");
-        OnlineSocket.off("lobby-updated");
-        OnlineSocket.off("game-starting");
+        getSocket.off("lobby-data");
+        getSocket.off("lobby-updated");
+        getSocket.off("game-starting");
     }
 
     destroy() {

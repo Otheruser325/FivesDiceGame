@@ -1,4 +1,4 @@
-import { OnlineSocket } from '../utils/SocketManager.js';
+import { getSocket } from '../utils/SocketManager.js';
 import { GlobalAudio } from '../utils/AudioManager.js';
 import { animateDiceRoll } from '../utils/AnimationManager.js';
 import { checkCombo, showComboText, playComboFX } from '../utils/ComboManager.js';
@@ -77,7 +77,7 @@ export default class OnlineGameScene extends Phaser.Scene {
           this.info.setText('You must roll before ending your turn.');
           return;
         }
-        OnlineSocket?.emit('player-end-turn', { code: this.roomCode, playerIndex: this.localPlayerIndex });
+        getSocket?.emit('player-end-turn', { code: this.roomCode, playerIndex: this.localPlayerIndex });
         this.endTurnBtn.disableInteractive();
       });
     this.endTurnBtn.disableInteractive();
@@ -106,14 +106,14 @@ export default class OnlineGameScene extends Phaser.Scene {
     this.installSocketHandlers();
 
     // request server authoritative state
-    if (OnlineSocket) {
-      OnlineSocket.emit('request-game-state', { code: this.roomCode });
+    if (getSocket) {
+      getSocket.emit('request-game-state', { code: this.roomCode });
       // fallback: if no current player index arrived quickly, re-request once
       this.time.delayedCall(250, () => {
         if (this.debug) console.log('[OnlineGameScene] fallback check — currentPlayerIndex =', this.currentPlayerIndex);
-        if ((this.currentPlayerIndex === null || typeof this.currentPlayerIndex === 'undefined') && OnlineSocket) {
+        if ((this.currentPlayerIndex === null || typeof this.currentPlayerIndex === 'undefined') && getSocket) {
           if (this.debug) console.log('[OnlineGameScene] re-requesting game-state (fallback)');
-          OnlineSocket.emit('request-game-state', { code: this.roomCode });
+          getSocket.emit('request-game-state', { code: this.roomCode });
         }
       });
     } else {
@@ -202,7 +202,7 @@ export default class OnlineGameScene extends Phaser.Scene {
   // Socket handlers
   // -----------------------
   installSocketHandlers() {
-    const s = OnlineSocket;
+    const s = getSocket;
     if (!s) return;
 
     // store bound handlers so we can remove them cleanly
@@ -244,8 +244,8 @@ export default class OnlineGameScene extends Phaser.Scene {
   onGameStarting(payload) {
     // server: lobby -> game transition. Request fresh game-state to sync.
     if (!this._sceneReady) return;
-    if (!OnlineSocket) return;
-    OnlineSocket.emit('request-game-state', { code: this.roomCode });
+    if (!getSocket) return;
+    getSocket.emit('request-game-state', { code: this.roomCode });
   }
 
   // -----------------------
@@ -416,7 +416,7 @@ export default class OnlineGameScene extends Phaser.Scene {
   // Roll press (client)
   // -----------------------
   onRollPressed() {
-    if (!OnlineSocket) return;
+    if (!getSocket) return;
     if (this.localPlayerIndex === null) return;
 
     if (GlobalAudio) {
@@ -424,7 +424,7 @@ export default class OnlineGameScene extends Phaser.Scene {
         GlobalAudio.playDice(this);
       }
     }
-    OnlineSocket.emit('player-roll', { code: this.roomCode, playerIndex: this.localPlayerIndex });
+    getSocket.emit('player-roll', { code: this.roomCode, playerIndex: this.localPlayerIndex });
   }
 
   // -----------------------
@@ -448,7 +448,7 @@ export default class OnlineGameScene extends Phaser.Scene {
       const idx = this.playerSlots.findIndex(p => String(p.id) === String(payload.localId));
       this.localPlayerIndex = idx >= 0 ? idx : null;
     } else {
-      const localId = OnlineSocket?.data?.user?.id || OnlineSocket?.userId || null;
+      const localId = getSocket?.data?.user?.id || getSocket?.userId || null;
       if (localId) {
         const idx = this.playerSlots.findIndex(p => String(p.id) === String(localId));
         this.localPlayerIndex = idx >= 0 ? idx : null;
@@ -692,7 +692,7 @@ export default class OnlineGameScene extends Phaser.Scene {
           // local client: notify server only if we are the current player.
           // Server is still authoritative and will handle auto-roll; this just helps UX.
           if (this.localPlayerIndex !== null && this.localPlayerIndex === this.currentPlayerIndex) {
-            OnlineSocket?.emit('player-timeout', { code: this.roomCode, playerIndex: this.localPlayerIndex });
+            getSocket?.emit('player-timeout', { code: this.roomCode, playerIndex: this.localPlayerIndex });
           }
           this.clearTurnTimer();
         }
@@ -728,7 +728,7 @@ export default class OnlineGameScene extends Phaser.Scene {
 
     yesBtn.on('pointerdown', () => {
       // match server lobby manager's expected event
-      OnlineSocket?.emit('leave-lobby', this.roomCode);
+      getSocket?.emit('leave-lobby', this.roomCode);
       this.scene.start('MenuScene');
     });
     noBtn.on('pointerdown', () => {
@@ -741,7 +741,7 @@ export default class OnlineGameScene extends Phaser.Scene {
   // -----------------------
   shutdown() {
     this._sceneReady = false;
-    const s = OnlineSocket;
+    const s = getSocket;
     if (s && this._handlers) {
       // remove only the handlers we added
       s.off('game-state', this._handlers.gameState);

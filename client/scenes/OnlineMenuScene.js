@@ -1,4 +1,4 @@
-import { OnlineSocket } from '../utils/SocketManager.js';
+import { getSocket } from '../utils/SocketManager.js';
 import { GlobalAudio } from '../utils/AudioManager.js';
 
 export default class OnlineMenuScene extends Phaser.Scene {
@@ -13,6 +13,14 @@ export default class OnlineMenuScene extends Phaser.Scene {
     }
 
     async create() {
+        if (!getSocket.connected && typeof io !== "function") {
+          this.add.text(600, 200, "Server Under Maintenance", {
+          fontSize: 38,
+          color: "#ff4444"
+        }).setOrigin(0.5);
+          return;
+        }
+
         await this.refreshAuth();
         this.buildUI();
 
@@ -49,7 +57,7 @@ export default class OnlineMenuScene extends Phaser.Scene {
     buildUI() {
         // Authorise user
         if (this.user) {
-            OnlineSocket.emit("auth-user", {
+            getSocket.emit("auth-user", {
                 id: this.user.id,
                 name: this.user.name,
                 type: this.user.type,
@@ -122,13 +130,13 @@ export default class OnlineMenuScene extends Phaser.Scene {
             GlobalAudio.playButton(this);
             if (!this.joinInput) return;
             const code = (this.joinInput.node.value || "").trim().toUpperCase();
-            if (code) OnlineSocket.emit('join-lobby', code);
+            if (code) getSocket.emit('join-lobby', code);
         });
 
-        OnlineSocket.once('join-success', data => this.scene.start('OnlineLobbyScene', {
+        getSocket.once('join-success', data => this.scene.start('OnlineLobbyScene', {
             code: data.code
         }));
-        OnlineSocket.once('join-failed', () => alert('Failed to join lobby (wrong code or full).'));
+        getSocket.once('join-failed', () => alert('Failed to join lobby (wrong code or full).'));
 
         // Track elements for easy clearing
         this.lobbyUIElements.push(createBtn, joinBtn);

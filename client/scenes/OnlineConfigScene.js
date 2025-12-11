@@ -1,4 +1,4 @@
-import { OnlineSocket } from '../utils/SocketManager.js';
+import { getSocket } from '../utils/SocketManager.js';
 import { GlobalAudio } from '../utils/AudioManager.js';
 
 export default class OnlineConfigScene extends Phaser.Scene {
@@ -91,9 +91,9 @@ export default class OnlineConfigScene extends Phaser.Scene {
                 combos: this.comboRules
             };
 
-            OnlineSocket.emit('create-lobby', payload);
+            getSocket.emit('create-lobby', payload);
 
-            OnlineSocket.once("lobby-created", code => {
+            getSocket.once("lobby-created", code => {
               this.scene.start("OnlineLobbyScene", { code });
             });
         });

@@ -1,4 +1,4 @@
-import { OnlineSocket } from '../utils/SocketManager.js';
+import { getSocket } from '../utils/SocketManager.js';
 import { GlobalAudio } from '../utils/AudioManager.js';
 
 export default class OnlineAccountScene extends Phaser.Scene {
@@ -47,9 +47,9 @@ export default class OnlineAccountScene extends Phaser.Scene {
                 const j = JSON.parse(text);
                 if (j?.ok && j.user) {
                     this.user = j.user;
-                    if (this.user && OnlineSocket) {
-                        OnlineSocket.emit('auth-user', this.user);
-                        OnlineSocket.userId = this.user.id;
+                    if (this.user && getSocket) {
+                        getSocket.emit('auth-user', this.user);
+                        getSocket.userId = this.user.id;
                     }
                     localStorage.setItem('fives_user', JSON.stringify(j.user));
                     return;
