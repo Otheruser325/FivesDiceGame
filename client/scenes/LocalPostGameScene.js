@@ -1,4 +1,4 @@
-import { GlobalAudio } from '../main.js';
+import { GlobalAudio } from '../utils/AudioManager.js';
 
 export default class LocalPostGameScene extends Phaser.Scene {
     constructor() {
@@ -8,7 +8,7 @@ export default class LocalPostGameScene extends Phaser.Scene {
     create() {
         const stats = this.registry.get("localPostGame");
 
-        this.add.text(400, 50, "Local Game — Results", {
+        this.add.text(600, 50, "Local Game — Results", {
             fontSize: 40
         }).setOrigin(0.5);
 
@@ -113,8 +113,8 @@ Pairs: ${c.pair}
 Two Pairs: ${c.twoPair}
 Triples: ${c.triple}
 Full Houses: ${c.fullHouse}
-Four-of-a-Kinds: ${c.fourKind}
-Five-of-a-Kinds: ${c.fiveKind}
+Four-of-a-Kinds: ${c.fourOfAKind}
+Five-of-a-Kinds: ${c.fiveOfAKind}
 Straights: ${c.straight}`;
 
             const spacing = {
@@ -146,7 +146,7 @@ Straights: ${c.straight}`;
         }
 
         // -------- Back Button --------
-        const back = this.add.text(500, 800, "Return to Menu", {
+        const back = this.add.text(650, 800, "Return to Menu", {
             fontSize: 26,
             color: "#ff6666"
         }).setOrigin(0.5).setInteractive();

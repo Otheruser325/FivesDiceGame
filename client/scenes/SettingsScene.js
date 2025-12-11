@@ -1,4 +1,4 @@
-import { GlobalAudio } from '../main.js';
+import { GlobalAudio } from '../utils/AudioManager.js';
 
 export default class SettingsScene extends Phaser.Scene {
     constructor() {
@@ -6,7 +6,7 @@ export default class SettingsScene extends Phaser.Scene {
     }
 
     create() {
-        this.add.text(400, 80, 'Settings', {
+        this.add.text(600, 80, 'Settings', {
             fontSize: 48
         }).setOrigin(0.5);
 
@@ -15,7 +15,7 @@ export default class SettingsScene extends Phaser.Scene {
 
         // ---------- AUDIO (SFX) TOGGLE ----------
         this.audioText = this.add.text(
-                400, 200,
+                600, 200,
                 `Sound Effects: ${settings.audio ? 'ON' : 'OFF'}`, {
                     fontSize: 32
                 }
@@ -38,7 +38,7 @@ export default class SettingsScene extends Phaser.Scene {
 
         // ---------- MUSIC TOGGLE ----------
         this.musicText = this.add.text(
-                400, 260,
+                600, 260,
                 `Music: ${settings.music ? 'ON' : 'OFF'}`, {
                     fontSize: 32
                 }
@@ -57,8 +57,32 @@ export default class SettingsScene extends Phaser.Scene {
 			if (GlobalAudio) GlobalAudio.saveSettings(this);
         });
 
+        // ---------- VISUAL EFFECTS (COMBO FX / SCREEN SHAKE / FLASH) ----------
+        this.visualText = this.add.text(
+                600, 320,
+                `Visual Effects: ${settings.visualEffects ? 'ON' : 'OFF'}`, {
+                    fontSize: 32
+                }
+            )
+            .setOrigin(0.5)
+            .setInteractive({
+                useHandCursor: true
+            });
+
+        this.visualText.on('pointerdown', () => {
+            // soft click sfx
+            if (GlobalAudio) GlobalAudio.playButton(this);
+
+            settings.visualEffects = !settings.visualEffects;
+            this.registry.set('settings', settings);
+
+            this.visualText.setText(`Visual Effects: ${settings.visualEffects ? 'ON' : 'OFF'}`);
+
+            if (GlobalAudio) GlobalAudio.saveSettings(this);
+        });
+
         // ---------- JUKEBOX HEADER ----------
-        this.jukeboxBtn = this.add.text(400, 330, 'Jukebox', {
+        this.jukeboxBtn = this.add.text(600, 380, 'Jukebox', {
                 fontSize: 28,
                 color: '#ffff99'
             })
@@ -73,8 +97,9 @@ export default class SettingsScene extends Phaser.Scene {
         });
 		
         // ---------- BACK BUTTON ----------
-        this.backBtn = this.add.text(400, 360, 'Back', {
-                fontSize: 28
+        this.backBtn = this.add.text(600, 460, 'Back', {
+                fontSize: 28,
+                color: '#66aaff'
             })
             .setOrigin(0.5)
             .setInteractive({
@@ -95,16 +120,16 @@ export default class SettingsScene extends Phaser.Scene {
         this.backBtn.disableInteractive();
 
         // ---- Dark background overlay ----
-        const overlay = this.add.rectangle(400, 300, 900, 700, 0x000000, 0.55)
+        const overlay = this.add.rectangle(600, 300, 900, 700, 0x000000, 0.55)
             .setDepth(20);
 
         // ---- Popup window ----
-        const popup = this.add.rectangle(400, 300, 500, 350, 0x222222, 0.95)
+        const popup = this.add.rectangle(600, 300, 500, 350, 0x222222, 0.95)
             .setStrokeStyle(3, 0xffffff)
             .setDepth(21);
 
         // ---- Popup title ----
-        this.jukeboxTitle = this.add.text(400, 170, 'Music Tracks', {
+        this.jukeboxTitle = this.add.text(600, 170, 'Music Tracks', {
             fontSize: 34,
             color: '#ffffaa'
         }).setOrigin(0.5).setDepth(22);
@@ -121,7 +146,7 @@ export default class SettingsScene extends Phaser.Scene {
         const trackBtns = [];
 
         trackNames.forEach((name, i) => {
-            const btn = this.add.text(400, trackY + i * spacing, name, {
+            const btn = this.add.text(600, trackY + i * spacing, name, {
                     fontSize: 26,
                     color: i === selected ? '#66ff66' : '#ffffff'
                 })
@@ -145,7 +170,7 @@ export default class SettingsScene extends Phaser.Scene {
         });
 
         // ---- Close button ----
-        const closeBtn = this.add.text(400, 450, 'Close', {
+        const closeBtn = this.add.text(600, 450, 'Close', {
                 fontSize: 28,
                 color: '#ff8888'
             })

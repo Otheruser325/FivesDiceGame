@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Play Fives — a simplistic, wacky dice game with combos, rolls, and strategy!">
+    <title>Fives | Roll, Connect, Battle</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg: #0d0f12;
+            --fg: #ffffff;
+            --accent: #28c840;
+            --accent-hover: #1ea734;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            background: var(--bg);
+            font-family: Inter, sans-serif;
+            color: var(--fg);
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        header {
+            padding: 40px 20px 20px;
+            text-align: center;
+        }
+
+        .title {
+            font-family: "Bangers", cursive;
+            font-size: 64px;
+            color: var(--fg);
+            letter-spacing: 2px;
+            text-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+        }
+
+        .subtitle {
+            font-size: 20px;
+            opacity: 0.75;
+            margin-top: 10px;
+        }
+
+        .hero {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .dice-graphic {
+            font-size: 80px;
+            margin-bottom: 20px;
+        }
+
+        .features {
+            max-width: 650px;
+            font-size: 18px;
+            line-height: 1.6;
+            opacity: 0.85;
+        }
+
+        .play-button-container {
+            padding: 40px 20px;
+            text-align: center;
+        }
+
+        .play-button {
+            display: inline-block;
+            background: var(--accent);
+            color: #fff;
+            font-size: 32px;
+            font-weight: 700;
+            padding: 20px 60px;
+            border-radius: 14px;
+            text-decoration: none;
+            transition: background 0.15s ease, transform 0.15s ease;
+            box-shadow: 0 0 15px rgba(40, 200, 64, 0.4);
+        }
+
+        .play-button:hover {
+            background: var(--accent-hover);
+            transform: translateY(-4px);
+        }
+
+        footer {
+            text-align: center;
+            padding: 20px;
+            font-size: 14px;
+            opacity: 0.5;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="title">FIVES</div>
+        <div class="subtitle">The Chaotic Online Dice Game</div>
+    </header>
+
+    <section class="hero">
+        <div class="dice-graphic">🎲🎲🎲🎲🎲</div>
+
+        <p class="features">
+            Roll dice. Build combos. Battle friends.  
+            Fives is a fast-paced multiplayer dice game featuring five-of-a-kind explosions, 
+            crazy animations, tactical re-rolls, and competitive strategy.
+        </p>
+    </section>
+
+    <div class="play-button-container">
+        <a class="play-button" href="https://play.fivesdicegame.com">
+            PLAY FIVES!
+        </a>
+    </div>
+
+    <footer>
+        © <script>document.write(new Date().getFullYear())</script> FivesDiceGame.com — All rights reserved.
+    </footer>
+
+</body>
+</html>

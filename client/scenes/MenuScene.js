@@ -1,4 +1,4 @@
-import { GlobalAudio } from '../main.js';
+import { GlobalAudio } from '../utils/AudioManager.js';
 
 export default class MenuScene extends Phaser.Scene {
     constructor() {
@@ -6,17 +6,21 @@ export default class MenuScene extends Phaser.Scene {
     }
 
     create() {
-        this.add.text(400, 80, 'FIVES', { fontSize: 48 }).setOrigin(0.5);
+        this.add.text(600, 80, 'FIVES', { fontSize: 48 }).setOrigin(0.5);
 
-        const playBtn = this.add.text(400, 200, 'Play', { fontSize: 32 })
+        const playBtn = this.add.text(600, 200, 'Play', { fontSize: 32 })
             .setOrigin(0.5)
             .setInteractive();
 
-        const settingsBtn = this.add.text(400, 280, 'Settings', { fontSize: 32 })
+        const settingsBtn = this.add.text(600, 280, 'Settings', { fontSize: 32 })
             .setOrigin(0.5)
             .setInteractive();
 
-        const helpBtn = this.add.text(400, 360, 'Help', { fontSize: 32 })
+        const helpBtn = this.add.text(600, 360, 'Help', { fontSize: 32 })
+            .setOrigin(0.5)
+            .setInteractive();
+
+        const changelogBtn = this.add.text(600, 440, 'Changelog', { fontSize: 32 })
             .setOrigin(0.5)
             .setInteractive();
 			
@@ -41,6 +45,13 @@ export default class MenuScene extends Phaser.Scene {
                 GlobalAudio.playButton(this);
             }
             this.scene.start('HelpScene');
+        });
+
+        changelogBtn.on('pointerdown', () => {
+            if (GlobalAudio && GlobalAudio.playButton) {
+                GlobalAudio.playButton(this);
+            }
+            this.scene.start('ChangelogScene');
         });
     }
 }

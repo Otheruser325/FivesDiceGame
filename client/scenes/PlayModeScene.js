@@ -1,4 +1,4 @@
-import { GlobalAudio } from '../main.js';
+import { GlobalAudio } from '../utils/AudioManager.js';
 
 export default class PlayModeScene extends Phaser.Scene {
     constructor() {
@@ -6,17 +6,17 @@ export default class PlayModeScene extends Phaser.Scene {
     }
 
     create() {
-        this.add.text(400, 80, 'Play', { fontSize: 48 }).setOrigin(0.5);
+        this.add.text(600, 80, 'Play', { fontSize: 48 }).setOrigin(0.5);
 
-        const localBtn = this.add.text(400, 200, 'Local Play', { fontSize: 32 })
+        const localBtn = this.add.text(600, 200, 'Local Play', { fontSize: 32 })
             .setOrigin(0.5)
             .setInteractive();
 
-        const onlineBtn = this.add.text(400, 260, 'Online Play (WIP)', { fontSize: 28 })
+        const onlineBtn = this.add.text(600, 260, 'Online Play', { fontSize: 28 })
             .setOrigin(0.5)
             .setInteractive();
 
-        const backBtn = this.add.text(400, 360, 'Back', { fontSize: 28 })
+        const backBtn = this.add.text(600, 360, 'Back', { fontSize: 28, color: '#66aaff' })
             .setOrigin(0.5)
             .setInteractive();
         
@@ -31,7 +31,7 @@ export default class PlayModeScene extends Phaser.Scene {
             if (GlobalAudio && GlobalAudio.playButton) {
                 GlobalAudio.playButton(this);
             }
-            this.scene.start('OnlineGameScene');
+            this.scene.start('OnlineMenuScene');
         });
 		
 		backBtn.on('pointerdown', () => {

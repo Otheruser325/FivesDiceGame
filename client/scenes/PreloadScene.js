@@ -7,19 +7,19 @@ export default class PreloadScene extends Phaser.Scene {
         // Splash screen display
         this.cameras.main.setBackgroundColor('#000000');
 
-        this.add.text(400, 100, 'FIVES', {
+        this.add.text(600, 100, 'FIVES', {
             fontSize: '64px',
             color: '#ffffff'
         }).setOrigin(0.5);
 
-        this.loadingText = this.add.text(400, 300, 'Loading...', {
+        this.loadingText = this.add.text(600, 300, 'Loading...', {
             fontSize: '32px',
             color: '#ffffff'
         }).setOrigin(0.5);
 
         // Add a progress bar
-        let progressBarBg = this.add.rectangle(400, 350, 300, 30, 0x444444);
-        let progressBarFill = this.add.rectangle(250, 350, 0, 30, 0xffffff).setOrigin(0, 0.5);
+        let progressBarBg = this.add.rectangle(600, 350, 300, 30, 0x444444);
+        let progressBarFill = this.add.rectangle(450, 350, 0, 30, 0xffffff).setOrigin(0, 0.5);
 
         this.load.on('progress', (value) => {
             progressBarFill.width = 300 * value;
@@ -31,8 +31,8 @@ export default class PreloadScene extends Phaser.Scene {
 		this.load.audio('combo_pair', 'assets/audio/combo_pair.mp3');
         this.load.audio('combo_triple', 'assets/audio/combo_triple.mp3');
         this.load.audio('combo_fullHouse', 'assets/audio/combo_fullHouse.mp3');
-        this.load.audio('combo_fourKind', 'assets/audio/combo_fourKind.mp3');
-        this.load.audio('combo_fiveKind', 'assets/audio/combo_fiveKind.mp3');
+        this.load.audio('combo_fourOfAKind', 'assets/audio/combo_fourOfAKind.mp3');
+        this.load.audio('combo_fiveOfAKind', 'assets/audio/combo_fiveOfAKind.mp3');
 		this.load.audio('combo_straight', 'assets/audio/combo_straight.mp3');
 		this.load.audio('hero_time', 'assets/music/hero_time.mp3');
         this.load.audio('energy', 'assets/music/energy.mp3');

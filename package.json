@@ -1,6 +1,7 @@
 {
   "name": "fivesdicegame",
   "version": "1.0.0",
+  "type": "module",
   "description": "A simple yet popular dice game that can be played locally or interally.",
   "main": "index.js",
   "scripts": {
@@ -8,5 +9,8 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "dependencies": {
+    "passport-discord": "^0.1.4"
+  }
 }

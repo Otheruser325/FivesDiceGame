@@ -1,0 +1,16 @@
+{
+  "users": {
+    "ad47e11b-f6ad-4f19-8308-dc130e808020": {
+      "id": "ad47e11b-f6ad-4f19-8308-dc130e808020",
+      "name": "Guest2524",
+      "type": "guest",
+      "guestPassword": "$2b$10$KEJQInGmEXhhOhz8gzBla.1HWsG04HdP/TDWPJ8aBuUlqU6bCj7nu"
+    },
+    "bbee6d0e-6f15-4c1f-86ad-e8f950a81a36": {
+      "id": "bbee6d0e-6f15-4c1f-86ad-e8f950a81a36",
+      "name": "Guest8941",
+      "type": "guest",
+      "guestPassword": "$2b$10$F1dTUJR7E4s9fA7EbugTne7ziBrbbqiRRPm5Aq3dlM31VRAnJXU1i"
+    }
+  }
+}

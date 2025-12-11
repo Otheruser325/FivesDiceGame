@@ -1,9 +1,24 @@
-export function showComboText(comboName, intensity = 1) {
+export function showComboText(scene, comboName, intensity = 1) {
+    // Check visual-effects accessibility setting
+    const settings = (scene && scene.registry && scene.registry.get('settings')) || { visualEffects: true };
+    const visualEnabled = settings.visualEffects !== false;
+
+    if (!visualEnabled) {
+        // Accessibility-safe: show a simple static text briefly, no tweens/animations
+        const simple = scene.add.text(600, 200, comboName, {
+            fontSize: 40 * Math.max(0.8, intensity),
+            fontStyle: "bold",
+            color: '#ffdd44'
+        }).setOrigin(0.5);
+        // auto-destroy after 1.2s
+        scene.time.delayedCall(1200, () => simple.destroy());
+        return;
+    }
 
     // RAINBOW FIVE-OF-A-KIND EFFECT
-    const isRainbow = comboName.includes("FIVE OF A KIND");
+    const isRainbow = comboName.includes("FIVE OF A KIND?!!?!");
 
-    const text = this.add.text(400, 200, comboName, {
+    const text = scene.add.text(600, 200, comboName, {
         fontSize: 48 * intensity,
         fontStyle: "bold",
         color: isRainbow ? "#ffffff" : "#ffdd44",
@@ -13,10 +28,14 @@ export function showComboText(comboName, intensity = 1) {
 
     text.setAngle(-5);
 
+    text.once(Phaser.GameObjects.Events.DESTROY, () => {
+        scene.tweens.killTweensOf(text);
+    });
+
     // If it's FIVE OF A KIND: apply rainbow tween
     if (isRainbow) {
         // Cycle through hues 0–360 continuously
-        this.tweens.addCounter({
+        scene.tweens.addCounter({
             from: 0,
             to: 360,
             duration: 1500,
@@ -28,7 +47,7 @@ export function showComboText(comboName, intensity = 1) {
         });
 
         // Pulse scale
-        this.tweens.add({
+        scene.tweens.add({
             targets: text,
             scale: { from: 1.2, to: 1.0 },
             duration: 300,
@@ -38,17 +57,119 @@ export function showComboText(comboName, intensity = 1) {
     }
 
     // Move + fade animation for all combos
-    this.tweens.add({
+    scene.tweens.add({
         targets: text,
         y: 150,
         alpha: 0,
         angle: 5,
         duration: isRainbow ? 1100 : 800,
         ease: 'Cubic.easeOut',
-        onComplete: () => text.destroy()
+        onComplete: () => {
+          try {
+              scene.tweens.killTweensOf(text);
+              text.destroy();
+          } catch (e) {}
+      }
     });
 }
 
+
+export function comboFlash(scene, color, duration = 500, alpha = 0.5, additive = false) {
+    const settings = (scene && scene.registry && scene.registry.get('settings')) || { visualEffects: true };
+    if (settings.visualEffects === false) return;
+
+    try {
+        // Ensure sensible duration
+        const dur = Math.max(120, duration | 0);
+
+        // Full-screen overlay
+        const overlay = scene.add.rectangle(
+            scene.scale.width / 2,
+            scene.scale.height / 2,
+            scene.scale.width,
+            scene.scale.height,
+            color,
+            0
+        ).setDepth(9999);
+
+        // Optional additive blend for strong flash (useful for Five-of-a-Kind)
+        if (additive && overlay.setBlendMode && typeof Phaser !== 'undefined') {
+            overlay.setBlendMode(Phaser.BlendModes.ADD);
+        }
+
+        // Try a camera flash using the overlay color
+        try {
+            const rgb = Phaser.Display.Color.IntegerToRGB(color);
+            // camera.flash(duration, r, g, b, force)
+            scene.cameras.main.flash(Math.max(80, Math.floor(dur * 0.28)), rgb.r, rgb.g, rgb.b, true);
+        } catch (e) {
+            // fallback to neutral flash if color parsing fails
+            scene.cameras.main.flash(Math.max(80, Math.floor(dur * 0.28)));
+        }
+
+        // Tween overlay alpha in/out for visual punch
+        scene.tweens.add({
+            targets: overlay,
+            alpha: alpha,
+            duration: Math.max(60, Math.floor(dur * 0.36)),
+            yoyo: true,
+            hold: Math.max(40, Math.floor(dur * 0.24)),
+            ease: "Quad.easeOut",
+            onComplete: () => {
+                try { overlay.destroy(); } catch (e) { /* ignore */ }
+            }
+        });
+    } catch (err) {
+        // best-effort fallback: camera flash only
+        try { scene.cameras.main.flash(100); } catch (e) {}
+    }
+}
+
+export function comboShake(scene, magnitude = 5, duration = 300) {
+    const settings = (scene && scene.registry && scene.registry.get('settings')) || { visualEffects: true };
+    if (settings.visualEffects === false) return;
+    scene.cameras.main.shake(duration, magnitude / 100);
+}
+
+export function playComboFX(scene, comboName) {
+    const settings = (scene && scene.registry && scene.registry.get('settings')) || { visualEffects: true };
+    if (settings.visualEffects === false) return;
+    switch (comboName) {
+
+        case "triple":
+            comboFlash(scene, 0xD4D45B, 600, 0.45, false);  // olive-yellow
+            comboShake(scene, 4, 400);
+            break;
+
+        case "fourOfAKind":
+            comboFlash(scene, 0x550000, 1000, 0.55, false); // deep maroon
+            comboShake(scene, 8, 600);
+            break;
+
+        case "fiveOfAKind":
+            comboFlash(scene, 0xffffff, 2000, 0.75, true); // rainbow handled inside ComboText glow
+            comboShake(scene, 12, 1000); // DiceQuake™
+            break;
+
+        case "fullHouse":
+            comboFlash(scene, 0xAA11BB, 800, 0.6, false); // magenta-purple
+            comboShake(scene, 6, 500);
+            break;
+
+        case "straight":
+            const color = 0x228833;
+            comboFlash(scene, color, 600, 0.4, false); // Light green flash (darker for large)
+            comboShake(scene, 3, 300);
+            break;
+
+        case "twoPair":
+            comboShake(scene, 1, 200);
+            break;
+
+        default:
+            break;
+    }
+}
 
 export function checkCombo(values) {
     // Count occurrences
@@ -83,12 +204,12 @@ export function checkCombo(values) {
 
     // ----- FIVE OF A KIND -----
     if (occurrences.includes(5)) {
-        return { type: "FIVE OF A KIND?!!?!", key: "fiveKind", multiplier: 10, intensity: 1.8 };
+        return { type: "FIVE OF A KIND?!!?!", key: "fiveOfAKind", multiplier: 10, intensity: 1.8 };
     }
 
     // ----- FOUR OF A KIND -----
     if (occurrences.includes(4)) {
-        return { type: "FOUR OF A KIND!!!!", key: "fourKind", multiplier: 5, intensity: 1.5 };
+        return { type: "FOUR OF A KIND!!!!", key: "fourOfAKind", multiplier: 5, intensity: 1.5 };
     }
 
     // ----- FULL HOUSE -----
@@ -113,67 +234,4 @@ export function checkCombo(values) {
     }
 
     return null;
-}
-
-export function comboFlash(scene, color, duration = 500, alpha = 0.5) {
-    const overlay = scene.add.rectangle(
-        scene.scale.width / 2,
-        scene.scale.height / 2,
-        scene.scale.width,
-        scene.scale.height,
-        color,
-        0
-    ).setDepth(9999);
-
-    scene.tweens.add({
-        targets: overlay,
-        alpha: alpha,
-        duration: duration * 0.4,
-        yoyo: true,
-        hold: duration * 0.2,
-        ease: "Quad.easeOut",
-        onComplete: () => overlay.destroy()
-    });
-}
-
-export function comboShake(scene, magnitude = 5, duration = 300) {
-    scene.cameras.main.shake(duration, magnitude / 100); 
-}
-
-export function playComboFX(scene, comboName) {
-    switch (comboName) {
-
-        case "TRIPLE!":
-            comboFlash(scene, 0xD4D45B, 600, 0.45);  // olive-yellow
-            comboShake(scene, 5, 400);
-            break;
-
-        case "FOUR OF A KIND!!!!":
-            comboFlash(scene, 0x550000, 1000, 0.55); // deep maroon
-            comboShake(scene, 8, 600);
-            break;
-
-        case "FIVE OF A KIND?!!?!":
-            comboFlash(scene, 0xffffff, 2000, 0.75); // rainbow handled inside ComboText glow
-            comboShake(scene, 14, 1000); // DiceQuake™
-            break;
-
-        case "FULL HOUSE!!!":
-            comboFlash(scene, 0xAA11BB, 800, 0.6); // magenta-purple
-            comboShake(scene, 6, 500);
-            break;
-
-        case "STRAIGHT!":
-            const color = 0x228833;
-            comboFlash(scene, color, 600, 0.4); // Light green flash (darker for large)
-            comboShake(scene, 4, 400);
-            break;
-
-        case "TWO PAIR!":
-            comboShake(scene, 3, 300);
-            break;
-
-        default:
-            break;
-    }
 }

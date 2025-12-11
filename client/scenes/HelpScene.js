@@ -1,4 +1,4 @@
-import { GlobalAudio } from '../main.js';
+import { GlobalAudio } from '../utils/AudioManager.js';
 
 export default class HelpScene extends Phaser.Scene {
     constructor() {
@@ -8,12 +8,12 @@ export default class HelpScene extends Phaser.Scene {
     create() {
         this.popupOpen = false;
 		
-        this.add.text(400, 70, 'Help', {
+        this.add.text(600, 70, 'Help', {
             fontSize: '52px',
             color: '#ffffff'
         }).setOrigin(0.5);
 
-        this.add.text(400, 130, 'How to Play Fives', {
+        this.add.text(600, 130, 'How to Play Fives', {
             fontSize: '32px',
             color: '#ffff66'
         }).setOrigin(0.5);
@@ -31,14 +31,14 @@ export default class HelpScene extends Phaser.Scene {
             "The player with the highest total score at the end\n" +
             "of the game wins!";
 
-        this.add.text(400, 390, helpText, {
+        this.add.text(600, 390, helpText, {
             fontSize: '22px',
             color: '#ffffff',
             align: 'center',
             wordWrap: { width: 620 }
         }).setOrigin(0.5);
 
-        this.comboBtn = this.add.text(750, 40, 'Combo Rules', {
+        this.comboBtn = this.add.text(900, 40, 'Combo Rules', {
             fontSize: '22px',
             color: '#ffdd66'
         })
@@ -46,13 +46,13 @@ export default class HelpScene extends Phaser.Scene {
         .setInteractive();
 
         this.comboBtn.on('pointerdown', () => {
-            if (GlobalAudio?.playButton) {
+            if (GlobalAudio.playButton) {
                 GlobalAudio.playButton(this);
             }
             this.showComboPopup();
         });
 
-        this.backBtn = this.add.text(400, 650, 'Back', {
+        this.backBtn = this.add.text(600, 650, 'Back', {
             fontSize: 28,
             color: '#66aaff'
         })
@@ -61,7 +61,7 @@ export default class HelpScene extends Phaser.Scene {
 
         this.backBtn.on('pointerdown', () => {
 			if (this.popupOpen) return; 
-            GlobalAudio?.playButton?.(this);
+            GlobalAudio.playButton(this);
             this.scene.start('MenuScene');
         });
     }
@@ -72,10 +72,10 @@ export default class HelpScene extends Phaser.Scene {
 		this.backBtn.disableInteractive();
         if (this.comboBtn) this.comboBtn.disableInteractive();
 		
-        const bg = this.add.rectangle(400, 300, 600, 380, 0x000000, 0.75)
+        const bg = this.add.rectangle(600, 300, 600, 380, 0x000000, 0.75)
             .setStrokeStyle(3, 0xffffff);
 
-        const title = this.add.text(400, 140, 'Combo Rules', {
+        const title = this.add.text(600, 140, 'Combo Rules', {
             fontSize: '32px',
             color: '#ffff66'
         }).setOrigin(0.5);
@@ -93,14 +93,14 @@ export default class HelpScene extends Phaser.Scene {
             "Rolling effective combos can make a massive difference\n" +
             "in your performance!";
 
-        const rulesText = this.add.text(400, 320, comboRules, {
+        const rulesText = this.add.text(600, 320, comboRules, {
             fontSize: '20px',
             color: '#ffffff',
             align: 'center',
             wordWrap: { width: 520 }
         }).setOrigin(0.5);
 
-        const closeBtn = this.add.text(400, 480, 'Close', {
+        const closeBtn = this.add.text(600, 480, 'Close', {
             fontSize: 26,
             color: '#66aaff'
         })
@@ -108,7 +108,7 @@ export default class HelpScene extends Phaser.Scene {
         .setInteractive();
 
         closeBtn.on('pointerdown', () => {
-            GlobalAudio?.playButton?.(this);
+            GlobalAudio.playButton(this);
 			
             bg.destroy();
             title.destroy();
