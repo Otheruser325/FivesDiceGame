@@ -13,6 +13,16 @@ export default class OnlineMenuScene extends Phaser.Scene {
     }
 
     async create() {
+        const backBtn = this.add.text(600, 360, 'Back', {
+            fontSize: 28,
+            color: '#66aaff'
+        }).setOrigin(0.5).setInteractive();
+        
+        backBtn.on('pointerdown', () => {
+            GlobalAudio.playButton(this);
+            this.scene.start('PlayModeScene');
+        });
+
         if (!getSocket.connected && typeof io !== "function") {
           this.add.text(600, 200, "Server Under Maintenance", {
           fontSize: 38,
@@ -29,16 +39,6 @@ export default class OnlineMenuScene extends Phaser.Scene {
             await this.refreshAuth();
             this.clearLobbyUI();
             this.buildUI();
-        });
-
-        // Back button
-        const backBtn = this.add.text(600, 360, 'Back', {
-            fontSize: 28,
-            color: '#66aaff'
-        }).setOrigin(0.5).setInteractive();
-        backBtn.on('pointerdown', () => {
-            GlobalAudio.playButton(this);
-            this.scene.start('PlayModeScene');
         });
 
         this.events.on('shutdown', () => {
