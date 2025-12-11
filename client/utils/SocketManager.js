@@ -1,4 +1,4 @@
-let OnlineSocket = null;
+export let OnlineSocket = null;
 
 export function getSocket() {
   // If io doesn't exist (server unavailable or script not loaded)
