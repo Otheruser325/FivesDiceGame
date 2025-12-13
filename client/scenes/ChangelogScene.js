@@ -1,44 +1,106 @@
-import { GlobalAudio } from '../utils/AudioManager.js';
+import GlobalAudio from '../utils/AudioManager.js';
 
 export default class ChangelogScene extends Phaser.Scene {
-    constructor() {
-        super('ChangelogScene');
+  constructor() {
+    super({ key: 'ChangelogScene' });
+  }
+
+  create() {
+    const CENTER_X = 600;
+    const VIEW_WIDTH = 320;
+    const VIEW_TOP = 160;
+    const VIEW_HEIGHT = 440;
+
+    const data = this.cache.json.get('changelog');
+    if (!data) {
+      console.warn('Changelog JSON missing');
+      return;
     }
 
-    create() {
-        this.popupOpen = false;
-        
-        this.add.text(600, 70, 'Changelog', {
-            fontSize: '52px',
-            color: '#ffffff'
-        }).setOrigin(0.5);
+    // Title
+    this.add.text(CENTER_X, 70, data.title ?? 'Changelog', {
+      fontSize: '52px',
+      color: '#ffffff'
+    }).setOrigin(0.5);
 
-        this.add.text(600, 130, 'Update 1.0 (11/12/2025)', {
-            fontSize: '32px',
-            color: '#ffff66'
-        }).setOrigin(0.5);
+    // Scroll container
+    this.content = this.add.container(CENTER_X - VIEW_WIDTH / 2, VIEW_TOP);
 
-        const changelogText =
-            "Fives Release!";
+    let y = 0;
 
-        this.add.text(600, 190, changelogText, {
-            fontSize: '22px',
-            color: '#ffffff',
-            align: 'center',
-            wordWrap: { width: 620 }
-        }).setOrigin(0.5);
+    data.entries.forEach(entry => {
+      // Version header
+      const header = this.add.text(0, y,
+        `v${entry.version} — ${entry.date}`,
+        {
+          fontSize: '28px',
+          color: '#ffff66'
+        }
+      );
+      this.content.add(header);
+      y += header.height + 6;
 
-        this.backBtn = this.add.text(600, 250, 'Back', {
-            fontSize: 28,
-            color: '#66aaff'
-        })
-        .setOrigin(0.5)
-        .setInteractive();
-
-        this.backBtn.on('pointerdown', () => {
-            if (this.popupOpen) return; 
-            GlobalAudio.playButton(this);
-            this.scene.start('MenuScene');
+      // Tags
+      if (entry.tags?.length) {
+        const tagText = entry.tags.map(t => `[${t}]`).join(' ');
+        const tags = this.add.text(0, y, tagText, {
+          fontSize: '16px',
+          color: '#8ecae6'
         });
-    }
+        this.content.add(tags);
+        y += tags.height + 10;
+      }
+
+      // Changes
+      entry.changes.forEach(change => {
+        const bullet = this.add.text(20, y, `• ${change}`, {
+          fontSize: '20px',
+          color: '#ffffff',
+          wordWrap: { width: VIEW_WIDTH - 40 }
+        });
+        this.content.add(bullet);
+        y += bullet.height + 8;
+      });
+
+      y += 18;
+    });
+
+    // Mask (viewport)
+    const maskShape = this.make.graphics();
+    maskShape.fillRect(
+      CENTER_X - VIEW_WIDTH / 2,
+      VIEW_TOP,
+      VIEW_WIDTH,
+      VIEW_HEIGHT
+    );
+
+    const mask = maskShape.createGeometryMask();
+    this.content.setMask(mask);
+
+    // Scroll limits
+    this.scrollY = 0;
+    this.maxScroll = Math.max(0, y - VIEW_HEIGHT);
+
+    // Mouse wheel scrolling
+    this.input.on('wheel', (_, __, ___, deltaY) => {
+      this.scrollY = Phaser.Math.Clamp(
+        this.scrollY + deltaY * 0.6,
+        0,
+        this.maxScroll
+      );
+      this.content.y = VIEW_TOP - this.scrollY;
+    });
+
+    const backBtn = this.add.text(100, 80, '← Back', {
+      fontSize: 28,
+      color: '#66aaff'
+    })
+      .setOrigin(0.5)
+      .setInteractive();
+
+    backBtn.on('pointerdown', () => {
+      GlobalAudio.playButton(this);
+      this.scene.start('MenuScene');
+    });
+  }
 }

@@ -1,84 +1,182 @@
-import { loadLobbies, saveLobbies } from "./utils/lobbyStorage.js";
+import { loadLobbies, saveLobby, saveLobbies, pruneLocalLobbies, deleteSupabaseLobby } from "./utils/lobbyStorage.js";
 import { checkCombo } from "../client/utils/ComboManager.js";
 
 export default class LobbyManager {
   constructor(io) {
     this.io = io;
-    // Periodically clean up lobbies
-    setInterval(() => this.load(), 60_000);
     this.lobbies = {};
-    this.activeGames = {}; // keyed by lobby code
+    this.activeGames = {};
+    this.init();
   }
 
-  async load() {
-    this.lobbies = (await loadLobbies()) || {};
-
-    const now = Date.now();
-    const EXPIRE_MS = 1000 * 60 * 60 * 3; // 3 hours
-
-    let changed = false;
-    for (const code of Object.keys(this.lobbies)) {
-      const lobby = this.lobbies[code];
-      if (!lobby || !lobby.players || !Array.isArray(lobby.players) || !lobby.config) {
-        delete this.lobbies[code];
-        changed = true;
-        continue;
-      }
-      if (lobby.players.length === 0) {
-        delete this.lobbies[code];
-        changed = true;
-        continue;
-      }
-      if (now - (lobby.createdAt || 0) > EXPIRE_MS) {
-        delete this.lobbies[code];
-        changed = true;
-        continue;
-      }
-    }
-
-    if (changed) await this.save();
-  }
-
-  async save() {
-    await saveLobbies(this.lobbies);
-  }
-
-  async deleteLobby(code) {
-    if (this.lobbies[code]) {
-      delete this.lobbies[code];
-      await this.save();
-    }
-  }
-
-  async registerSocket(socket) {
+  async init() {
+    // 1) load any existing DB state to populate this.lobbies
     await this.load();
 
-    // ensure socket has data.user container
+    // 2) prune the local DB (this will write file if needed)
+    try {
+      const res = await pruneLocalLobbies();
+      if (res && res.removedCount) {
+        console.info(`[LobbyManager] initial prune removed ${res.removedCount} stale entries (remaining ${res.remainingCount})`);
+      }
+    } catch (err) {
+      console.warn('[LobbyManager] initial pruneLocalLobbies failed:', err);
+    }
+
+    // 3) reload the cleaned storage into memory so this.lobbies is the canonical (pruned) view
+    await this.load();
+
+    // 4) start polling/prune intervals after initial sync
+    this._pollHandle = setInterval(() => this.load().catch(err => {
+      console.warn("[LobbyManager] periodic load failed:", err);
+    }), this._pollIntervalMs || 60000);
+
+    this._pruneHandle = setInterval(() => {
+      pruneLocalLobbies().then(res => {
+        if (res.removedCount && res.removedCount > 0) {
+          console.info(`[LobbyManager] pruneLocalLobbies removed ${res.removedCount} stale entries (remaining ${res.remainingCount})`);
+          // sync memory with disk after pruning
+          return this.load();
+        }
+      }).catch(err => {
+        console.warn("[LobbyManager] pruneLocalLobbies failed:", err);
+      });
+    }, this._pollIntervalMs || 60000);
+  }
+
+  // Load all lobbies from storage (defensive: supports array or map)
+  async load() {
+    try {
+      const raw = await loadLobbies();
+      if (!raw) {
+        this.lobbies = {};
+        return;
+      }
+
+      // If storage returned an array (e.g. supabase rows), convert into map keyed by code
+      if (Array.isArray(raw)) {
+        const map = {};
+        for (const item of raw) {
+          // expect item.code (or item.id) as unique key
+          const key = (item.code || item.id || "").toString().trim().toUpperCase();
+          if (!key) continue;
+          // normalize structure: ensure players array and config exist
+          map[key] = {
+            code: key,
+            hostSocketId: item.hostSocketId || item.host || null,
+            hostUserId: item.hostUserId || item.hostUserId || item.hostUser || null,
+            players: Array.isArray(item.players) ? item.players : (item.players ? JSON.parse(item.players) : []),
+            config: item.config || (item.config_json ? item.config_json : { players: 2, rounds: 20, combos: false }),
+            createdAt: item.createdAt || item.created_at || Date.now()
+          };
+        }
+        this.lobbies = map;
+      } else if (typeof raw === "object") {
+        // assume map
+        this.lobbies = { ...raw };
+      } else {
+        this.lobbies = {};
+      }
+
+      // Basic cleanup: ensure shapes are valid
+      const now = Date.now();
+      const EXPIRE_MS = 1000 * 60 * 60 * 3; // 3 hours
+      let changed = false;
+      for (const code of Object.keys(this.lobbies)) {
+        const lobby = this.lobbies[code];
+        if (!lobby || !Array.isArray(lobby.players) || !lobby.config) {
+          delete this.lobbies[code];
+          changed = true;
+          continue;
+        }
+        if (lobby.players.length === 0) {
+          delete this.lobbies[code];
+          changed = true;
+          continue;
+        }
+        if (now - (lobby.createdAt || 0) > EXPIRE_MS) {
+          delete this.lobbies[code];
+          changed = true;
+          continue;
+        }
+      }
+
+      if (changed) {
+        try { await this.save(); } catch (e) { console.warn("[LobbyManager] save after cleanup failed:", e); }
+      }
+    } catch (err) {
+      console.error("[LobbyManager] loadLobbies() failed:", err);
+      // keep current in-memory lobbies if DB fails
+    }
+  }
+
+  // Save entire map. The storage layer may implement this as a bulk replace or per-row upsert.
+  async save() {
+    try {
+      await saveLobbies(this.lobbies || {});
+    } catch (err) {
+      console.error("[LobbyManager] saveLobbies() failed:", err);
+      throw err;
+    }
+  }
+
+  // Delete lobby (and persist)
+  async deleteLobby(code) {
+    if (!code) return;
+    code = String(code).trim().toUpperCase();
+
+    if (this.lobbies[code]) {
+      delete this.lobbies[code];
+    }
+
+    try {
+      // save to lowdb
+      await this.save();
+
+      // remove from Supabase
+      await deleteSupabaseLobby(code);
+
+    } catch (e) {
+      console.warn("[LobbyManager] deleteLobby failed:", e);
+    }
+  }
+
+  // Register socket connection + handlers
+  async registerSocket(socket) {
+    // refresh latest lobbies from DB before handling new socket
+    try { await this.load(); } catch (e) { /* already logged */ }
+
+    // ensure socket.data.user container exists
     socket.data.user = socket.data.user || null;
 
-    // -----------------------------
-    // AUTH USER
-    // -----------------------------
+    // ---------- AUTH USER ----------
     socket.on("auth-user", async (user) => {
-      socket.data.user = {
-        ...user,
-        ready: false
-      };
+      // minimal sanitisation
+      if (!user || !user.id) return;
+      socket.data.user = { ...user, ready: false };
     });
 
-    // -----------------------------
-    // CREATE LOBBY
-    // -----------------------------
+    // ---------- CREATE LOBBY ----------
     socket.on("create-lobby", async (config = {}) => {
-      if (!socket.data.user) return;
+      if (!socket.data.user) return socket.emit("create-failed", { reason: "unauthenticated" });
 
-      const code = Math.random().toString(36).slice(2, 7).toUpperCase();
-      this.lobbies[code] = {
+      // ensure unique code (retry if collision)
+      let code;
+      for (let i = 0; i < 6; i++) {
+        code = Math.random().toString(36).slice(2, 7).toUpperCase();
+        if (!this.lobbies[code]) break;
+        code = null;
+      }
+      if (!code) {
+        // fallback: generate using timestamp
+        code = ("L" + Date.now()).slice(-6).toUpperCase();
+      }
+
+      const lobby = {
+        code,
         hostSocketId: socket.id,
         hostUserId: socket.data.user.id,
-        players: [
-          { ...socket.data.user, id: socket.data.user.id, ready: false }
-        ],
+        players: [{ ...socket.data.user, id: socket.data.user.id, ready: false }],
         config: {
           players: config.players || 2,
           rounds: config.rounds || 20,
@@ -87,69 +185,70 @@ export default class LobbyManager {
         createdAt: Date.now()
       };
 
-      await this.save();
+      this.lobbies[code] = lobby;
+
+      try {
+        await this.save();
+      } catch (e) {
+        console.warn("[LobbyManager] failed to persist created lobby:", e);
+      }
+
       socket.join(code);
       socket.emit("lobby-created", code);
       this.broadcastLobbyUpdate(code);
     });
 
-    // -----------------------------
-    // JOIN LOBBY
-    // -----------------------------
-    socket.on("join-lobby", async (code) => {
-      if (typeof code !== "string") return socket.emit("join-failed", { reason: "notfound" });
-      code = code.trim().toUpperCase();
+    // ---------- JOIN LOBBY ----------
+    socket.on("join-lobby", async (codeRaw) => {
+      if (!socket.data.user) return socket.emit("join-failed", { reason: "unauthenticated" });
+      if (typeof codeRaw !== "string") return socket.emit("join-failed", { reason: "invalid_code" });
 
+      const code = codeRaw.trim().toUpperCase();
       const lobby = this.lobbies[code];
       if (!lobby) return socket.emit("join-failed", { reason: "notfound" });
-      if (!socket.data.user) return socket.emit("join-failed", { reason: "unauthenticated" });
 
       if (lobby.players.length >= (lobby.config?.players || 2)) {
         return socket.emit("join-failed", { reason: "full" });
       }
 
-      const existing = lobby.players.find(p => p.id === socket.data.user.id);
+      const existing = lobby.players.find(p => String(p.id) === String(socket.data.user.id));
       if (!existing) {
-        lobby.players.push({ ...socket.data.user, ready: false });
-        await this.save();
+        lobby.players.push({ ...socket.data.user, id: socket.data.user.id, ready: false });
+        try { await this.save(); } catch (e) { console.warn("[LobbyManager] save after join failed:", e); }
       }
 
       socket.join(code);
       socket.emit("join-success", {
         code,
         players: lobby.players,
-        hostSocketId: lobby.hostSocketId || lobby.host,
-        hostUserId: lobby.hostUserId || lobby.hostUserId
+        hostSocketId: lobby.hostSocketId || lobby.host || null,
+        hostUserId: lobby.hostUserId || lobby.hostUserId || null
       });
       this.broadcastLobbyUpdate(code);
     });
 
-    // -----------------------------
-    // REQUEST LOBBY DATA
-    // -----------------------------
-    socket.on("request-lobby-data", async (code) => {
-      if (typeof code !== "string") return;
-      code = code.trim().toUpperCase();
+    // ---------- REQUEST LOBBY DATA ----------
+    socket.on("request-lobby-data", async (codeRaw) => {
+      if (typeof codeRaw !== "string") return;
+      const code = codeRaw.trim().toUpperCase();
       const lobby = this.lobbies[code];
       if (!lobby) return;
       socket.emit("lobby-data", {
         code,
         players: lobby.players,
-        hostSocketId: lobby.hostSocketId || lobby.host,
-        hostUserId: lobby.hostUserId || lobby.hostUserId,
+        hostSocketId: lobby.hostSocketId || lobby.host || null,
+        hostUserId: lobby.hostUserId || lobby.hostUserId || null,
         config: lobby.config
       });
     });
 
-    // -----------------------------
-    // REQUEST GAME STATE (client in OnlineGameScene calls this)
-    // -----------------------------
+    // ---------- REQUEST GAME STATE ----------
     socket.on("request-game-state", (payload) => {
       const code = (payload && payload.code) ? String(payload.code).trim().toUpperCase() : null;
       if (!code) return;
       const game = this.activeGames[code];
       if (!game) {
-        // If game hasn't started yet, return lobby snapshot
+        // return lobby snapshot if game not started
         const lobby = this.lobbies[code];
         if (lobby) {
           const players = Array.isArray(lobby.players) ? lobby.players : [];
@@ -164,16 +263,10 @@ export default class LobbyManager {
         return;
       }
 
-      // Build players payload (id,name,score,comboStats)
-      const players = game.players.map(p => ({
-        id: p.id,
-        name: p.name,
-        score: p.score,
-        comboStats: p.comboStats
-      }));
-
-      // find local index for this socket
+      // server-authoritative game state
+      const players = game.players.map(p => ({ id: p.id, name: p.name, score: p.score, comboStats: p.comboStats }));
       const localIndex = players.findIndex(p => p.id === socket.data.user?.id);
+
       socket.emit("game-state", {
         players,
         localIndex: localIndex >= 0 ? localIndex : null,
@@ -189,59 +282,50 @@ export default class LobbyManager {
       });
     });
 
-    // -----------------------------
-    // READY TOGGLE
-    // -----------------------------
-    socket.on("toggle-ready", async (code) => {
+    // ---------- TOGGLE READY ----------
+    socket.on("toggle-ready", async (codeRaw) => {
+      if (typeof codeRaw !== "string") return;
+      const code = codeRaw.trim().toUpperCase();
       const lobby = this.lobbies[code];
       if (!lobby) return;
-      const player = lobby.players.find(p => p.id === socket.data.user?.id);
+
+      const player = lobby.players.find(p => String(p.id) === String(socket.data.user?.id));
       if (!player) return;
+
       player.ready = !player.ready;
-      await this.save();
+      try { await this.save(); } catch (e) { console.warn("[LobbyManager] save after toggle-ready failed:", e); }
       this.broadcastLobbyUpdate(code);
     });
 
-    // -----------------------------
-    // LEAVE LOBBY
-    // -----------------------------
-    socket.on("leave-lobby", async (code) => {
-      if (typeof code !== "string") return;
-      await this.removePlayerFromLobby(code.trim().toUpperCase(), socket);
+    // ---------- LEAVE LOBBY ----------
+    socket.on("leave-lobby", async (codeRaw) => {
+      if (typeof codeRaw !== "string") return;
+      await this.removePlayerFromLobby(codeRaw.trim().toUpperCase(), socket);
     });
 
-    // -----------------------------
-    // START GAME (host only)
-    // -----------------------------
-    socket.on("start-game", async (code) => {
-      if (typeof code !== "string") return;
-      code = code.trim().toUpperCase();
+    // ---------- START GAME ----------
+    socket.on("start-game", async (codeRaw) => {
+      if (typeof codeRaw !== "string") return;
+      const code = codeRaw.trim().toUpperCase();
       const lobby = this.lobbies[code];
       if (!lobby) return;
 
-      // check host by socket id stored in lobby
+      // ensure host
       if (socket.id !== lobby.hostSocketId) return;
 
       const allReady = lobby.players.every(p => p.ready);
       if (!allReady || lobby.players.length < 2) return;
 
-      // create authoritative active game state
-      this.activeGames[code] = {
+      // create game state
+      const game = {
         code,
         config: lobby.config || { players: 2, rounds: 20, combos: false },
         players: lobby.players.map(p => ({
           id: p.id,
           name: p.name,
+          avatar: p.avatar || null,
           score: 0,
-          comboStats: {
-            pair: 0,
-            twoPair: 0,
-            triple: 0,
-            fullHouse: 0,
-            fourOfAKind: 0,
-            fiveOfAKind: 0,
-            straight: 0
-          },
+          comboStats: { pair:0, twoPair:0, triple:0, fullHouse:0, fourOfAKind:0, fiveOfAKind:0, straight:0 },
           hasRolled: false
         })),
         currentIndex: 0,
@@ -249,24 +333,19 @@ export default class LobbyManager {
         totalRounds: lobby.config?.rounds || 20,
         combosEnabled: !!lobby.config?.combos,
         turnTimer: null,
-        turnExpiresAt: null
+        turnExpiresAt: null,
+        timeLimitSeconds: lobby.config?.timeLimitSeconds || 30
       };
 
-      // small debug
-      console.log(`[LobbyManager] game started in ${code}, players:`, lobby.players.map(p => p.name));
+      this.activeGames[code] = game;
 
-      // notify clients (lobby -> game)
-      this.io.to(code).emit("game-starting", {
-        code,
-        config: lobby.config,
-        players: lobby.players
-      });
+      // notify clients (invite to transition)
+      this.io.to(code).emit("game-starting", { code, config: lobby.config, players: lobby.players });
 
-      const game = this.activeGames[code];
+      // build per-socket state and send
       const statePayload = {
-        config: this.activeGames[code].config,
+        config: game.config,
         players: game.players.map(p => ({ id: p.id, name: p.name, avatar: p.avatar, connected: true })),
-        localIndex: null,
         scores: game.players.map(p => p.score),
         comboStats: game.players.map(p => p.comboStats),
         round: game.round,
@@ -278,182 +357,161 @@ export default class LobbyManager {
       };
 
       try {
-        // room is a Set of socket ids
         const roomSet = this.io.sockets.adapter.rooms.get(code);
         if (roomSet && roomSet.size) {
           for (const sid of roomSet) {
             const sock = this.io.sockets.sockets.get(sid);
             if (!sock) continue;
             const li = game.players.findIndex(p => p.id === sock.data?.user?.id);
-            const personalized = {
-              ...statePayload,
-              localIndex: li >= 0 ? li : null
-            };
+            const personalized = { ...statePayload, localIndex: li >= 0 ? li : null };
             sock.emit("game-state", personalized);
           }
         } else {
-          // fallback: broadcast if we can't enumerate room sockets
           this.io.to(code).emit("game-state", statePayload);
         }
       } catch (err) {
-        console.warn('[LobbyManager] failed to send per-socket game-state, falling back to broadcast', err);
+        console.warn("[LobbyManager] per-socket game-state failed, broadcasting fallback", err);
         this.io.to(code).emit("game-state", statePayload);
       }
 
-      // small delay so clients can transition and register handlers
-      setTimeout(() => {
-        this.io.to(code).emit("game-state", statePayload);
-      }, 80); // 50–100ms works well in local testing
-
-      // give a bit more time before actually starting the first turn (server will still call startTurn)
-      setTimeout(() => {
-        this.startTurn(code);
-      }, 180);
+      // small delays to allow clients to transition and register handlers
+      setTimeout(() => this.io.to(code).emit("game-state", statePayload), 80);
+      setTimeout(() => this.startTurn(code), 180);
     });
 
-    // -----------------------------
-    // PLAYER ROLL (client requests roll)
-    // -----------------------------
-    socket.on("player-roll", ({ code }) => {
-  if (!code || typeof code !== "string") return;
-  code = code.trim().toUpperCase();
-  const game = this.activeGames[code];
-  if (!game) return;
+    // ---------- PLAYER ROLL ----------
+    socket.on("player-roll", ({ code } = {}) => {
+      if (!code || typeof code !== "string") return;
+      const codeU = code.trim().toUpperCase();
+      const game = this.activeGames[codeU];
+      if (!game) return;
 
-  // authoritative player index & id
-  const playerIndex = game.currentIndex;
-  const player = game.players[playerIndex];
-  if (!player) return;
+      const playerIndex = game.currentIndex;
+      const player = game.players[playerIndex];
+      if (!player) return;
 
-  // only allow the player whose id matches the request socket
-  if (player.id !== socket.data.user?.id) return;
+      // ensure this socket is the active player
+      if (player.id !== socket.data.user?.id) return;
 
-  // announce to the room that this player has started rolling (for UI flair)
-  this.io.to(code).emit("player-rolling", { playerIndex });
+      // announce rolling
+      this.io.to(codeU).emit("player-rolling", { playerIndex });
 
-  // clear any existing turnTimer set by startTurn
-  if (game.turnTimer) {
-    clearTimeout(game.turnTimer);
-    game.turnTimer = null;
-  }
+      if (game.turnTimer) { clearTimeout(game.turnTimer); game.turnTimer = null; }
 
-  // add a short processing delay so clients have time to animate "rolling"
-  setTimeout(() => {
-    // perform server-side dice roll
-    const dice = this.rollDice(5);
+      setTimeout(() => {
+        const dice = this.rollDice(5);
+        const { points, combo } = this.calculateScore(dice, game.combosEnabled);
 
-    // score
-    const { points, combo } = this.calculateScore(dice, game.combosEnabled);
+        player.score += points;
+        if (combo && combo.key) player.comboStats[combo.key] = (player.comboStats[combo.key] || 0) + 1;
+        player.hasRolled = true;
 
-    // apply points & combo stats (server authoritative)
-    player.score += points;
-    if (combo && combo.key) {
-      player.comboStats[combo.key] = (player.comboStats[combo.key] || 0) + 1;
-    }
+        const graceMs = 10_000;
+        game.turnExpiresAt = Date.now() + graceMs;
 
-    player.hasRolled = true;
+        this.io.to(codeU).emit("turn-result", {
+          playerIndex,
+          dice,
+          scored: points,
+          combo: combo || null,
+          scores: game.players.map(p => p.score),
+          comboStats: game.players.map(p => p.comboStats),
+          round: game.round,
+          turnExpiresAt: game.turnExpiresAt
+        });
 
-    const graceMs = 10_000;
-    game.turnExpiresAt = Date.now() + graceMs;
-
-    // broadcast authoritative result
-    this.io.to(code).emit("turn-result", {
-      playerIndex,
-      dice,
-      scored: points,
-      combo: combo || null,
-      scores: game.players.map(p => p.score),
-      comboStats: game.players.map(p => p.comboStats),
-      round: game.round,
-      turnExpiresAt: game.turnExpiresAt
+        if (game.turnTimer) { clearTimeout(game.turnTimer); game.turnTimer = null; }
+        game.turnTimer = setTimeout(() => this.advanceTurn(codeU), graceMs);
+      }, 700);
     });
 
-    // schedule auto-advance after a longer grace period so player can press End Turn (client enables after 3s)
-    if (game.turnTimer) {
-      clearTimeout(game.turnTimer);
-      game.turnTimer = null;
-    }
-    game.turnTimer = setTimeout(() => this.advanceTurn(code), graceMs);
-  }, 700); // 700ms delay to let clients animate
-});
-
-    // -----------------------------
-    // PLAYER END TURN
-    // -----------------------------
-    socket.on('player-end-turn', ({ code, playerIndex } = {}) => {
-      if (!code || typeof code !== 'string') return;
-      code = code.trim().toUpperCase();
-      const game = this.activeGames[code];
+    // ---------- PLAYER END TURN ----------
+    socket.on("player-end-turn", ({ code, playerIndex } = {}) => {
+      if (!code || typeof code !== "string") return;
+      const codeU = code.trim().toUpperCase();
+      const game = this.activeGames[codeU];
       if (!game) return;
 
       const currentPlayer = game.players[game.currentIndex];
       if (!currentPlayer || currentPlayer.id !== socket.data.user?.id) return;
 
       if (!currentPlayer.hasRolled) {
-        socket.emit('end-turn-failed', { reason: 'not_rolled' });
+        socket.emit("end-turn-failed", { reason: "not_rolled" });
         return;
       }
 
-      this.advanceTurn(code);
+      this.advanceTurn(codeU);
     });
 
-    // -----------------------------
-    // PLAYER TIMEOUT
-    // -----------------------------
-    socket.on('player-timeout', ({ code, playerIndex } = {}) => {
-      if (!code || typeof code !== 'string') return;
-      code = code.trim().toUpperCase();
-      const game = this.activeGames[code];
+    // ---------- PLAYER TIMEOUT ----------
+    socket.on("player-timeout", ({ code } = {}) => {
+      if (!code || typeof code !== "string") return;
+      const codeU = code.trim().toUpperCase();
+      const game = this.activeGames[codeU];
       if (!game) return;
 
       const currentPlayer = game.players[game.currentIndex];
       if (!currentPlayer || currentPlayer.id !== socket.data.user?.id) return;
 
-      // call authoritative handler (server will roll/advance)
-      this.handleTimeout(code);
+      this.handleTimeout(codeU);
     });
 
-    // -----------------------------
-    // GAME FINISHED (manual cleanup)
-    // -----------------------------
-    socket.on("game-finished", async (code) => {
-      if (!code || typeof code !== "string") return;
-      code = code.trim().toUpperCase();
+    // ---------- GAME FINISHED ----------
+    socket.on("game-finished", async (codeRaw) => {
+      if (!codeRaw || typeof codeRaw !== "string") return;
+      const code = codeRaw.trim().toUpperCase();
+
       await this.deleteLobby(code);
       this.io.to(code).emit("lobby-deleted", { code });
       if (this.activeGames[code]) delete this.activeGames[code];
     });
 
-    // -----------------------------
-    // DISCONNECT handler
-    // -----------------------------
+    // ---------- DISCONNECT ----------
     socket.on("disconnect", async () => {
-      for (const code of Object.keys(this.lobbies)) {
-        await this.removePlayerFromLobby(code, socket);
+      // remove this socket's user from any lobby where they are a member
+      const uid = socket.data.user?.id;
+      if (!uid) return;
+
+      // Iterate lobbies and only call removePlayerFromLobby when this user is present
+      const codes = Object.keys(this.lobbies);
+      for (const code of codes) {
+        const lobby = this.lobbies[code];
+        if (!lobby || !Array.isArray(lobby.players)) continue;
+        const found = lobby.players.find(p => String(p.id) === String(uid));
+        if (found) {
+          try {
+            await this.removePlayerFromLobby(code, socket);
+          } catch (e) {
+            console.warn("[LobbyManager] removePlayerFromLobby during disconnect failed:", e);
+          }
+        }
       }
     });
-  }
+  } // end registerSocket
 
-  // -----------------------------------------------------
-  //  REMOVE PLAYER / HOST TRANSFER / AUTO-DELETE EMPTY
-  // -----------------------------------------------------
-  async removePlayerFromLobby(code, socket) {
-    if (!code || typeof code !== "string") return;
+  // Remove player (and handle host transfer / cleanup)
+  async removePlayerFromLobby(codeRaw, socket) {
+    if (!codeRaw || typeof codeRaw !== "string") return;
+    const code = codeRaw.trim().toUpperCase();
+
     const lobby = this.lobbies[code];
     if (!lobby) {
-      // If no lobby, still check active game
+      // also handle active game removal
       const gameOnly = this.activeGames[code];
       if (gameOnly) {
-        // remove player if present
         const beforeLen = gameOnly.players.length;
         gameOnly.players = gameOnly.players.filter(p => p.id !== socket.data.user?.id);
         if (gameOnly.players.length !== beforeLen) {
-          // if currentIndex out of bounds, clamp
           if (gameOnly.currentIndex >= gameOnly.players.length) gameOnly.currentIndex = 0;
           this.io.to(code).emit("player-left", { id: socket.data.user?.id });
-          // if only one left -> finish game
           if (gameOnly.players.length === 1) {
-            this.io.to(code).emit("game-finished", { code, players: gameOnly.players });
+            this.io.to(code).emit("game-finished", {
+              code,
+              scores: gameOnly.players.map(p => p.score),
+              comboStats: gameOnly.players.map(p => p.comboStats),
+              names: gameOnly.players.map(p => p.name),
+              players: gameOnly.players
+            });
             delete this.activeGames[code];
           }
         }
@@ -462,12 +520,14 @@ export default class LobbyManager {
     }
 
     const before = lobby.players.length;
-    lobby.players = lobby.players.filter(p => p.id !== (socket.data.user?.id || null));
+    lobby.players = lobby.players.filter(p => String(p.id) !== String(socket.data.user?.id));
 
     if (lobby.players.length !== before) {
+      // transfer host if needed
       if (socket.id === lobby.hostSocketId) {
         if (lobby.players.length > 0) {
           const newHostUser = lobby.players[0];
+          // find socket for that user (best-effort)
           const newHostSocket = [...this.io.sockets.sockets.values()].find(s => s.data?.user?.id === newHostUser.id);
           if (newHostSocket) {
             lobby.hostSocketId = newHostSocket.id;
@@ -478,26 +538,24 @@ export default class LobbyManager {
           }
         } else {
           await this.deleteLobby(code);
+          this.io.to(code).emit("lobby-deleted", { code });
           return;
         }
       }
 
-      await this.save();
+      try { await this.save(); } catch (e) { console.warn("[LobbyManager] save after removePlayer failed:", e); }
       this.broadcastLobbyUpdate(code);
     }
 
-    // If an active game exists, remove player from it as well
+    // If an active game exists, remove player from it too
     const game = this.activeGames[code];
     if (game) {
       const beforeLen = game.players.length;
-      game.players = game.players.filter(p => p.id !== socket.data.user?.id);
+      game.players = game.players.filter(p => String(p.id) !== String(socket.data.user?.id));
 
-      // broadcast player-left for clients
       this.io.to(code).emit("player-left", { id: socket.data.user?.id });
 
-      // adjust currentIndex if needed
       if (game.players.length === 0) {
-        // no players left -> cleanup
         delete this.activeGames[code];
         return;
       }
@@ -506,20 +564,46 @@ export default class LobbyManager {
         game.currentIndex = 0;
       }
 
-      // if only one player left -> finish game
       if (game.players.length === 1) {
         this.io.to(code).emit("game-finished", { code, players: game.players });
         delete this.activeGames[code];
         return;
       }
 
-      this.startTurn(code);
+      try {
+        const payload = {
+          players: game.players.map(p => ({ id: p.id, name: p.name, avatar: p.avatar || null, connected: true })),
+          scores: game.players.map(p => p.score),
+          comboStats: game.players.map(p => p.comboStats),
+          round: game.round,
+          totalRounds: game.totalRounds,
+          room: code,
+          currentPlayerIndex: game.currentIndex,
+          timeLimitSeconds: game.timeLimitSeconds || 30,
+          turnExpiresAt: game.turnExpiresAt || null
+        };
+        this.io.to(code).emit("game-state", payload);
+      } catch (err) {
+        console.warn("[LobbyManager] emit game-state after player-left failed:", err);
+      }
+
+      // small delay so clients process the game-state update before server starts the next turn
+      setTimeout(() => {
+        try {
+          const g = this.activeGames[code];
+          if (g && g.players && g.players.length > 1) {
+            this.startTurn(code);
+          }
+        } catch (e) {
+          console.warn("[LobbyManager] deferred startTurn failed:", e);
+        }
+      }, 120);
+
+      return;
     }
   }
 
-  // -----------------------------------------------------
-  //  BROADCAST LOBBY UPDATE
-  // -----------------------------------------------------
+  // Broadcast lobby update to room
   broadcastLobbyUpdate(code) {
     const lobby = this.lobbies[code];
     if (!lobby) return;
@@ -532,82 +616,74 @@ export default class LobbyManager {
     });
   }
 
+  // Emit authoritative game-state (personalized per socket)
   emitGameState(code) {
-  const game = this.activeGames[code];
-  if (!game) return;
+    const game = this.activeGames[code];
+    if (!game) return;
 
-  const statePayloadBase = {
-    players: game.players.map(p => ({ id: p.id, name: p.name, avatar: p.avatar, connected: true })),
-    scores: game.players.map(p => p.score),
-    comboStats: game.players.map(p => p.comboStats),
-    round: game.round,
-    totalRounds: game.totalRounds,
-    room: code,
-    currentPlayerIndex: game.currentIndex,
-    timeLimitSeconds: 30
-  };
+    const statePayloadBase = {
+      players: game.players.map(p => ({ id: p.id, name: p.name, avatar: p.avatar, connected: true })),
+      scores: game.players.map(p => p.score),
+      comboStats: game.players.map(p => p.comboStats),
+      round: game.round,
+      totalRounds: game.totalRounds,
+      room: code,
+      currentPlayerIndex: game.currentIndex,
+      timeLimitSeconds: game.timeLimitSeconds
+    };
 
-  try {
-    const roomSet = this.io.sockets.adapter.rooms.get(code);
-    if (roomSet && roomSet.size) {
-      for (const sid of roomSet) {
-        const sock = this.io.sockets.sockets.get(sid);
-        if (!sock) continue;
-        const li = game.players.findIndex(p => p.id === sock.data?.user?.id);
-        const personalized = { ...statePayloadBase, localIndex: li >= 0 ? li : null };
-        sock.emit('game-state', personalized);
+    try {
+      const roomSet = this.io.sockets.adapter.rooms.get(code);
+      if (roomSet && roomSet.size) {
+        for (const sid of roomSet) {
+          const sock = this.io.sockets.sockets.get(sid);
+          if (!sock) continue;
+          const li = game.players.findIndex(p => p.id === sock.data?.user?.id);
+          const personalized = { ...statePayloadBase, localIndex: li >= 0 ? li : null };
+          sock.emit('game-state', personalized);
+        }
+      } else {
+        this.io.to(code).emit('game-state', statePayloadBase);
       }
-    } else {
+    } catch (err) {
+      console.warn('[LobbyManager] emitGameState failed, falling back to broadcast', err);
       this.io.to(code).emit('game-state', statePayloadBase);
     }
-  } catch (err) {
-    console.warn('[LobbyManager] emitGameState failed, falling back to broadcast', err);
-    this.io.to(code).emit('game-state', statePayloadBase);
   }
-}
 
-  // -----------------------------------------------------
-  //  START TURN (server authoritative)
-  // -----------------------------------------------------
+  // Start a server-authoritative turn
   startTurn(code) {
-  const game = this.activeGames[code];
-  if (!game) return;
+    const game = this.activeGames[code];
+    if (!game) return;
 
-  const playerIndex = game.currentIndex;
-  const player = game.players[playerIndex];
-  if (!player) return;
+    const playerIndex = game.currentIndex;
+    const player = game.players[playerIndex];
+    if (!player) return;
 
-  // reset hasRolled for current player
-  player.hasRolled = false;
+    player.hasRolled = false;
 
-  // compute expire timestamp
-  const timeLimitSeconds = typeof game.timeLimitSeconds === 'number' ? game.timeLimitSeconds : 30;
-  game.turnExpiresAt = Date.now() + (timeLimitSeconds * 1000);
+    const timeLimitSeconds = typeof game.timeLimitSeconds === 'number' ? game.timeLimitSeconds : 30;
+    game.turnExpiresAt = Date.now() + (timeLimitSeconds * 1000);
 
-  // broadcast turn-start (include server expire timestamp)
-  this.io.to(code).emit("turn-start", {
-    playerIndex,
-    currentPlayerIndex: playerIndex,
-    round: game.round,
-    timeLimitSeconds,
-    scores: game.players.map(p => p.score),
-    comboStats: game.players.map(p => p.comboStats),
-    turnExpiresAt: game.turnExpiresAt
-  });
+    this.io.to(code).emit("turn-start", {
+      playerIndex,
+      currentPlayerIndex: playerIndex,
+      round: game.round,
+      timeLimitSeconds,
+      scores: game.players.map(p => p.score),
+      comboStats: game.players.map(p => p.comboStats),
+      turnExpiresAt: game.turnExpiresAt
+    });
 
-  // clear existing timer
-  if (game.turnTimer) {
-    clearTimeout(game.turnTimer);
-    game.turnTimer = null;
+    if (game.turnTimer) {
+      clearTimeout(game.turnTimer);
+      game.turnTimer = null;
+    }
+
+    game.turnTimer = setTimeout(() => this.handleTimeout(code), timeLimitSeconds * 1000);
   }
 
-  // set server timeout that auto-rolls (AFK) at expiry
-  game.turnTimer = setTimeout(() => this.handleTimeout(code), timeLimitSeconds * 1000);
-}
-
-  // -----------------------------------------------------
-  //  ROLL HELPERS
-  // -----------------------------------------------------
+  // Utility: roll N dice
   rollDice(count = 5) {
     return Array.from({ length: count }, () => Math.ceil(Math.random() * 6));
   }
@@ -624,15 +700,12 @@ export default class LobbyManager {
   }
 
   applyBonus(dice, baseScore, combosEnabled) {
-      if (!combosEnabled) return baseScore;
-      const combo = checkCombo(dice);
-      if (!combo) return baseScore;
-      return Math.floor(baseScore * (combo.multiplier || 1));
-    }
+    if (!combosEnabled) return baseScore;
+    const combo = checkCombo(dice);
+    if (!combo) return baseScore;
+    return Math.floor(baseScore * (combo.multiplier || 1));
+  }
 
-  // -----------------------------------------------------
-  //  TIMEOUT (AFK) HANDLING
-  // -----------------------------------------------------
   handleTimeout(code) {
     const game = this.activeGames[code];
     if (!game) return;
@@ -644,12 +717,8 @@ export default class LobbyManager {
     const dice = this.rollDice(5);
     const { points, combo } = this.calculateScore(dice, game.combosEnabled);
 
-    // apply result
     player.score += points;
     if (combo && combo.key) player.comboStats[combo.key] = (player.comboStats[combo.key] || 0) + 1;
-
-    // broadcast an AFK/timeout result (client can show different UI)
-    // set a small post-timeout display window (3s)
 
     game.turnExpiresAt = Date.now() + 3000;
 
@@ -664,34 +733,27 @@ export default class LobbyManager {
       turnExpiresAt: game.turnExpiresAt
     });
 
-    // advance immediately (or after short delay)
     setTimeout(() => this.advanceTurn(code), 3000);
   }
 
-  // -----------------------------------------------------
-  //  ADVANCE TURN
-  // -----------------------------------------------------
   advanceTurn(code) {
     const game = this.activeGames[code];
     if (!game) return;
 
-    // clear any pending timer
-    if (game.turnTimer) {
-      clearTimeout(game.turnTimer);
-      game.turnTimer = null;
-    }
+    if (game.turnTimer) { clearTimeout(game.turnTimer); game.turnTimer = null; }
 
     game.currentIndex++;
 
-    // if end of round
     if (game.currentIndex >= game.players.length) {
       game.currentIndex = 0;
       game.round++;
 
-      // game finished?
       if (game.round > game.totalRounds) {
         this.io.to(code).emit("game-finished", {
           code,
+          scores: game.players.map(p => p.score),
+          comboStats: game.players.map(p => p.comboStats),
+          names: game.players.map(p => p.name),
           players: game.players
         });
         delete this.activeGames[code];
@@ -699,7 +761,18 @@ export default class LobbyManager {
       }
     }
 
-    // start next turn
     this.startTurn(code);
+  }
+
+  // Clean up poll interval if manager is disposed
+  dispose() {
+    if (this._pollHandle) {
+      clearInterval(this._pollHandle);
+      this._pollHandle = null;
+    }
+    if (this._pruneHandle) {
+      clearInterval(this._pruneHandle);
+      this._pruneHandle = null;
+    }
   }
 }

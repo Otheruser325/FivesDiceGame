@@ -1,5 +1,5 @@
 import { getSocket } from '../utils/SocketManager.js';
-import { GlobalAudio } from '../utils/AudioManager.js';
+import GlobalAudio from '../utils/AudioManager.js';
 
 export default class OnlineConfigScene extends Phaser.Scene {
     constructor() {
@@ -39,7 +39,7 @@ export default class OnlineConfigScene extends Phaser.Scene {
         });
 
         // ROUNDS
-        this.add.text(600, 360, 'How long will the game last?', {
+        this.add.text(600, 360, 'How many rounds?', {
             fontSize: 28
         }).setOrigin(0.5);
 
@@ -99,7 +99,7 @@ export default class OnlineConfigScene extends Phaser.Scene {
         });
 
         // BACK BUTTON
-        const backBtn = this.add.text(50, 50, 'Back', {
+        const backBtn = this.add.text(80, 800, '← Back', {
             fontSize: 24,
             color: '#66aaff'
         }).setOrigin(0.5).setInteractive();

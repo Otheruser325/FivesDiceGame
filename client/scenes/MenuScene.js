@@ -1,4 +1,4 @@
-import { GlobalAudio } from '../utils/AudioManager.js';
+import GlobalAudio from '../utils/AudioManager.js';
 
 export default class MenuScene extends Phaser.Scene {
     constructor() {
@@ -24,33 +24,27 @@ export default class MenuScene extends Phaser.Scene {
             .setOrigin(0.5)
             .setInteractive();
 			
-		GlobalAudio.playMusic(this);
+		if (GlobalAudio && typeof GlobalAudio.playMusic === 'function') {
+          GlobalAudio.playMusic(this);
+        }
 			
 		playBtn.on('pointerdown', () => {
-            if (GlobalAudio && GlobalAudio.playButton) {
-                GlobalAudio.playButton(this);
-            }
+            GlobalAudio.playButton(this);
             this.scene.start('PlayModeScene');
         });
         
 		settingsBtn.on('pointerdown', () => {
-            if (GlobalAudio && GlobalAudio.playButton) {
-                GlobalAudio.playButton(this);
-            }
+            GlobalAudio.playButton(this);
             this.scene.start('SettingsScene');
         });
 		
 		helpBtn.on('pointerdown', () => {
-            if (GlobalAudio && GlobalAudio.playButton) {
-                GlobalAudio.playButton(this);
-            }
+            GlobalAudio.playButton(this);
             this.scene.start('HelpScene');
         });
 
         changelogBtn.on('pointerdown', () => {
-            if (GlobalAudio && GlobalAudio.playButton) {
-                GlobalAudio.playButton(this);
-            }
+            GlobalAudio.playButton(this);
             this.scene.start('ChangelogScene');
         });
     }

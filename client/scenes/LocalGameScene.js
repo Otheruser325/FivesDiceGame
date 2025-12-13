@@ -1,6 +1,7 @@
-import { GlobalAudio } from '../utils/AudioManager.js';
+import GlobalAudio from '../utils/AudioManager.js';
 import { animateDiceRoll } from '../utils/AnimationManager.js';
 import { checkCombo, showComboText, playComboFX } from '../utils/ComboManager.js';
+import Dice from '../utils/DiceManager.js';
 
 export default class LocalGameScene extends Phaser.Scene {
     constructor() {
@@ -15,6 +16,19 @@ export default class LocalGameScene extends Phaser.Scene {
         this.currentRound = 1;
         this.playerNames = data.names || Array.from({ length: this.totalPlayers }, (_, i) => `P${i + 1}`);
         this.isAI = data.ai || Array.from({ length: this.totalPlayers }, (_, i) => i !== 0);
+        this.aiDifficultyNames = data.difficulty || [];
+        this.aiDifficulty = this.aiDifficultyNames.map(name => {
+          switch ((name || "Medium").toLowerCase()) {
+            case "baby": return 0.5;
+            case "easy": return 0.75;
+            case "hard": return 1.5;
+            case "nightmare": return 2;
+            case "medium":
+            default: return 1;
+          }
+        });
+
+        this.dice = new Dice();
 
         this.currentPlayer = 0;
         this.waitingForRoll = Array(this.totalPlayers).fill(false);
@@ -60,6 +74,7 @@ export default class LocalGameScene extends Phaser.Scene {
         this.rollBtn.on('pointerdown', () => {
             if (this.isAI[this.currentPlayer]) return;
             if (this.waitingForRoll[this.currentPlayer]) return;
+
             this.waitingForRoll[this.currentPlayer] = true;
             this.rollBtn.disableInteractive();
             this.rollBtn.setStyle({ color: '#c4c70bd2' });
@@ -188,13 +203,15 @@ export default class LocalGameScene extends Phaser.Scene {
         this.waitingForRoll[this.currentPlayer] = false;
         this.info.setText(`🎲 ${name}'s turn`);
 
-        if (!this.waitingForRoll[this.currentPlayer]) {
+        const isHuman = !isBot;
+
+        if (isHuman) {
             this.rollBtn.setInteractive();
             this.rollBtn.setText('Roll Dice');
             this.rollBtn.setStyle({ color: '#66ff66' });
         } else {
             this.rollBtn.disableInteractive();
-            this.rollBtn.setText('Roll Dice');
+            this.rollBtn.setText('Waiting...');
             this.rollBtn.setStyle({ color: '#888888' });
         }
 
@@ -241,8 +258,7 @@ export default class LocalGameScene extends Phaser.Scene {
         this.updateDiceScoreDisplay(dice, scored);
 
         this.info.setText(`🎲 ${this.playerNames[this.currentPlayer]}'s roll`);
-        this.rollBtn.setText('Results');
-        this.rollBtn.setStyle({ color: '#888888' });
+        this.rollBtn.setText('Results').setStyle({ color: '#888888' });
 
         this.waitingForRoll[this.currentPlayer] = true;
         this.updatePlayerBar();
@@ -253,9 +269,109 @@ export default class LocalGameScene extends Phaser.Scene {
     }
 
     rollFiveDice() {
-        if (GlobalAudio && typeof GlobalAudio.playDice === 'function') GlobalAudio.playDice(this);
-        const r = () => Math.ceil(Math.random() * 6);
-        return [r(), r(), r(), r(), r()];
+      if (GlobalAudio.playDice) GlobalAudio.playDice(this);
+
+      const i = this.currentPlayer;
+      const isBot = !!this.isAI[i];
+      const luck =
+        typeof this.aiDifficulty?.[i] === 'number'
+          ? this.aiDifficulty[i]
+          : 1;
+
+      // Humans and Medium bots = pure RNG
+      if (!isBot || luck === 1) {
+        return this.dice.rollMany(5);
+      }
+
+      // Combo rules override (difficulty-sealed)
+      if (this.comboRules) {
+        const forced = this.forceComboPattern(luck);
+        if (forced) return forced;
+      }
+
+      // -----------------------------
+      // Weighted dice bias (non-combo)
+      // -----------------------------
+
+      const k = Math.log(Math.max(1e-6, luck));
+      const weights = [];
+      let total = 0;
+
+      for (let f = 1; f <= 6; f++) {
+        const w = Math.exp(k * (f - 3.5));
+        weights.push(w);
+        total += w;
+      }
+
+      const cum = [];
+      let sum = 0;
+      for (let i = 0; i < weights.length; i++) {
+        sum += weights[i];
+        cum.push(sum / total);
+      }
+
+      const luckyRoll = () => {
+        const u = Math.random();
+        for (let i = 0; i < cum.length; i++) {
+          if (u <= cum[i]) return i + 1;
+        }
+        return 6;
+      };
+
+      return [
+        luckyRoll(),
+        luckyRoll(),
+        luckyRoll(),
+        luckyRoll(),
+        luckyRoll()
+      ];
+    }
+
+    forceComboPattern(luck) {
+      const roll = Math.random();
+
+      // ================= NIGHTMARE =================
+      if (luck >= 1.8) {
+        if (roll < 0.05) return this.dice.fiveOfAKind();   // 5%
+        if (roll < 0.25) return this.dice.fourOfAKind();   // +20%
+        if (roll < 0.55) return this.dice.fullHouse();     // +30%
+        return null;
+      }
+
+      // ================= HARD =================
+      if (luck >= 1.4) {
+        if (roll < 0.1) return this.dice.fullHouse();     // 10%
+        if (roll < 0.4) return this.dice.triple();        // +30%
+        if (roll < 0.65) { // 25% straight total:
+          // 40% large, 60% small
+          return Math.random() < 0.4
+            ? this.dice.largeStraight()
+            : this.dice.smallStraight();
+        }
+        return null;
+      }
+
+      // ================= MEDIUM =================
+      if (luck === 1) {
+        return null; // pure RNG
+      }
+
+      // ================= EASY =================
+      if (luck <= 0.8 && luck > 0.6) {
+        if (roll < 0.20) return this.dice.runt();           // 20%
+        if (roll < 0.6) return this.dice.pair();           // +40%
+        if (roll < 0.7) return this.dice.twoPair();        // +10%
+        return null;
+      }
+
+      // ================= BABY =================
+      if (luck <= 0.6) {
+        if (roll < 0.50) return this.dice.runt();           // 50%
+        if (roll < 0.60) return this.dice.pair();           // +10%
+        return null;
+      }
+
+      return null;
     }
 
     updateDiceScoreDisplay(dice, scored) {
@@ -373,7 +489,7 @@ export default class LocalGameScene extends Phaser.Scene {
     }
 
     addBackButton() {
-        const back = this.add.text(50, 550, 'Back', {
+        const back = this.add.text(50, 50, '← Back', {
             fontSize: 24,
             color: '#ff6666'
         }).setInteractive();

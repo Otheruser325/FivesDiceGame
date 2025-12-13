@@ -1,152 +1,135 @@
-export const GlobalAudio = {
-    music: null,
-    currentTrack: 0,
-    tracks: ['hero_time', 'energy', 'powerhouse'],
-    jukeboxEnabled: false,
+import GlobalSettings from './SettingsManager.js';
 
-    getSettings(scene) {
-        let settings = scene.registry.get('settings');
-        if (!settings) {
-            settings = {
-                audio: true,
-                music: true,
-                visualEffects: true,
-                trackIndex: 0
-            };
-            scene.registry.set('settings', settings);
-        }
-        return settings;
-    },
-	
-	saveSettings(scene) {
-        const settings = scene.registry.get('settings');
-        localStorage.setItem('fives_settings', JSON.stringify(settings));
-    },
+class AudioManager {
+  constructor() {
+    this.music = null,
+    this.currentTrack = 0,
+    this.tracks = ['hero_time', 'energy', 'powerhouse'],
+    this.jukeboxEnabled = false
+  }
 
-    // ------------ CORE MUSIC PLAYBACK ------------
-    playMusic(scene) {
-        const settings = this.getSettings(scene);
-        if (!settings.music) return;
+  // Backwards-compatible method — now uses Settings manager
+  getSettings(scene) {
+    return GlobalSettings.get(scene);
+  }
 
-        // Track sync with settings
-        this.currentTrack = settings.trackIndex;
+  saveSettings(scene) {
+    GlobalSettings.save(scene);
+  }
 
-        // Already playing correct track? Do nothing
-        if (this.music && this.music.isPlaying) return;
-
-        const trackKey = this.tracks[this.currentTrack];
-		
-		// Failsafe: prevent crash if index invalid
-        if (!trackKey) {
-            console.warn('Invalid trackIndex:', this.currentTrack);
-            this.currentTrack = 0;
-            settings.trackIndex = 0;
-            scene.registry.set('settings', settings);
-            this.saveSettings(scene);
-            return;
-        }
-
-        this.music = scene.sound.add(trackKey, { volume: 0.6 });
-
-        // If not in jukebox mode, enable automatic cycling
-        if (!this.jukeboxEnabled) {
-            this.music.once('complete', () => {
-                this.nextTrack(scene, true);
-            });
-        }
-
-        this.music.play();
-    },
-
-    // ------------ MANUAL TRACK SELECTOR ------------
-    setTrack(scene, index) {
-        const settings = this.getSettings(scene);
-
-        // Clamp and store
-        this.currentTrack = index % this.tracks.length;
-        settings.trackIndex = this.currentTrack;
-        scene.registry.set('settings', settings);
-
-        // Force Jukebox ON (no auto cycle)
-        this.jukeboxEnabled = true;
-
-        // If music is ON, switch track immediately
-        if (settings.music) {
-            if (this.music) {
-                this.music.stop();
-                this.music = null;
-            }
-            this.playMusic(scene);
-        }
-    },
-
-    // ------------ AUTO-CYCLE NEXT TRACK ------------
-    nextTrack(scene, auto = false) {
-        const settings = this.getSettings(scene);
-
-        // Auto skip if jukebox is enabled
-        if (this.jukeboxEnabled && auto) return;
-
-        if (this.music) {
-            this.music.stop();
-            this.music = null;
-        }
-
-        this.currentTrack = (this.currentTrack + 1) % this.tracks.length;
-        settings.trackIndex = this.currentTrack;
-        scene.registry.set('settings', settings);
-
-        this.playMusic(scene);
-    },
-
-    // ------------ MUSIC TOGGLE ------------
-    toggleMusic(scene) {
-        const settings = this.getSettings(scene);
-        settings.music = !settings.music;
-        scene.registry.set('settings', settings);
-
-        if (settings.music) {
-            this.playMusic(scene);
-        } else {
-            this.stopMusic();
-        }
-    },
-
-    stopMusic() {
-        if (this.music) {
-            this.music.stop();
-            this.music = null;
-        }
-    },
-
-    // ------------ SFX ------------
-    playButton(scene) {
-        const settings = this.getSettings(scene);
-        if (!settings.audio) return;
-        scene.sound.play('button', { volume: 0.5 });
-    },
-
-    playDice(scene) {
-        const settings = this.getSettings(scene);
-        if (!settings.audio) return;
-        scene.sound.play('dice', { volume: 0.5 });
-    },
-	
-	comboSFX(scene, comboName) {
-        if (!scene.sound) return;
-
-        const key = {
-            pair: 'combo_pair',
-			twoPair: 'combo_pair',
-            triple: 'combo_triple',
-            fullHouse: 'combo_fullHouse',
-            fourOfAKind: 'combo_fourOfAKind',
-            fiveOfAKind: 'combo_fiveOfAKind',
-			straight: 'combo_straight'
-        }[comboName];
-
-        if (key) {
-            scene.sound.play(key, { volume: 0.6 });
-        }
+  // ------------ CORE MUSIC PLAYBACK ------------
+  playMusic(scene) {
+    // Defensive: ensure a valid Phaser Scene with sound manager was passed
+    if (!scene || typeof scene.sound === 'undefined') {
+      console.warn('[AudioManager] playMusic called without a valid scene; skipping playback.');
+      return;
     }
+
+    const settings = GlobalSettings.get(scene) || { music: false };
+    if (!settings.music) return;
+
+    this.currentTrack = settings.trackIndex ?? 0;
+
+    const trackKey = this.tracks[this.currentTrack];
+    if (!trackKey) {
+      console.warn('Invalid trackIndex:', this.currentTrack);
+      this.currentTrack = 0;
+      GlobalSettings.set(scene, 'trackIndex', 0);
+      return;
+    }
+
+    if (this.music && this.music.isPlaying && this.music.key === trackKey) return;
+
+    if (this.music) {
+      try { this.music.stop(); } catch (e) {}
+      this.music = null;
+    }
+
+    try {
+      this.music = scene.sound.add(trackKey, { volume: 0.6 });
+      if (!this.jukeboxEnabled) {
+        this.music.once('complete', () => this.nextTrack(scene, true));
+      }
+      this.music.play();
+    } catch (e) {
+      console.warn('[AudioManager] failed to play music:', e);
+    }
+  }
+
+  setTrack(scene, index) {
+    const trackCount = this.tracks.length;
+    const clamped = GlobalSettings.setTrackIndex(scene, index, { trackCount });
+    this.currentTrack = clamped;
+    this.jukeboxEnabled = true; // manual selection implies jukebox mode
+
+    // immediate switch if music enabled
+    const settings = GlobalSettings.get(scene);
+    if (settings.music) {
+      if (this.music) {
+        try { this.music.stop(); } catch (e) {}
+        this.music = null;
+      }
+      this.playMusic(scene);
+    }
+  }
+
+  nextTrack(scene, auto = false) {
+    const settings = GlobalSettings.get(scene);
+    if (this.jukeboxEnabled && auto) return; // don't auto-cycle when jukebox active
+
+    if (this.music) {
+      try { this.music.stop(); } catch (e) {}
+      this.music = null;
+    }
+
+    this.currentTrack = (this.currentTrack + 1) % this.tracks.length;
+    GlobalSettings.set(scene, 'trackIndex', this.currentTrack);
+    this.playMusic(scene);
+  }
+
+  toggleMusic(scene) {
+    const current = GlobalSettings.toggle(scene, 'music');
+    if (current) this.playMusic(scene); else this.stopMusic();
+  }
+
+  stopMusic() {
+    if (this.music) {
+      try { this.music.stop(); } catch (e) {}
+      this.music = null;
+    }
+  }
+
+  // ------------ SFX ------------
+  playButton(scene) {
+    const settings = GlobalSettings.get(scene);
+    if (!settings.audio) return;
+    try { scene.sound.play('button', { volume: 0.5 }); } catch (e) {}
+  }
+
+  playDice(scene) {
+    const settings = GlobalSettings.get(scene);
+    if (!settings.audio) return;
+    try { scene.sound.play('dice', { volume: 0.5 }); } catch (e) {}
+  }
+
+  comboSFX(scene, comboName) {
+    if (!scene || !scene.sound) return;
+
+    const key = {
+      pair: 'combo_pair',
+      twoPair: 'combo_pair',
+      triple: 'combo_triple',
+      fullHouse: 'combo_fullHouse',
+      fourOfAKind: 'combo_fourOfAKind',
+      fiveOfAKind: 'combo_fiveOfAKind',
+      straight: 'combo_straight'
+    }[comboName];
+
+    if (key) {
+      try { scene.sound.play(key, { volume: 0.6 }); } catch (e) {}
+    }
+  }
 };
+
+const GlobalAudio = new AudioManager();
+export default GlobalAudio;

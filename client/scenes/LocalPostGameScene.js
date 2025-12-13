@@ -1,4 +1,4 @@
-import { GlobalAudio } from '../utils/AudioManager.js';
+import GlobalAudio from '../utils/AudioManager.js';
 
 export default class LocalPostGameScene extends Phaser.Scene {
     constructor() {

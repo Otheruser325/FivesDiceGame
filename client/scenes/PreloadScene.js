@@ -37,6 +37,8 @@ export default class PreloadScene extends Phaser.Scene {
 		this.load.audio('hero_time', 'assets/music/hero_time.mp3');
         this.load.audio('energy', 'assets/music/energy.mp3');
         this.load.audio('powerhouse', 'assets/music/powerhouse.mp3');
+
+        this.load.json('changelog', 'config/changelog.json');
 		
 		this.load.image('dice1', 'assets/dice/dice-six-faces-one.png');
         this.load.image('dice2', 'assets/dice/dice-six-faces-two.png');

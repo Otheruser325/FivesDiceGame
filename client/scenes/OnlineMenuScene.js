@@ -1,5 +1,5 @@
 import { getSocket } from '../utils/SocketManager.js';
-import { GlobalAudio } from '../utils/AudioManager.js';
+import GlobalAudio from '../utils/AudioManager.js';
 
 export default class OnlineMenuScene extends Phaser.Scene {
     constructor() {
@@ -10,84 +10,122 @@ export default class OnlineMenuScene extends Phaser.Scene {
         this.accountText = null;
         this.lobbyUIElements = [];
         this.signInText = null;
+        this._onAuthUpdated = null;
     }
 
     async create() {
-        const backBtn = this.add.text(600, 360, 'Back', {
+        const backBtn = this.add.text(600, 360, '← Back', {
             fontSize: 28,
             color: '#66aaff'
         }).setOrigin(0.5).setInteractive();
-        
+
         backBtn.on('pointerdown', () => {
             GlobalAudio.playButton(this);
             this.scene.start('PlayModeScene');
         });
 
-        if (!getSocket().connected && typeof io !== "function") {
-          this.add.text(600, 200, "Server Under Maintenance", {
-          fontSize: 38,
-          color: "#ff4444"
-        }).setOrigin(0.5);
-          return;
+        this.add.text(600, 60, 'Online Mode', { fontSize: 48 }).setOrigin(0.5);
+
+        // Check server availability: if socket library missing or socket not connected => maintenance view
+        const socketLibAvailable = (typeof io === 'function');
+        const socket = socketLibAvailable ? getSocket() : null;
+        const serverAvailable = !!(socket && socket.connected);
+
+        if (!serverAvailable) {
+            this.add.text(600, 200, "Server Under Maintenance", {
+                fontSize: 38,
+                color: "#ff4444"
+            }).setOrigin(0.5);
+
+            this.add.text(600, 240, "Try again later or visit the main site.", {
+                fontSize: 20,
+                color: "#cccccc"
+            }).setOrigin(0.5);
+            
+            return;
         }
 
+        // server appears available — load cached/remote auth
         await this.refreshAuth();
         this.buildUI();
 
         // Listen for auth changes (login/logout)
-        this.game.events.on("auth-updated", async () => {
+        // Use a single bound handler so we can remove it cleanly later
+        this._onAuthUpdated = async () => {
             await this.refreshAuth();
-            this.clearLobbyUI();
+            this.clearAllUI(); // clear previous visuals
             this.buildUI();
-        });
+        };
+        this.game.events.on("auth-updated", this._onAuthUpdated);
 
-        this.events.on('shutdown', () => {
+        // Ensure cleanup on scene shutdown
+        this.events.once('shutdown', () => {
+            // Destroy DOM elements
             if (this.joinInput) {
                 this.joinInput.destroy();
                 this.joinInput = null;
             }
-            if (this.avatar) this.avatar.destroy();
-            if (this.accountText) this.accountText.destroy();
+            if (this.avatar) { this.avatar.destroy(); this.avatar = null; }
+            if (this.accountText) { this.accountText.destroy(); this.accountText = null; }
+            if (this.signInText) { this.signInText.destroy(); this.signInText = null; }
             this.clearLobbyUI();
-            if (this.signInText) this.signInText.destroy();
-        });
 
+            // Remove auth listener
+            if (this._onAuthUpdated) {
+                this.game.events.off("auth-updated", this._onAuthUpdated);
+                this._onAuthUpdated = null;
+            }
+        });
+    }
+
+    // central UI cleanup used before rebuilding
+    clearAllUI() {
+        if (this.avatar) { this.avatar.destroy(); this.avatar = null; }
+        if (this.accountText) { this.accountText.destroy(); this.accountText = null; }
+        if (this.signInText) { this.signInText.destroy(); this.signInText = null; }
+        this.clearLobbyUI();
+        if (this.joinInput) {
+            this.joinInput.destroy();
+            this.joinInput = null;
+        }
     }
 
     buildUI() {
-        // Authorise user
+        // clear any previous UI to prevent duplicates
+        this.clearAllUI();
+
+        // Authorise user (tell server who we are)
         if (this.user) {
-            getSocket().emit("auth-user", {
-                id: this.user.id,
-                name: this.user.name,
-                type: this.user.type,
-                avatar: this.user.avatar || null
-            });
+            const socket = getSocket();
+            try {
+                socket.emit("auth-user", {
+                    id: this.user.id,
+                    name: this.user.name,
+                    type: this.user.type,
+                    avatar: this.user.avatar || null
+                });
+            } catch (e) {
+                console.warn('Socket emit failed:', e);
+            }
         }
 
         // Top-right username / avatar
         const isGuest = this.user?.type === 'guest';
         const avatarTexture = (this.user?.avatar && !isGuest) ? this.user.avatar : 'playerIcon';
 
-        if (this.user && (isGuest || !this.user.avatar)) {
+        if (this.user) {
             this.avatar = this.add.image(990, 40, avatarTexture).setOrigin(0.5, 0.5).setScale(0.5).setInteractive();
             this.avatar.on('pointerdown', () => this.openAccountPopup());
         }
 
         const labelText = this.user ? this.user.name : 'Not signed in';
-        this.accountText = this.add.text(this.avatar ? 1020 : 1020, 40, labelText, {
+        this.accountText = this.add.text(1020, 40, labelText, {
             fontSize: 28,
             color: '#fff'
         }).setOrigin(0, 0.5).setInteractive();
-        this.accountText.on('pointerdown', () => {
-            this.openAccountPopup();
-        });
+        this.accountText.on('pointerdown', () => this.openAccountPopup());
 
-        // Main title
-        this.add.text(600, 60, 'Online Mode', {
-            fontSize: 48
-        }).setOrigin(0.5);
-
+        // If logged in: show join input & lobby controls; otherwise show sign-in prompt
         if (this.user) {
             // Join input for logged-in users
             this.joinInput = this.add.dom(600, 270, 'input', {
@@ -105,10 +143,11 @@ export default class OnlineMenuScene extends Phaser.Scene {
                 color: '#cccccc'
             }).setOrigin(0.5);
         }
-
     }
 
     buildLobbyUI() {
+        const socket = getSocket();
+
         // Create Lobby button
         const createBtn = this.add.text(600, 180, 'Create Lobby', {
                 fontSize: 32,
@@ -130,43 +169,63 @@ export default class OnlineMenuScene extends Phaser.Scene {
             GlobalAudio.playButton(this);
             if (!this.joinInput) return;
             const code = (this.joinInput.node.value || "").trim().toUpperCase();
-            if (code) getSocket().emit('join-lobby', code);
+            if (code) {
+                try { socket.emit('join-lobby', code); } catch (e) { console.warn('emit failed', e); }
+            }
         });
 
-        getSocket().once('join-success', data => this.scene.start('OnlineLobbyScene', {
-            code: data.code
-        }));
-        getSocket().once('join-failed', () => alert('Failed to join lobby (wrong code or full).'));
+        // socket handlers for one-time join events
+        try {
+            socket.once('join-success', data => this.scene.start('OnlineLobbyScene', { code: data.code }));
+            socket.once('join-failed', () => alert('Failed to join lobby (wrong code or full).'));
+        } catch (e) {
+            console.warn('Socket once failed', e);
+        }
 
         // Track elements for easy clearing
         this.lobbyUIElements.push(createBtn, joinBtn);
-
     }
 
     clearLobbyUI() {
-        this.lobbyUIElements.forEach(el => el.destroy());
+        this.lobbyUIElements.forEach(el => { try { el.destroy(); } catch (e) {} });
         this.lobbyUIElements = [];
         if (this.joinInput) {
-            this.joinInput.destroy();
+            try { this.joinInput.destroy(); } catch (e) {}
             this.joinInput = null;
-        }
-        if (this.signInText) {
-            this.signInText.destroy();
-            this.signInText = null;
         }
     }
 
     async refreshAuth() {
-        try {
-            const resp = await fetch('/auth/me', {
-                credentials: 'include'
-            });
-            const data = await resp.json();
-            this.user = data?.ok && data.user ? data.user : null;
-        } catch (err) {
-            console.warn('Auth check failed', err);
-            this.user = null;
+        // Prefer server session, but fall back to localStorage cached user.
+        const socketLibAvailable = (typeof io === 'function');
+        if (socketLibAvailable) {
+            try {
+                const resp = await fetch('/auth/me', { credentials: 'include' });
+                const data = await resp.json();
+                if (data?.ok && data.user) {
+                    this.user = data.user;
+                    return;
+                }
+            } catch (err) {
+                console.warn('Auth check failed (server):', err);
+                // fall through to localStorage fallback
+            }
         }
+
+        // fallback: localStorage cached user
+        try {
+            const raw = localStorage.getItem('fives_user');
+            if (raw) {
+                this.user = JSON.parse(raw);
+                return;
+            }
+        } catch (err) {
+            console.warn('Corrupt local user cache', err);
+            localStorage.removeItem('fives_user');
+        }
+
+        // no user
+        this.user = null;
     }
 
     getUserLabel() {
@@ -174,9 +233,7 @@ export default class OnlineMenuScene extends Phaser.Scene {
     }
 
     openAccountPopup() {
-        this.scene.launch('OnlineAccountScene', {
-            returnTo: 'OnlineMenuScene'
-        });
+        this.scene.launch('OnlineAccountScene', { returnTo: 'OnlineMenuScene' });
         this.scene.pause();
     }
 }

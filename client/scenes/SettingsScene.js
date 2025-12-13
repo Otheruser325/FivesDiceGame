@@ -1,4 +1,5 @@
-import { GlobalAudio } from '../utils/AudioManager.js';
+import GlobalAudio from '../utils/AudioManager.js';
+import GlobalSettings from '../utils/SettingsManager.js';
 
 export default class SettingsScene extends Phaser.Scene {
     constructor() {
@@ -11,7 +12,7 @@ export default class SettingsScene extends Phaser.Scene {
         }).setOrigin(0.5);
 
         // Unified master settings source
-        const settings = GlobalAudio.getSettings(this);
+        const settings = GlobalSettings.get(this);
 
         // ---------- AUDIO (SFX) TOGGLE ----------
         this.audioText = this.add.text(
@@ -27,13 +28,9 @@ export default class SettingsScene extends Phaser.Scene {
 
         this.audioText.on('pointerdown', () => {
             if (GlobalAudio) GlobalAudio.playButton(this);
-			
-            settings.audio = !settings.audio;
-            this.registry.set('settings', settings);
-				
-            this.audioText.setText(`Sound Effects: ${settings.audio ? 'ON' : 'OFF'}`);
-			
-			if (GlobalAudio) GlobalAudio.saveSettings(this);
+            GlobalSettings.toggle(this, 'audio');
+            this.audioText.setText(`Sound Effects: ${GlobalSettings.get(this).audio ? 'ON' : 'OFF'}`);
+            GlobalSettings.save(this);
         });
 
         // ---------- MUSIC TOGGLE ----------
@@ -50,11 +47,9 @@ export default class SettingsScene extends Phaser.Scene {
 
         this.musicText.on('pointerdown', () => {
             if (GlobalAudio) GlobalAudio.playButton(this);
-            if (GlobalAudio) GlobalAudio.toggleMusic(this);
-				
-            this.musicText.setText(`Music: ${settings.music ? 'ON' : 'OFF'}`);
-			
-			if (GlobalAudio) GlobalAudio.saveSettings(this);
+            GlobalAudio.toggleMusic(this);
+            this.musicText.setText(`Music: ${GlobalSettings.get(this).music ? 'ON' : 'OFF'}`);
+            GlobalSettings.save(this);
         });
 
         // ---------- VISUAL EFFECTS (COMBO FX / SCREEN SHAKE / FLASH) ----------
@@ -70,15 +65,10 @@ export default class SettingsScene extends Phaser.Scene {
             });
 
         this.visualText.on('pointerdown', () => {
-            // soft click sfx
             if (GlobalAudio) GlobalAudio.playButton(this);
-
-            settings.visualEffects = !settings.visualEffects;
-            this.registry.set('settings', settings);
-
-            this.visualText.setText(`Visual Effects: ${settings.visualEffects ? 'ON' : 'OFF'}`);
-
-            if (GlobalAudio) GlobalAudio.saveSettings(this);
+            GlobalSettings.toggle(this, 'visualEffects');
+            this.visualText.setText(`Visual Effects: ${GlobalSettings.get(this).visualEffects ? 'ON' : 'OFF'}`);
+            GlobalSettings.save(this);
         });
 
         // ---------- JUKEBOX HEADER ----------
@@ -97,7 +87,7 @@ export default class SettingsScene extends Phaser.Scene {
         });
 		
         // ---------- BACK BUTTON ----------
-        this.backBtn = this.add.text(600, 460, 'Back', {
+        this.backBtn = this.add.text(600, 460, '← Back', {
                 fontSize: 28,
                 color: '#66aaff'
             })
@@ -139,7 +129,7 @@ export default class SettingsScene extends Phaser.Scene {
         const trackY = 250;
         const spacing = 70;
 
-        const settings = GlobalAudio.getSettings(this);
+        const settings = GlobalSettings.get(this);
         const selected = settings.trackIndex;
 
         // Buttons stored for highlight

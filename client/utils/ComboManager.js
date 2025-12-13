@@ -1,128 +1,187 @@
+const COMBO_TEXT_COLORS = {
+  triple: '#ffdd44',        // Yellow
+  fourOfAKind: '#d14e37ff',   // Lavender-red
+  fullHouse: '#ff66cc',     // Pink
+  straight: '#1f7a3a',      // Dark green
+  pair: '#dddddd',          // Slightly dark white
+  twoPair: '#dddddd',       // Slightly dark white
+  fiveOfAKind: '#ffffff'    // Rainbow handled dynamically
+};
+
+const RAINBOW_COLORS = [
+  0xff3333, // red
+  0xffcc33, // yellow
+  0x33ff66, // green
+  0x33ffff, // cyan
+  0x3366ff, // blue
+  0xcc33ff  // magenta
+];
+
 export function showComboText(scene, comboName, intensity = 1) {
-    // Check visual-effects accessibility setting
-    const settings = (scene && scene.registry && scene.registry.get('settings')) || { visualEffects: true };
-    const visualEnabled = settings.visualEffects !== false;
+  const settings = scene?.registry?.get('settings') ?? { visualEffects: true };
 
-    if (!visualEnabled) {
-        // Accessibility-safe: show a simple static text briefly, no tweens/animations
-        const simple = scene.add.text(600, 200, comboName, {
-            fontSize: 40 * Math.max(0.8, intensity),
-            fontStyle: "bold",
-            color: '#ffdd44'
-        }).setOrigin(0.5);
-        // auto-destroy after 1.2s
-        scene.time.delayedCall(1200, () => simple.destroy());
-        return;
-    }
+  const comboKey =
+    comboName.includes('FIVE OF A KIND') ? 'fiveOfAKind' :
+    comboName.includes('FOUR') ? 'fourOfAKind' :
+    comboName.includes('FULL HOUSE') ? 'fullHouse' :
+    comboName.includes('TRIPLE') ? 'triple' :
+    comboName.includes('STRAIGHT') ? 'straight' :
+    comboName.includes('TWO PAIR') ? 'twoPair' :
+    comboName.includes('PAIR') ? 'pair' :
+    null;
 
-    // RAINBOW FIVE-OF-A-KIND EFFECT
-    const isRainbow = comboName.includes("FIVE OF A KIND?!!?!");
+  const baseColor = COMBO_TEXT_COLORS[comboKey] ?? '#ffffff';
+  const isRainbow = comboKey === 'fiveOfAKind';
 
-    const text = scene.add.text(600, 200, comboName, {
-        fontSize: 48 * intensity,
-        fontStyle: "bold",
-        color: isRainbow ? "#ffffff" : "#ffdd44",
-        stroke: isRainbow ? "#000000" : null,
-        strokeThickness: isRainbow ? 8 : 0,
+  if (settings.visualEffects === false) {
+    const simple = scene.add.text(600, 200, comboName, {
+      fontSize: 40 * Math.max(0.8, intensity),
+      fontStyle: 'bold',
+      color: baseColor
     }).setOrigin(0.5);
 
-    text.setAngle(-5);
+    scene.time.delayedCall(1200, () => simple.destroy());
+    return;
+  }
 
-    text.once(Phaser.GameObjects.Events.DESTROY, () => {
-        scene.tweens.killTweensOf(text);
-    });
+  const text = scene.add.text(600, 200, comboName, {
+    fontSize: 48 * intensity,
+    fontStyle: 'bold',
+    color: baseColor,
+    stroke: isRainbow ? '#000000' : null,
+    strokeThickness: isRainbow ? 8 : 0
+  }).setOrigin(0.5);
 
-    // If it's FIVE OF A KIND: apply rainbow tween
-    if (isRainbow) {
-        // Cycle through hues 0–360 continuously
-        scene.tweens.addCounter({
-            from: 0,
-            to: 360,
-            duration: 1500,
-            repeat: -1,
-            onUpdate: (tween) => {
-                const hue = tween.getValue();
-                text.setColor(Phaser.Display.Color.HSLToColor(hue / 360, 1, 0.6).rgba);
-            }
-        });
+  text.setAngle(-5);
 
-        // Pulse scale
-        scene.tweens.add({
-            targets: text,
-            scale: { from: 1.2, to: 1.0 },
-            duration: 300,
-            yoyo: true,
-            repeat: -1,
-        });
-    }
+  let alive = true;
+  text.once(Phaser.GameObjects.Events.DESTROY, () => {
+    alive = false;
+    scene.tweens.killTweensOf(text);
+  });
 
-    // Move + fade animation for all combos
-    scene.tweens.add({
-        targets: text,
-        y: 150,
-        alpha: 0,
-        angle: 5,
-        duration: isRainbow ? 1100 : 800,
-        ease: 'Cubic.easeOut',
-        onComplete: () => {
-          try {
-              scene.tweens.killTweensOf(text);
-              text.destroy();
-          } catch (e) {}
+  // 🌈 Rainbow polish (Five of a Kind only)
+  if (isRainbow) {
+    scene.tweens.addCounter({
+      from: 0,
+      to: 360,
+      duration: 1400,
+      repeat: -1,
+      onUpdate: tween => {
+        if (!alive) return;
+        const c = Phaser.Display.Color.HSLToColor(tween.getValue() / 360, 1, 0.6);
+        text.setColor(
+          Phaser.Display.Color.RGBToString(c.r, c.g, c.b, 255, '#')
+        );
       }
     });
+
+    scene.tweens.add({
+      targets: text,
+      strokeThickness: { from: 10, to: 6 },
+      duration: 400,
+      yoyo: true,
+      repeat: -1
+    });
+
+    scene.tweens.add({
+      targets: text,
+      scale: { from: 1.35, to: 1.05 },
+      duration: 280,
+      yoyo: true,
+      repeat: -1
+    });
+  }
+
+  // Exit motion
+  scene.tweens.add({
+    targets: text,
+    y: 150,
+    alpha: 0,
+    angle: 5,
+    duration: isRainbow ? 1200 : 800,
+    ease: 'Cubic.easeOut',
+    onComplete: () => alive && text.destroy()
+  });
 }
 
-
 export function comboFlash(scene, color, duration = 500, alpha = 0.5, additive = false) {
-    const settings = (scene && scene.registry && scene.registry.get('settings')) || { visualEffects: true };
-    if (settings.visualEffects === false) return;
+  const settings = scene?.registry?.get('settings') ?? { visualEffects: true };
+  if (settings.visualEffects === false || !scene) return;
 
-    try {
-        // Ensure sensible duration
-        const dur = Math.max(120, duration | 0);
+  const dur = Math.max(120, duration | 0);
+  const isRainbow = color === 'RAINBOW';
 
-        // Full-screen overlay
-        const overlay = scene.add.rectangle(
-            scene.scale.width / 2,
-            scene.scale.height / 2,
-            scene.scale.width,
-            scene.scale.height,
-            color,
-            0
-        ).setDepth(9999);
+  try {
+    // Full-screen overlay
+    const overlay = scene.add.rectangle(
+      scene.scale.width / 2,
+      scene.scale.height / 2,
+      scene.scale.width,
+      scene.scale.height,
+      isRainbow ? RAINBOW_COLORS[0] : color,
+      0
+    ).setDepth(9999);
 
-        // Optional additive blend for strong flash (useful for Five-of-a-Kind)
-        if (additive && overlay.setBlendMode && typeof Phaser !== 'undefined') {
-            overlay.setBlendMode(Phaser.BlendModes.ADD);
+    let alive = true;
+    overlay.once(Phaser.GameObjects.Events.DESTROY, () => alive = false);
+
+    if (additive) overlay.setBlendMode(Phaser.BlendModes.ADD);
+
+    // 🌈 Rainbow mode (overlay + camera)
+    if (isRainbow) {
+      scene.tweens.addCounter({
+        from: 0,
+        to: RAINBOW_COLORS.length,
+        duration: dur * 0.6,
+        repeat: -1,
+        onUpdate: tween => {
+          if (!alive) return;
+
+          const idx = Math.floor(tween.getValue()) % RAINBOW_COLORS.length;
+          const c = Phaser.Display.Color.IntegerToRGB(RAINBOW_COLORS[idx]);
+
+          // Overlay color
+          overlay.fillColor = RAINBOW_COLORS[idx];
+
+          // Camera flash pulse (short + punchy)
+          scene.cameras.main.flash(
+            80,
+            c.r,
+            c.g,
+            c.b,
+            true
+          );
         }
-
-        // Try a camera flash using the overlay color
-        try {
-            const rgb = Phaser.Display.Color.IntegerToRGB(color);
-            // camera.flash(duration, r, g, b, force)
-            scene.cameras.main.flash(Math.max(80, Math.floor(dur * 0.28)), rgb.r, rgb.g, rgb.b, true);
-        } catch (e) {
-            // fallback to neutral flash if color parsing fails
-            scene.cameras.main.flash(Math.max(80, Math.floor(dur * 0.28)));
-        }
-
-        // Tween overlay alpha in/out for visual punch
-        scene.tweens.add({
-            targets: overlay,
-            alpha: alpha,
-            duration: Math.max(60, Math.floor(dur * 0.36)),
-            yoyo: true,
-            hold: Math.max(40, Math.floor(dur * 0.24)),
-            ease: "Quad.easeOut",
-            onComplete: () => {
-                try { overlay.destroy(); } catch (e) { /* ignore */ }
-            }
-        });
-    } catch (err) {
-        // best-effort fallback: camera flash only
-        try { scene.cameras.main.flash(100); } catch (e) {}
+      });
+    } else {
+      // Normal camera flash
+      const rgb = Phaser.Display.Color.IntegerToRGB(color);
+      scene.cameras.main.flash(
+        Math.max(80, Math.floor(dur * 0.28)),
+        rgb.r,
+        rgb.g,
+        rgb.b,
+        true
+      );
     }
+
+    // Overlay alpha punch
+    scene.tweens.add({
+      targets: overlay,
+      alpha: alpha,
+      duration: Math.max(60, Math.floor(dur * 0.35)),
+      yoyo: true,
+      hold: Math.max(40, Math.floor(dur * 0.25)),
+      onComplete: () => {
+        if (alive) overlay.destroy();
+      }
+    });
+
+  } catch (err) {
+    // Absolute fallback: camera flash only
+    try { scene.cameras.main.flash(120); } catch (_) {}
+  }
 }
 
 export function comboShake(scene, magnitude = 5, duration = 300) {
@@ -147,7 +206,7 @@ export function playComboFX(scene, comboName) {
             break;
 
         case "fiveOfAKind":
-            comboFlash(scene, 0xffffff, 2000, 0.75, true); // rainbow handled inside ComboText glow
+            comboFlash(scene, 'RAINBOW', 2000, 0.75, true); // rainbow handled inside ComboText glow
             comboShake(scene, 12, 1000); // DiceQuake™
             break;
 
@@ -157,8 +216,7 @@ export function playComboFX(scene, comboName) {
             break;
 
         case "straight":
-            const color = 0x228833;
-            comboFlash(scene, color, 600, 0.4, false); // Light green flash (darker for large)
+            comboFlash(scene, 0x228833, 600, 0.4, false); // Light green flash (darker for large)
             comboShake(scene, 3, 300);
             break;
 

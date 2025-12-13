@@ -1,10 +1,11 @@
 import { getSocket } from '../utils/SocketManager.js';
-import { GlobalAudio } from '../utils/AudioManager.js';
+import GlobalAudio from '../utils/AudioManager.js';
 
 export default class OnlineAccountScene extends Phaser.Scene {
     constructor() {
         super('OnlineAccountScene');
         this.user = null;
+        this._onAuthUpdated = null;
     }
 
     init(data) {
@@ -12,82 +13,97 @@ export default class OnlineAccountScene extends Phaser.Scene {
     }
 
     create() {
-        this.add.rectangle(640, 480, 1280, 960, 0x000000, 0.85);
+        // translucent background rectangle (recreated on UI rebuild)
+        this.bg = this.add.rectangle(640, 480, 1280, 960, 0x000000, 0.85);
 
-        // Load user and build UI
+        // Load user and build UI (refreshAuth includes localStorage fallback)
         this.refreshAuth().then(() => {
             if (this.user) this.showAccountOptions();
             else this.showLoginOptions();
         });
 
-        this.events.on('shutdown', () => this.shutdown());
-        this.game.events.on("auth-updated", async () => {
+        // Rebuild UI when auth changes (single bound handler)
+        this._onAuthUpdated = async () => {
             await this.refreshAuth();
-            this.refreshUI();
-        });
+            if (this.user) this.showAccountOptions();
+            else this.showLoginOptions();
+        };
+        this.game.events.on("auth-updated", this._onAuthUpdated);
+
+        this.events.on('shutdown', () => this.shutdown());
     }
 
+    // Do a safe UI refresh: remove children and re-add background first
     refreshUI() {
+        // remove all children (safe) and re-add background
         this.children.removeAll();
-        this.scene.restart();
+        this.bg = this.add.rectangle(640, 480, 1280, 960, 0x000000, 0.85);
     }
 
     // ----------------------------
     // AUTH HANDLING
     // ----------------------------
     async refreshAuth() {
-        // Try server auth
-        try {
-            const res = await fetch('/auth/me', {
-                credentials: 'include'
-            });
+    // Try server auth (if available) then fallback to localStorage
+    try {
+        const res = await fetch('/auth/me', { credentials: 'include' });
+        if (res.ok) {
             const text = await res.text();
-
             try {
                 const j = JSON.parse(text);
                 if (j?.ok && j.user) {
                     this.user = j.user;
-                    if (this.user && getSocket()) {
-                        getSocket().emit('auth-user', this.user);
-                        getSocket().userId = this.user.id;
+
+                    // Inform socket of authenticated identity (authoritative server user)
+                    try {
+                        const socket = getSocket && typeof getSocket === 'function' ? getSocket() : null;
+                        if (socket && socket.emit) {
+                            socket.emit('auth-user', this.user);
+                            socket.userId = this.user.id;
+                        }
+                    } catch (e) {
+                        console.warn('Socket auth emit failed', e);
                     }
+
+                    // persist cached copy client-side
                     localStorage.setItem('fives_user', JSON.stringify(j.user));
                     return;
                 }
             } catch (err) {
                 console.warn('/auth/me non-JSON:', text);
             }
-        } catch (err) {
-            console.warn('Auth check failed', err);
         }
-
-        // Fallback: localStorage
-        const raw = localStorage.getItem('fives_user');
-        if (raw) {
-            try {
-                this.user = JSON.parse(raw);
-                return;
-            } catch {
-                console.warn('Corrupt local user cache');
-                localStorage.removeItem('fives_user');
-            }
-        }
-
-        this.user = null;
+    } catch (err) {
+        console.warn('Auth check failed (server):', err);
     }
+
+    // Fallback: localStorage
+    const raw = localStorage.getItem('fives_user');
+    if (raw) {
+        try {
+            this.user = JSON.parse(raw);
+            return;
+        } catch (e) {
+            console.warn('Corrupt local user cache', e);
+            localStorage.removeItem('fives_user');
+        }
+    }
+
+    this.user = null;
+}
 
     // ============================
     // LOGIN / REGISTER UI
     // ============================
     showLoginOptions() {
-        this.add.text(640, 140, 'Login to Fives', {
-            fontSize: 48
-        }).setOrigin(0.5);
+        // rebuild UI from scratch
+        this.refreshUI();
+
+        this.add.text(640, 140, 'Login to Fives', { fontSize: 48 }).setOrigin(0.5);
 
         // Google login
         const googleBtn = this.add.text(640, 260, 'Login with Google', {
-            fontSize: 32,
-            color: '#ffeb3b'
+            fontSize: 32, color: '#ffeb3b'
         }).setOrigin(0.5).setInteractive();
 
         googleBtn.on('pointerdown', async () => {
@@ -97,8 +113,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
         // Discord login
         const discordBtn = this.add.text(640, 320, 'Login with Discord', {
-            fontSize: 32,
-            color: '#7289da'
+            fontSize: 32, color: '#7289da'
         }).setOrigin(0.5).setInteractive();
 
         discordBtn.on('pointerdown', async () => {
@@ -108,63 +123,51 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
         // Guest Signup
         this.add.text(640, 400, 'Or Sign Up as Guest', {
-            fontSize: 28,
-            color: '#cccccc'
+            fontSize: 28, color: '#cccccc'
         }).setOrigin(0.5);
 
         // Password input with title 
         this.add.text(640, 440, 'Choose Your Password', {
-            fontSize: 20,
-            color: '#aaaaaa'
+            fontSize: 20, color: '#aaaaaa'
         }).setOrigin(0.5);
-        
+
         this.passwordInput = this.add.dom(640, 470, 'input', {
-            width: '250px',
-            fontSize: '22px',
-            padding: '6px',
-            type: 'password',
-            placeholder: '6+ characters'
+            width: '250px', fontSize: '22px', padding: '6px', type: 'password', placeholder: '6+ characters'
         });
+
+        // Restrict guest creation if localStorage has a user or recent guest created
+        const cachedUser = localStorage.getItem('fives_user');
+        const guestCreatedAt = Number(localStorage.getItem('fives_guest_created_at') || 0);
+        const now = Date.now();
+        const WAIT_MS = 24 * 60 * 60 * 1000;
+        const guestBlocked = !!cachedUser || (guestCreatedAt && (now - guestCreatedAt) < WAIT_MS);
 
         const guestBtn = this.add.text(640, 520, 'Create Guest Account', {
             fontSize: 28,
-            color: '#00ffaa'
-        }).setOrigin(0.5).setInteractive();
-
-        guestBtn.on('pointerdown', () => this.createGuestAccount());
-
-        // Guest Login Labels
-        this.add.text(640, 550, "Guest Username:", {
-            fontSize: 20,
-            color: "#aaaaaa"
+            color: guestBlocked ? '#777777' : '#00ffaa'
         }).setOrigin(0.5);
 
-        this.loginUserInput = this.add.dom(640, 580, "input", {
-            width: "200px",
-            fontSize: "20px",
-            padding: "4px",
-            placeholder: "Guest username"
-        });
+        if (!guestBlocked) {
+            guestBtn.setInteractive();
+            guestBtn.on('pointerdown', () => this.createGuestAccount());
+        } else {
+            // show a tooltip/time-left if blocked
+            if (!cachedUser && guestCreatedAt) {
+                const left = Math.ceil((WAIT_MS - (now - guestCreatedAt)) / 3600000);
+                this.add.text(640, 550, `Guest creation locked for ${left}h`, { fontSize: 16, color: '#ffcc66' }).setOrigin(0.5);
+            } else if (cachedUser) {
+                this.add.text(640, 550, `You already have an account cached locally.`, { fontSize: 16, color: '#ffcc66' }).setOrigin(0.5);
+            }
+        }
 
-        // Password Label
-        this.add.text(640, 620, "Guest Password:", {
-            fontSize: 20,
-            color: "#aaaaaa"
-        }).setOrigin(0.5);
+        // Guest Login Labels + inputs
+        this.add.text(640, 550, "Guest Username:", { fontSize: 20, color: "#aaaaaa" }).setOrigin(0.5);
+        this.loginUserInput = this.add.dom(640, 580, "input", { width: "200px", fontSize: "20px", padding: "4px", placeholder: "Guest username" });
 
-        this.loginPassInput = this.add.dom(640, 650, "input", {
-            width: "200px",
-            fontSize: "20px",
-            padding: "4px",
-            type: "password",
-            placeholder: "Password"
-        });
+        this.add.text(640, 620, "Guest Password:", { fontSize: 20, color: "#aaaaaa" }).setOrigin(0.5);
+        this.loginPassInput = this.add.dom(640, 650, "input", { width: "200px", fontSize: "20px", padding: "4px", type: "password", placeholder: "Password" });
 
-        this.loginBtn = this.add.text(640, 680, 'Login as Guest', {
-            fontSize: 20,
-            color: '#66aaff'
-        }).setOrigin(0.5).setInteractive();
-
+        this.loginBtn = this.add.text(640, 680, 'Login as Guest', { fontSize: 20, color: '#66aaff' }).setOrigin(0.5).setInteractive();
         this.loginBtn.on('pointerdown', () => this.loginGuest());
 
         this.makeCancelButton();
@@ -172,17 +175,13 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
     async oauthLogin(url) {
         try {
-            const resp = await fetch(url, {
-                credentials: 'include'
-            });
+            const resp = await fetch(url, { credentials: 'include' });
             const j = await resp.json();
             if (j.ok && j.user) {
                 localStorage.setItem('fives_user', JSON.stringify(j.user));
                 this.user = j.user;
-
                 alert(`Logged in as ${j.user.name}`);
                 this.game.events.emit("auth-updated");
-
                 this.scene.resume(this.returnTo);
                 this.scene.stop();
             } else {
@@ -207,18 +206,15 @@ export default class OnlineAccountScene extends Phaser.Scene {
         try {
             const resp = await fetch('/auth/guest/register', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
-                body: JSON.stringify({
-                    password
-                })
+                body: JSON.stringify({ password })
             });
             const j = await resp.json();
             if (j.ok && j.user) {
                 this.user = j.user;
                 localStorage.setItem('fives_user', JSON.stringify(j.user));
+                localStorage.setItem('fives_guest_created_at', String(Date.now())); // prevent immediate re-creation
                 alert(`Guest created!\nUsername: ${j.user.name}\nPassword: ${password}`);
                 this.game.events.emit("auth-updated");
                 this.scene.resume(this.returnTo);
@@ -239,21 +235,13 @@ export default class OnlineAccountScene extends Phaser.Scene {
         GlobalAudio.playButton(this);
         const username = this.loginUserInput.node.value.trim();
         const password = this.loginPassInput.node.value.trim();
-        if (!username || !password) {
-            alert('Enter credentials');
-            return;
-        }
+        if (!username || !password) { alert('Enter credentials'); return; }
         try {
             const resp = await fetch('/auth/guest/login', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
-                body: JSON.stringify({
-                    username,
-                    password
-                })
+                body: JSON.stringify({ username, password })
             });
             const j = await resp.json();
             if (j.ok && j.user) {
@@ -276,40 +264,24 @@ export default class OnlineAccountScene extends Phaser.Scene {
     // ACCOUNT OPTIONS (when logged in)
     // ============================
     showAccountOptions() {
-        const {
-            name,
-            type
-        } = this.user;
+        // Rebuild UI
+        this.refreshUI();
 
-        this.add.text(640, 130, 'Account Options', {
-            fontSize: 42
-        }).setOrigin(0.5);
-        this.add.text(640, 190, `Logged in as: ${name}`, {
-            fontSize: 28
-        }).setOrigin(0.5);
+        const { name, type } = this.user || {};
+        this.add.text(640, 130, 'Account Options', { fontSize: 42 }).setOrigin(0.5);
+        this.add.text(640, 190, `Logged in as: ${name}`, { fontSize: 28 }).setOrigin(0.5);
 
-        // Only allow renaming non-guests (guests random usernames)
+        // Change display name for non-guests (local only)
         if (type !== 'guest') {
-            const changeBtn = this.add.text(640, 270, 'Change Display Name', {
-                fontSize: 30,
-                color: '#55ccff'
-            }).setOrigin(0.5).setInteractive();
-
+            const changeBtn = this.add.text(640, 270, 'Change Display Name', { fontSize: 30, color: '#55ccff' })
+                .setOrigin(0.5).setInteractive();
             changeBtn.on('pointerdown', async () => {
                 const newName = prompt('Enter new display name:');
                 if (!newName || newName.trim().length < 2) return;
-
-                // TODO: send rename to server (future feature)
-                const updated = {
-                    ...this.user,
-                    name: newName.trim()
-                };
+                const updated = { ...this.user, name: newName.trim() };
                 this.user = updated;
-
                 localStorage.setItem('fives_user', JSON.stringify(updated));
-
                 alert('Name updated locally. Implement server-side rename later.');
-
                 this.game.events.emit("auth-updated");
                 this.scene.resume(this.returnTo);
                 this.scene.stop();
@@ -317,22 +289,14 @@ export default class OnlineAccountScene extends Phaser.Scene {
         }
 
         // Sign-out
-        const signOutBtn = this.add.text(640, 350, 'Sign Out', {
-            fontSize: 30,
-            color: '#ff4444'
-        }).setOrigin(0.5).setInteractive();
+        const signOutBtn = this.add.text(640, 350, 'Sign Out', { fontSize: 30, color: '#ff4444' })
+            .setOrigin(0.5).setInteractive();
 
         signOutBtn.on('pointerdown', async () => {
-            await fetch('/auth/logout', {
-                method: 'POST',
-                credentials: 'include'
-            });
-
+            await fetch('/auth/logout', { method: 'POST', credentials: 'include' });
             localStorage.removeItem('fives_user');
             alert('Signed out');
-
             this.game.events.emit("auth-updated");
-
             this.scene.resume(this.returnTo);
             this.scene.stop();
         });
@@ -344,10 +308,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
     // Cancel button
     // ----------------------------
     makeCancelButton() {
-        const cancelBtn = this.add.text(640, 750, 'Cancel', {
-            fontSize: 28
-        }).setOrigin(0.5).setInteractive();
-
+        const cancelBtn = this.add.text(640, 750, 'Cancel', { fontSize: 28 }).setOrigin(0.5).setInteractive();
         cancelBtn.on('pointerdown', () => {
             GlobalAudio.playButton(this);
             this.scene.resume(this.returnTo);
@@ -359,9 +320,16 @@ export default class OnlineAccountScene extends Phaser.Scene {
     // Cleanup
     // ----------------------------
     shutdown() {
-        if (this.passwordInput) this.passwordInput.destroy();
-        if (this.loginUserInput) this.loginUserInput.destroy();
-        if (this.loginPassInput) this.loginPassInput.destroy();
+        // Remove auth listener
+        if (this._onAuthUpdated) {
+            this.game.events.off("auth-updated", this._onAuthUpdated);
+            this._onAuthUpdated = null;
+        }
+
+        // Destroy DOM inputs if present
+        if (this.passwordInput) { try { this.passwordInput.destroy(); } catch (e) {} }
+        if (this.loginUserInput) { try { this.loginUserInput.destroy(); } catch (e) {} }
+        if (this.loginPassInput) { try { this.loginPassInput.destroy(); } catch (e) {} }
 
         this.passwordInput = null;
         this.loginUserInput = null;

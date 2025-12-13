@@ -1,4 +1,4 @@
-import { GlobalAudio } from '../utils/AudioManager.js';
+import GlobalAudio from '../utils/AudioManager.js';
 
 export default class HelpScene extends Phaser.Scene {
     constructor() {
@@ -46,13 +46,11 @@ export default class HelpScene extends Phaser.Scene {
         .setInteractive();
 
         this.comboBtn.on('pointerdown', () => {
-            if (GlobalAudio.playButton) {
-                GlobalAudio.playButton(this);
-            }
+            GlobalAudio.playButton(this);
             this.showComboPopup();
         });
 
-        this.backBtn = this.add.text(600, 650, 'Back', {
+        this.backBtn = this.add.text(600, 650, '← Back', {
             fontSize: 28,
             color: '#66aaff'
         })

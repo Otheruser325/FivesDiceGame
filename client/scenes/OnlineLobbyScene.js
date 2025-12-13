@@ -1,5 +1,5 @@
 import { getSocket } from '../utils/SocketManager.js';
-import { GlobalAudio } from '../utils/AudioManager.js';
+import GlobalAudio from '../utils/AudioManager.js';
 
 export default class OnlineLobbyScene extends Phaser.Scene {
     constructor() {
@@ -143,7 +143,19 @@ export default class OnlineLobbyScene extends Phaser.Scene {
             return;
         }
 
-        const myId = getSocket().data?.user?.id || getSocket().userId || null;
+        let myId = null;
+        try {
+          myId = getSocket().data?.user?.id || getSocket().userId || null;
+        } catch (e) { myId = null; }
+        if (!myId) {
+          try {
+            const raw = localStorage.getItem('fives_user');
+            if (raw) {
+            const cached = JSON.parse(raw);
+            if (cached && cached.id) myId = cached.id;
+            }
+          } catch (e) { /* ignore */ }
+        }
         const hostUserId = this.hostUserId || (this.players[0] && this.players[0].id) || null;
 
         const list = this.players.map(p => {

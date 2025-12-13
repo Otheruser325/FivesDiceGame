@@ -4,20 +4,21 @@ import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import OAuth2Strategy from "passport-oauth2";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
-import { loadUsers, saveUsers } from "./utils/userStorage.js";
+import { loadUsers, saveUsers, loadUser, saveUser } from "./utils/userStorage.js";
 
 export const router = express.Router();
-
-// Ensure JSON parsing
 router.use(express.json());
-
-let USERS = await loadUsers(); // load from data/users.json
 
 // PASSPORT SESSION
 passport.serializeUser((user, done) => done(null, user.id));
+
 passport.deserializeUser(async (id, done) => {
-  USERS = await loadUsers();
-  done(null, USERS[id] || null);
+  try {
+    const u = await loadUser(id);
+    done(null, u || null);
+  } catch (err) {
+    done(err, null);
+  }
 });
 
 // SAFE HELPER
@@ -25,12 +26,6 @@ function publicUser(u) {
   if (!u) return null;
   const { guestPassword, ...safe } = u;
   return safe;
-}
-
-async function saveUser(user) {
-  USERS = await loadUsers();
-  USERS[user.id] = user;
-  await saveUsers(USERS);
 }
 
 // ----------------- GOOGLE OAUTH -----------------
@@ -43,23 +38,25 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         callbackURL: "/auth/google/callback",
       },
       async (accessToken, refreshToken, profile, done) => {
-        USERS = await loadUsers();
+        try {
+          const users = await loadUsers();
+          let user = Object.values(users).find((u) => u.oauthGoogle === profile.id);
 
-        let user = Object.values(USERS).find(
-          (u) => u.oauthGoogle === profile.id
-        );
-
-        if (!user) {
-          user = {
-            id: uuidv4(),
-            name: profile.displayName,
-            type: "google",
-            oauthGoogle: profile.id,
-          };
-          await saveUser(user);
+          if (!user) {
+            user = {
+              id: uuidv4(),
+              name: profile.displayName || `GoogleUser${Math.floor(Math.random() * 9999)}`,
+              type: "google",
+              oauthGoogle: profile.id,
+              avatar: profile.photos && profile.photos[0] ? profile.photos[0].value : null
+            };
+            await saveUser(user);
+          }
+          done(null, user);
+        } catch (err) {
+          console.error('Google oauth error:', err);
+          done(err, null);
         }
-
-        done(null, user);
       }
     )
   );
@@ -82,26 +79,21 @@ if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
       },
       async (accessToken, refreshToken, params, done) => {
         try {
-          const response = await fetch(
-            "https://discord.com/api/users/@me",
-            {
-              headers: { Authorization: `Bearer ${accessToken}` },
-            }
-          );
+          const response = await fetch("https://discord.com/api/users/@me", {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
           const discord = await response.json();
 
-          USERS = await loadUsers();
-
-          let user = Object.values(USERS).find(
-            (u) => u.oauthDiscord === discord.id
-          );
+          const users = await loadUsers();
+          let user = Object.values(users).find((u) => u.oauthDiscord === discord.id);
 
           if (!user) {
             user = {
               id: uuidv4(),
-              name: discord.username,
+              name: discord.username || `Discord${Math.floor(Math.random() * 9999)}`,
               type: "discord",
               oauthDiscord: discord.id,
+              avatar: discord.avatar ? `https://cdn.discordapp.com/avatars/${discord.id}/${discord.avatar}.png` : null
             };
             await saveUser(user);
           }
@@ -129,27 +121,44 @@ router.post("/guest/register", async (req, res) => {
     const hashed = await bcrypt.hash(password, 10);
     const name = "Guest" + Math.floor(Math.random() * 9999);
 
+    // Build the user object
     const user = { id, name, type: "guest", guestPassword: hashed };
-    await saveUser(user);
 
-    req.login(user, (err) => {
-      if (err) return res.json({ ok: false, error: err.message });
-      res.json({ ok: true, user: publicUser(user) });
+    // Save (this will try Supabase then fallback to local)
+    let saved;
+    try {
+      saved = await saveUser(user);
+    } catch (err) {
+      console.error("[auth] saveUser failed:", err);
+      return res.json({ ok: false, error: "Failed to create user" });
+    }
+
+    // Log the saved user id for debugging (do not log secrets)
+    console.log(`[auth] Guest created: ${saved.id} (${saved.name})`);
+
+    // Log user into session using the authoritative saved user
+    req.login(saved, (err) => {
+      if (err) {
+        console.error('[auth] req.login failed after guest register:', err);
+        return res.json({ ok: false, error: err.message });
+      }
+      // send the public-safe version back
+      res.json({ ok: true, user: publicUser(saved) });
     });
   } catch (e) {
-    console.error(e);
+    console.error('[auth] guest register error:', e);
     res.json({ ok: false, error: "Server error" });
   }
 });
 
 // --- GUEST LOGIN ---
 router.post("/guest/login", async (req, res) => {
-try {
-const { username, password } = req.body;
-if (!username || !password) return res.json({ ok: false, error: "Missing credentials" });
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) return res.json({ ok: false, error: "Missing credentials" });
 
-    const USERS = await loadUsers();
-    const user = Object.values(USERS).find(u => u.type === "guest" && u.name === username);
+    const users = await loadUsers();
+    const user = Object.values(users).find(u => u.type === "guest" && u.name === username);
 
     if (!user) return res.json({ ok: false, error: "Guest not found" });
 
@@ -157,14 +166,13 @@ if (!username || !password) return res.json({ ok: false, error: "Missing credent
     if (!match) return res.json({ ok: false, error: "Wrong password" });
 
     req.login(user, (err) => {
-        if (err) return res.json({ ok: false, error: err.message });
-        res.json({ ok: true, user: publicUser(user) });
+      if (err) return res.json({ ok: false, error: err.message });
+      res.json({ ok: true, user: publicUser(user) });
     });
-} catch (err) {
+  } catch (err) {
     console.error("Guest login error:", err);
     res.json({ ok: false, error: "Server error" });
-}
-
+  }
 });
 
 // ----------------- SESSION CHECK -----------------
@@ -190,8 +198,7 @@ router.get(
   "/google/callback",
   passport.authenticate("google", { failureRedirect: "/" }),
   (req, res) => {
-    if (req.query.state === "json")
-      return res.json({ ok: true, user: publicUser(req.user) });
+    if (req.query.state === "json") return res.json({ ok: true, user: publicUser(req.user) });
     res.redirect("/FivesDiceGame");
   }
 );
@@ -206,8 +213,7 @@ router.get(
   "/discord/callback",
   passport.authenticate("discord", { failureRedirect: "/" }),
   (req, res) => {
-    if (req.query.state === "json")
-      return res.json({ ok: true, user: publicUser(req.user) });
+    if (req.query.state === "json") return res.json({ ok: true, user: publicUser(req.user) });
     res.redirect("/FivesDiceGame");
   }
 );

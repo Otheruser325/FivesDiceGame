@@ -1,5 +1,5 @@
 import { getSocket } from '../utils/SocketManager.js';
-import { GlobalAudio } from '../utils/AudioManager.js';
+import GlobalAudio from '../utils/AudioManager.js';
 import { animateDiceRoll } from '../utils/AnimationManager.js';
 import { checkCombo, showComboText, playComboFX } from '../utils/ComboManager.js';
 
@@ -104,6 +104,20 @@ export default class OnlineGameScene extends Phaser.Scene {
 
     this.addBackButton();
     this.installSocketHandlers();
+
+    try {
+      const s = getSocket();
+      if (s && !s.data?.user) {
+        const raw = localStorage.getItem('fives_user');
+        if (raw) {
+          const cached = JSON.parse(raw);
+          if (cached && cached.id) {
+            s.emit('auth-user', { id: cached.id, name: cached.name, type: cached.type, avatar: cached.avatar || null });
+            s.userId = cached.id;
+          }
+        }
+      }
+    } catch (e) { /* ignore */ }
 
     // request server authoritative state
     if (getSocket()) {
@@ -277,16 +291,17 @@ export default class OnlineGameScene extends Phaser.Scene {
     this.updatePlayerBar();
 
     const name = (this.playerSlots[playerIndex] && this.playerSlots[playerIndex].name) || `P${playerIndex + 1}`;
-    this.info.setText(`🎲 ${name}'s turn`);
 
     // enable local controls only if this is our turn
     if (this.localPlayerIndex === playerIndex) {
       this._hasRolledThisTurn = false;
+      this.info.setText(`🎲 Your turn`);
       this.rollBtn.setText('Roll Dice').setStyle({ color: '#66ff66' }).setInteractive();
       this.endTurnBtn.disableInteractive();
       this.endTurnBtn.setStyle({ color: '#888888' });
       this.startTurnTimer(timeLimitSeconds, payload?.turnExpiresAt || null);
     } else {
+      this.info.setText(`🎲 ${name}'s turn`);
       this.rollBtn.setText('Waiting...').setStyle({ color: '#999999' }).disableInteractive();
       this.endTurnBtn.disableInteractive();
       this.startTurnTimer(timeLimitSeconds, payload?.turnExpiresAt || null);
@@ -369,13 +384,16 @@ export default class OnlineGameScene extends Phaser.Scene {
       this.diceScoringDisplay(dice, base);
     }
 
-    this.updatePlayerBar();
+    // show results header
+    const resultName = (this.playerSlots[playerIndex] && this.playerSlots[playerIndex].name) || `P${playerIndex + 1}`;
+    if (this.localPlayerIndex === playerIndex) {
+      this.info.setText(`🎲 Your roll`);
+    } else {
+      this.info.setText(`🎲 ${resultName}'s roll`);
+    }
+    this.rollBtn.setText('Results').setStyle({ color: '#888888' });
 
-    try {
-      if (this.localPlayerIndex === playerIndex) {
-        this.rollBtn.setText('Roll Dice').disableInteractive().setStyle({ color: '#999999' });
-      } else {}
-    } catch (err) {}
+    this.updatePlayerBar();
 
     // If this was the local player's roll and NOT a timeout, allow End Turn after 3s
     if (!isTimeout && this.localPlayerIndex === playerIndex) {
@@ -448,7 +466,22 @@ export default class OnlineGameScene extends Phaser.Scene {
       const idx = this.playerSlots.findIndex(p => String(p.id) === String(payload.localId));
       this.localPlayerIndex = idx >= 0 ? idx : null;
     } else {
-      const localId = getSocket().data?.user?.id || getSocket().userId || null;
+      let localId = null;
+      try {
+        localId = getSocket().data?.user?.id || getSocket().userId || null;
+      } catch (e) { localId = null; }
+
+      // fallback to localStorage cached user if present
+      if (!localId) {
+        try {
+          const raw = localStorage.getItem('fives_user');
+          if (raw) {
+            const cached = JSON.parse(raw);
+            if (cached && cached.id) localId = cached.id;
+          }
+        } catch (e) { /* ignore */ }
+      }
+
       if (localId) {
         const idx = this.playerSlots.findIndex(p => String(p.id) === String(localId));
         this.localPlayerIndex = idx >= 0 ? idx : null;
@@ -522,9 +555,8 @@ export default class OnlineGameScene extends Phaser.Scene {
       this.rollBtn.setText('Rolling...').setStyle({ color: '#c4c70bd2' }).disableInteractive();
       this.endTurnBtn.disableInteractive();
       this.endTurnBtn.setStyle({ color: '#888888' });
-      this.info.setText('Rolling...');
     } else {
-      // For other players: show info but don't touch our roll button
+      this.rollBtn.setText('Rolling...').setStyle({ color: '#c4c70bd2' }).disableInteractive();
       this.info.setText(`🎲 ${name} is rolling...`);
     }
   }
@@ -534,14 +566,22 @@ export default class OnlineGameScene extends Phaser.Scene {
   // -----------------------
   onPlayerLeft(payload) {
     if (!payload) return;
-    const { index, id } = payload;
-    if (typeof index === 'number' && this.playerSlots[index]) {
-      this.playerSlots[index].connected = false;
+    const id = payload.id;
+    let idx = (typeof payload.index === 'number') ? payload.index : -1;
+
+    if (idx === -1 && id) {
+      idx = this.playerSlots.findIndex(p => String(p.id) === String(id));
+    }
+    if (idx === -1) {
+      return;
+    }
+
+    // mark disconnected
+    if (this.playerSlots[idx]) {
+      this.playerSlots[idx].connected = false;
       this.updatePlayerBar();
-      this.info.setText(`${this.playerSlots[index].name} left the game`);
-    } else if (id) {
-      const idx = this.playerSlots.findIndex(p => p.id === id);
-      if (idx !== -1) this.onPlayerLeft({ index: idx, id });
+      const name = this.playerSlots[idx].name || `P${idx + 1}`;
+      this.info.setText(`${name} left the game`);
     }
   }
 
@@ -560,7 +600,8 @@ export default class OnlineGameScene extends Phaser.Scene {
   // Game end / postgame
   // -----------------------
   endGame(payload = {}) {
-    const scores = payload.scores || this.scores || [];
+    const scores = Array.isArray(payload.scores) ? payload.scores : (this.scores || []);
+    const combos = Array.isArray(payload.comboStats) ? payload.comboStats : (this.comboStats || []);
 
     let resultText = 'Game Over\n\n';
     resultText += scores.map((s, i) => {
@@ -578,8 +619,8 @@ export default class OnlineGameScene extends Phaser.Scene {
       this.registry.set('onlinePostGame', {
         players: this.playerSlots.length,
         names: this.playerSlots.map(p => p.name),
-        scores: this.scores,
-        combos: this.comboStats
+        scores: scores,
+        combos: combos
       });
       this.scene.start('OnlinePostGameScene');
     });
@@ -709,7 +750,7 @@ export default class OnlineGameScene extends Phaser.Scene {
   }
 
   addBackButton() {
-    const back = this.add.text(50, 50, 'Back', { fontSize: 24, color: '#ff6666' }).setInteractive();
+    const back = this.add.text(50, 50, '← Back', { fontSize: 24, color: '#ff6666' }).setInteractive();
     back.on('pointerdown', () => {
       GlobalAudio.playButton(this);
       if (this.exitLocked) {
