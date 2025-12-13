@@ -141,7 +141,7 @@ export function comboFlash(scene, color, duration = 500, alpha = 0.5, additive =
       });
 
       // 🌈 DISCRETE rainbow camera flashes (SAFE)
-      const flashCount = 4;
+      const flashCount = 6;
       const flashInterval = Math.floor(dur / flashCount);
 
       for (let i = 0; i < flashCount; i++) {
@@ -208,7 +208,7 @@ export function playComboFX(scene, comboName) {
             break;
 
         case "fiveOfAKind":
-            comboFlash(scene, 'RAINBOW', 2000, 0.75, true); // rainbow handled inside ComboText glow
+            comboFlash(scene, 'RAINBOW', 1500, 0.75, true); // rainbow handled inside ComboText glow
             comboShake(scene, 12, 1000); // DiceQuake™
             break;
 
