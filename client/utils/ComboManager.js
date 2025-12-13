@@ -107,13 +107,12 @@ export function showComboText(scene, comboName, intensity = 1) {
 
 export function comboFlash(scene, color, duration = 500, alpha = 0.5, additive = false) {
   const settings = scene?.registry?.get('settings') ?? { visualEffects: true };
-  if (settings.visualEffects === false || !scene) return;
+  if (!scene || settings.visualEffects === false) return;
 
   const dur = Math.max(120, duration | 0);
   const isRainbow = color === 'RAINBOW';
 
   try {
-    // Full-screen overlay
     const overlay = scene.add.rectangle(
       scene.scale.width / 2,
       scene.scale.height / 2,
@@ -123,42 +122,45 @@ export function comboFlash(scene, color, duration = 500, alpha = 0.5, additive =
       0
     ).setDepth(9999);
 
+    if (additive) overlay.setBlendMode(Phaser.BlendModes.ADD);
+
     let alive = true;
     overlay.once(Phaser.GameObjects.Events.DESTROY, () => alive = false);
 
-    if (additive) overlay.setBlendMode(Phaser.BlendModes.ADD);
-
-    let rainbowTween = null;
-
-    // 🌈 Rainbow mode (overlay + camera)
+    // 🌈 Smooth overlay rainbow cycling
     if (isRainbow) {
-      const steps = RAINBOW_COLORS.length;
-      const flashInterval = Math.max(80, Math.floor(dur / steps));
-
-      rainbowTween = scene.tweens.addCounter({
+      scene.tweens.addCounter({
         from: 0,
-        to: steps,
+        to: RAINBOW_COLORS.length,
         duration: dur,
-        repeat: 0,
         onUpdate: tween => {
           if (!alive) return;
-
-          const idx = Math.floor(tween.getValue()) % steps;
-          const rgb = Phaser.Display.Color.IntegerToRGB(RAINBOW_COLORS[idx]);
-
-          overlay.fillColor = RAINBOW_COLORS[idx];
-
-          scene.cameras.main.flash(
-            flashInterval,
-            rgb.r,
-            rgb.g,
-            rgb.b,
-            true
-          );
+          overlay.fillColor =
+            RAINBOW_COLORS[Math.floor(tween.getValue()) % RAINBOW_COLORS.length];
         }
       });
+
+      // 🌈 DISCRETE rainbow camera flashes (SAFE)
+      const flashCount = 4;
+      const flashInterval = Math.floor(dur / flashCount);
+
+      for (let i = 0; i < flashCount; i++) {
+        scene.time.delayedCall(i * flashInterval, () => {
+          if (!alive) return;
+          const c = Phaser.Display.Color.IntegerToRGB(
+            RAINBOW_COLORS[i % RAINBOW_COLORS.length]
+          );
+          scene.cameras.main.flash(
+            90,
+            c.r,
+            c.g,
+            c.b,
+            true
+          );
+        });
+      }
     } else {
-      // Normal camera flash
+      // Normal single flash
       const rgb = Phaser.Display.Color.IntegerToRGB(color);
       scene.cameras.main.flash(
         Math.max(80, Math.floor(dur * 0.28)),
@@ -176,14 +178,10 @@ export function comboFlash(scene, color, duration = 500, alpha = 0.5, additive =
       duration: Math.max(60, Math.floor(dur * 0.35)),
       yoyo: true,
       hold: Math.max(40, Math.floor(dur * 0.25)),
-      onComplete: () => {
-        if (rainbowTween) rainbowTween.stop();
-        if (alive) overlay.destroy();
-      }
+      onComplete: () => alive && overlay.destroy()
     });
 
-  } catch (err) {
-    // Absolute fallback
+  } catch {
     try { scene.cameras.main.flash(120); } catch (_) {}
   }
 }
