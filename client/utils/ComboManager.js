@@ -128,28 +128,31 @@ export function comboFlash(scene, color, duration = 500, alpha = 0.5, additive =
 
     if (additive) overlay.setBlendMode(Phaser.BlendModes.ADD);
 
+    let rainbowTween = null;
+
     // 🌈 Rainbow mode (overlay + camera)
     if (isRainbow) {
-      scene.tweens.addCounter({
+      const steps = RAINBOW_COLORS.length;
+      const flashInterval = Math.max(80, Math.floor(dur / steps));
+
+      rainbowTween = scene.tweens.addCounter({
         from: 0,
-        to: RAINBOW_COLORS.length,
-        duration: dur * 0.6,
-        repeat: -1,
+        to: steps,
+        duration: dur,
+        repeat: 0,
         onUpdate: tween => {
           if (!alive) return;
 
-          const idx = Math.floor(tween.getValue()) % RAINBOW_COLORS.length;
-          const c = Phaser.Display.Color.IntegerToRGB(RAINBOW_COLORS[idx]);
+          const idx = Math.floor(tween.getValue()) % steps;
+          const rgb = Phaser.Display.Color.IntegerToRGB(RAINBOW_COLORS[idx]);
 
-          // Overlay color
           overlay.fillColor = RAINBOW_COLORS[idx];
 
-          // Camera flash pulse (short + punchy)
           scene.cameras.main.flash(
-            80,
-            c.r,
-            c.g,
-            c.b,
+            flashInterval,
+            rgb.r,
+            rgb.g,
+            rgb.b,
             true
           );
         }
@@ -174,12 +177,13 @@ export function comboFlash(scene, color, duration = 500, alpha = 0.5, additive =
       yoyo: true,
       hold: Math.max(40, Math.floor(dur * 0.25)),
       onComplete: () => {
+        if (rainbowTween) rainbowTween.stop();
         if (alive) overlay.destroy();
       }
     });
 
   } catch (err) {
-    // Absolute fallback: camera flash only
+    // Absolute fallback
     try { scene.cameras.main.flash(120); } catch (_) {}
   }
 }
