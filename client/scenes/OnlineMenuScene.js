@@ -27,9 +27,15 @@ export default class OnlineMenuScene extends Phaser.Scene {
         this.add.text(600, 60, 'Online Mode', { fontSize: 48 }).setOrigin(0.5);
 
         // Check server availability: if socket library missing or socket not connected => maintenance view
-        const socketLibAvailable = (typeof io === 'function');
-        const socket = socketLibAvailable ? getSocket() : null;
-        const serverAvailable = !!(socket && socket.connected);
+        let socket = null;
+        let serverAvailable = false;
+        try {
+          socket = getSocket();
+          serverAvailable = !!(socket && socket.connected);
+        } catch (e) {
+          socket = null;
+          serverAvailable = false;
+        }
 
         if (!serverAvailable) {
             this.add.text(600, 200, "Server Under Maintenance", {
@@ -131,7 +137,10 @@ export default class OnlineMenuScene extends Phaser.Scene {
             this.joinInput = this.add.dom(600, 270, 'input', {
                 width: '200px',
                 fontSize: '20px',
-                padding: '6px'
+                padding: '6px',
+                background: 'transparent',
+                outline: 'none',
+                color: '#fff'
             });
 
             // Build lobby buttons dynamically

@@ -214,6 +214,10 @@ export default class LobbyManager {
       const existing = lobby.players.find(p => String(p.id) === String(socket.data.user.id));
       if (!existing) {
         lobby.players.push({ ...socket.data.user, id: socket.data.user.id, ready: false });
+        lobby.players = lobby.players.filter(Boolean).reduce((acc, p) => {
+          if (!acc.find(x => String(x.id) === String(p.id))) acc.push(p);
+          return acc;
+        }, []);
         try { await this.save(); } catch (e) { console.warn("[LobbyManager] save after join failed:", e); }
       }
 
@@ -487,121 +491,146 @@ export default class LobbyManager {
         }
       }
     });
-  } // end registerSocket
+  }
 
   // Remove player (and handle host transfer / cleanup)
   async removePlayerFromLobby(codeRaw, socket) {
-    if (!codeRaw || typeof codeRaw !== "string") return;
-    const code = codeRaw.trim().toUpperCase();
+  if (!codeRaw || typeof codeRaw !== "string") return;
+  const code = codeRaw.trim().toUpperCase();
 
-    const lobby = this.lobbies[code];
-    if (!lobby) {
-      // also handle active game removal
-      const gameOnly = this.activeGames[code];
-      if (gameOnly) {
-        const beforeLen = gameOnly.players.length;
-        gameOnly.players = gameOnly.players.filter(p => p.id !== socket.data.user?.id);
-        if (gameOnly.players.length !== beforeLen) {
-          if (gameOnly.currentIndex >= gameOnly.players.length) gameOnly.currentIndex = 0;
-          this.io.to(code).emit("player-left", { id: socket.data.user?.id });
-          if (gameOnly.players.length === 1) {
-            this.io.to(code).emit("game-finished", {
-              code,
-              scores: gameOnly.players.map(p => p.score),
-              comboStats: gameOnly.players.map(p => p.comboStats),
-              names: gameOnly.players.map(p => p.name),
-              players: gameOnly.players
-            });
-            delete this.activeGames[code];
-          }
+  const lobby = this.lobbies[code];
+  if (!lobby) {
+    const gameOnly = this.activeGames[code];
+    if (gameOnly) {
+      const beforeLen = gameOnly.players.length;
+      gameOnly.players = gameOnly.players.filter(p => p.id !== socket.data.user?.id);
+      if (gameOnly.players.length !== beforeLen) {
+        if (gameOnly.currentIndex >= gameOnly.players.length) gameOnly.currentIndex = 0;
+        this.io.to(code).emit("player-left", { id: socket.data.user?.id });
+        if (gameOnly.players.length === 1) {
+          this.io.to(code).emit("game-finished", {
+            code,
+            scores: gameOnly.players.map(p => p.score),
+            comboStats: gameOnly.players.map(p => p.comboStats),
+            names: gameOnly.players.map(p => p.name),
+            players: gameOnly.players
+          });
+          delete this.activeGames[code];
         }
       }
-      return;
+    }
+    return;
+  }
+
+  // remove the player (by user id)
+  const before = lobby.players.length;
+  const removedId = String(socket.data.user?.id);
+  lobby.players = lobby.players.filter(p => String(p.id) !== removedId);
+
+  // If nothing changed, nothing to do
+  if (lobby.players.length === before) return;
+
+  // ---------- CASE: lobby now empty -> delete the lobby ----------
+  if (lobby.players.length === 0) {
+    if (this.lobbies[code]) delete this.lobbies[code];
+
+    try {
+      await this.save();
+    } catch (e) {
+      console.warn("[LobbyManager] save after removing last player failed:", e);
     }
 
-    const before = lobby.players.length;
-    lobby.players = lobby.players.filter(p => String(p.id) !== String(socket.data.user?.id));
-
-    if (lobby.players.length !== before) {
-      // transfer host if needed
-      if (socket.id === lobby.hostSocketId) {
-        if (lobby.players.length > 0) {
-          const newHostUser = lobby.players[0];
-          // find socket for that user (best-effort)
-          const newHostSocket = [...this.io.sockets.sockets.values()].find(s => s.data?.user?.id === newHostUser.id);
-          if (newHostSocket) {
-            lobby.hostSocketId = newHostSocket.id;
-            lobby.hostUserId = newHostUser.id;
-          } else {
-            lobby.hostUserId = newHostUser.id;
-            lobby.hostSocketId = null;
-          }
-        } else {
-          await this.deleteLobby(code);
-          this.io.to(code).emit("lobby-deleted", { code });
-          return;
-        }
-      }
-
-      try { await this.save(); } catch (e) { console.warn("[LobbyManager] save after removePlayer failed:", e); }
-      this.broadcastLobbyUpdate(code);
+    try {
+      await deleteSupabaseLobby(code);
+    } catch (e) {
+      console.warn("[LobbyManager] deleteSupabaseLobby failed while deleting empty lobby:", e);
     }
 
-    // If an active game exists, remove player from it too
-    const game = this.activeGames[code];
-    if (game) {
-      const beforeLen = game.players.length;
-      game.players = game.players.filter(p => String(p.id) !== String(socket.data.user?.id));
+    // notify room (clients can handle lobby-deleted)
+    try { this.io.to(code).emit("lobby-deleted", { code }); } catch (e) {}
+    return;
+  }
 
-      this.io.to(code).emit("player-left", { id: socket.data.user?.id });
-
-      if (game.players.length === 0) {
-        delete this.activeGames[code];
-        return;
+  // ---------- CASE: lobby still has players -> ensure host is valid ----------
+  // If hostUserId no longer present among players or hostSocketId invalid, transfer host to first player
+  const remainingIds = new Set(lobby.players.map(p => String(p.id)));
+  if (!lobby.hostUserId || !remainingIds.has(String(lobby.hostUserId))) {
+    const newHostUser = lobby.players[0];
+    lobby.hostUserId = newHostUser.id;
+    const newHostSocket = [...this.io.sockets.sockets.values()].find(s => String(s.data?.user?.id) === String(newHostUser.id));
+    lobby.hostSocketId = newHostSocket ? newHostSocket.id : null;
+  } else {
+    if (lobby.hostSocketId) {
+      const sockExists = Boolean(this.io.sockets.sockets.get(lobby.hostSocketId));
+      if (!sockExists) {
+        const newHostSocket = [...this.io.sockets.sockets.values()].find(s => String(s.data?.user?.id) === String(lobby.hostUserId));
+        lobby.hostSocketId = newHostSocket ? newHostSocket.id : null;
       }
-
-      if (game.currentIndex >= game.players.length) {
-        game.currentIndex = 0;
-      }
-
-      if (game.players.length === 1) {
-        this.io.to(code).emit("game-finished", { code, players: game.players });
-        delete this.activeGames[code];
-        return;
-      }
-
-      try {
-        const payload = {
-          players: game.players.map(p => ({ id: p.id, name: p.name, avatar: p.avatar || null, connected: true })),
-          scores: game.players.map(p => p.score),
-          comboStats: game.players.map(p => p.comboStats),
-          round: game.round,
-          totalRounds: game.totalRounds,
-          room: code,
-          currentPlayerIndex: game.currentIndex,
-          timeLimitSeconds: game.timeLimitSeconds || 30,
-          turnExpiresAt: game.turnExpiresAt || null
-        };
-        this.io.to(code).emit("game-state", payload);
-      } catch (err) {
-        console.warn("[LobbyManager] emit game-state after player-left failed:", err);
-      }
-
-      // small delay so clients process the game-state update before server starts the next turn
-      setTimeout(() => {
-        try {
-          const g = this.activeGames[code];
-          if (g && g.players && g.players.length > 1) {
-            this.startTurn(code);
-          }
-        } catch (e) {
-          console.warn("[LobbyManager] deferred startTurn failed:", e);
-        }
-      }, 120);
-
-      return;
     }
   }
+
+  // persist changes and broadcast update
+  try {
+    await this.save();
+  } catch (e) {
+    console.warn("[LobbyManager] save after removePlayer failed:", e);
+  }
+
+  this.broadcastLobbyUpdate(code);
+
+  // If there is an active game associated with this room, remove the player from it too
+  const game = this.activeGames[code];
+  if (game) {
+    const beforeLen = game.players.length;
+    game.players = game.players.filter(p => String(p.id) !== removedId);
+
+    this.io.to(code).emit("player-left", { id: removedId });
+
+    if (game.players.length === 0) {
+      delete this.activeGames[code];
+      return;
+    }
+
+    if (game.currentIndex >= game.players.length) {
+      game.currentIndex = 0;
+    }
+
+    if (game.players.length === 1) {
+      this.io.to(code).emit("game-finished", { code, players: game.players });
+      delete this.activeGames[code];
+      return;
+    }
+
+    try {
+      const payload = {
+        players: game.players.map(p => ({ id: p.id, name: p.name, avatar: p.avatar || null, connected: true })),
+        scores: game.players.map(p => p.score),
+        comboStats: game.players.map(p => p.comboStats),
+        round: game.round,
+        totalRounds: game.totalRounds,
+        room: code,
+        currentPlayerIndex: game.currentIndex,
+        timeLimitSeconds: game.timeLimitSeconds || 30,
+        turnExpiresAt: game.turnExpiresAt || null
+      };
+      this.io.to(code).emit('game-state', payload);
+    } catch (err) {
+      console.warn("[LobbyManager] emit game-state after player-left failed:", err);
+    }
+
+    // small delay so clients process the game-state update before server starts the next turn
+    setTimeout(() => {
+      try {
+        const g = this.activeGames[code];
+        if (g && g.players && g.players.length > 1) {
+          this.startTurn(code);
+        }
+      } catch (e) {
+        console.warn("[LobbyManager] deferred startTurn failed:", e);
+      }
+    }, 120);
+  }
+}
 
   // Broadcast lobby update to room
   broadcastLobbyUpdate(code) {

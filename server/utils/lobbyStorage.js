@@ -242,6 +242,14 @@ export async function saveLobbies(lobbies) {
   await lobbiesDb.read();
   lobbiesDb.data ||= {};
   lobbiesDb.data.lobbies ||= {};
+
+  // If incoming array is empty -> clear the local DB lobbies entirely.
+  if (arr.length === 0) {
+    lobbiesDb.data.lobbies = {};
+    await enqueueWrite(async () => _safeLocalWrite());
+    return {};
+  }
+
   // Convert arr back to map keyed by code:
   const map = {};
   arr.forEach(r => {
@@ -263,11 +271,22 @@ export async function saveLobbies(lobbies) {
       return;
     }
 
-    lobbiesDb.data.lobbies[code] = r;
-    map[code] = _rowToLobby(r);
+    map[code] = r;
   });
+
+  // Replace the DB object's lobbies map wholesale and persist
+  lobbiesDb.data.lobbies = map;
   await enqueueWrite(async () => _safeLocalWrite());
-  return map;
+  
+  // Return normalized map of rows -> lobby objects
+  const out = {};
+  Object.keys(map).forEach(k => {
+    try {
+      out[k] = _rowToLobby(map[k]);
+    } catch (e) { /* ignore malformed */ }
+  });
+
+  return out;
 }
 
 export async function pruneLocalLobbies({ expireMs = DEFAULT_EXPIRE_MS } = {}) {
@@ -310,10 +329,17 @@ export async function pruneLocalLobbies({ expireMs = DEFAULT_EXPIRE_MS } = {}) {
 }
 
 export async function deleteSupabaseLobby(code) {
-  const { error } = await supabase
-    .from('lobbies')
-    .delete()
-    .eq('code', code);
+  if (!supabase) {
+    return;
+  }
 
-  if (error) throw error;
+  try {
+    const { error } = await supabase
+      .from('lobbies')
+      .delete()
+      .eq('code', String(code).trim().toUpperCase());
+    if (error) throw error;
+  } catch (err) {
+    throw err;
+  }
 }
