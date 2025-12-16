@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "nodemon --watch server --watch client --exec node index.js --delay 200"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.87.1",
@@ -22,5 +23,9 @@
     "socket.io": "^4.7.1",
     "uuid": "^9.0.1",
     "uuidv4": "^6.2.13"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "nodemon": "^3.1.11"
   }
 }

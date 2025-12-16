@@ -62,8 +62,22 @@ export default class OnlineLobbyScene extends Phaser.Scene {
             .setOrigin(0.5).setInteractive();
         this.readyBtn.on("pointerdown", () => {
             GlobalAudio.playButton(this);
-            // server handler accepts a single code string — pass an object to be explicit and robust
-            getSocket().emit("toggle-ready", this.code);
+
+            // determine our user id (socket-auth or localStorage fallback)
+            let myId = null;
+            try { myId = getSocket().data?.user?.id || getSocket().userId || null; } catch (e) { myId = null; }
+            if (!myId) {
+              try {
+                const raw = localStorage.getItem('fives_user');
+                if (raw) {
+                  const cached = JSON.parse(raw);
+                  if (cached && cached.id) myId = cached.id;
+                }
+             } catch (e) { /* ignore */ }
+            }
+
+            // Emit code and best-effort user id (server will accept either)
+            getSocket().emit("toggle-ready", this.code, myId);
         });
 
         // HOST START BUTTON

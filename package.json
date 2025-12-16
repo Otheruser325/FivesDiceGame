@@ -5,6 +5,8 @@
   "description": "A simple yet popular dice game that can be played locally or interally.",
   "main": "index.js",
   "scripts": {
+	  "start": "node server/index.js",
+    "dev": "nodemon --watch server --watch client --exec node server/index.js --delay 200",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -12,5 +14,8 @@
   "license": "ISC",
   "dependencies": {
     "passport-discord": "^0.1.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.11"
   }
 }

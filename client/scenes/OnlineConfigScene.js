@@ -91,11 +91,28 @@ export default class OnlineConfigScene extends Phaser.Scene {
                 combos: this.comboRules
             };
 
-            getSocket().emit('create-lobby', payload);
+            const socket = getSocket();
 
-            getSocket().once("lobby-created", code => {
-              this.scene.start("OnlineLobbyScene", { code });
-            });
+            // resolve myId (socket first, then localStorage fallback)
+            try { 
+                let myId = null;
+                try { myId = getSocket().data?.user?.id || getSocket().userId || null; } catch (e) { myId = null; }
+                if (!myId) {
+                  try {
+                    const raw = localStorage.getItem('fives_user');
+                    if (raw) {
+                        const cached = JSON.parse(raw);
+                        if (cached && cached.id) myId = cached.id;
+                    }
+                  } catch (e) {}
+                }
+                socket.emit('create-lobby', payload, myId);
+                socket.once("lobby-created", code => {
+                  this.scene.start("OnlineLobbyScene", { code });
+                });
+            } catch (e) { 
+                console.warn('emit failed', e); 
+            }
         });
 
         // BACK BUTTON

@@ -1,4 +1,4 @@
-import { getSocket } from '../utils/SocketManager.js';
+import { getSocket, getServerUrl } from '../utils/SocketManager.js';
 import GlobalAudio from '../utils/AudioManager.js';
 
 export default class OnlineAccountScene extends Phaser.Scene {
@@ -74,7 +74,8 @@ export default class OnlineAccountScene extends Phaser.Scene {
   async refreshAuth() {
     // Try server auth (if available) then fallback to localStorage
     try {
-      const res = await fetch('/auth/me', { credentials: 'include' });
+      const server = getServerUrl();
+      const res = await fetch(`${server.replace(/\/$/, '')}/auth/me`, { credentials: 'include' });
       if (res.ok) {
         const text = await res.text();
         try {
@@ -238,7 +239,8 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
   async oauthLogin(url) {
     try {
-      const resp = await fetch(url, { credentials: 'include' });
+      const server = getServerUrl();
+      const resp = await fetch(`${server.replace(/\/$/, '')}${url.startsWith('/') ? '' : '/'}${url}`, { credentials: 'include' });
       const j = await resp.json();
       if (j.ok && j.user) {
         localStorage.setItem('fives_user', JSON.stringify(j.user));
@@ -281,7 +283,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
       return;
     }
     try {
-      const resp = await fetch('/auth/guest/register', {
+      const resp = await fetch(`${getServerUrl()}/auth/guest/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -328,7 +330,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
     const password = (this.loginPassInput.node.value || '').trim();
     if (!username || !password) { alert('Enter credentials'); return; }
     try {
-      const resp = await fetch('/auth/guest/login', {
+      const resp = await fetch(`${getServerUrl()}/auth/guest/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -395,7 +397,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
     signOutBtn.on('pointerdown', async () => {
       try {
-        await fetch('/auth/logout', { method: 'POST', credentials: 'include' });
+        await fetch(`${getServerUrl().replace(/\/$/, '')}/auth/logout`, { method: 'POST', credentials: 'include' });
       } catch (e) { console.warn('Logout request failed', e); }
       localStorage.removeItem('fives_user');
 

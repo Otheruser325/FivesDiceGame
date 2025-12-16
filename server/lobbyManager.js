@@ -157,8 +157,12 @@ export default class LobbyManager {
     });
 
     // ---------- CREATE LOBBY ----------
-    socket.on("create-lobby", async (config = {}) => {
-      if (!socket.data.user) return socket.emit("create-failed", { reason: "unauthenticated" });
+    socket.on("create-lobby", async (config = {}, maybeUserId) => {
+      let uid = socket.data.user?.id || maybeUserId || null;
+      if (!uid) return socket.emit("create-failed", { reason: "unauthenticated" });
+
+      // best-effort: seed socket.data.user minimally so future ops work
+      if (!socket.data.user) socket.data.user = { id: uid, name: (socket.data?.user?.name || `Guest${uid}`) };
 
       // ensure unique code (retry if collision)
       let code;
@@ -167,16 +171,21 @@ export default class LobbyManager {
         if (!this.lobbies[code]) break;
         code = null;
       }
-      if (!code) {
-        // fallback: generate using timestamp
-        code = ("L" + Date.now()).slice(-6).toUpperCase();
-      }
+      if (!code) code = ("L" + Date.now()).slice(-6).toUpperCase();
+
+      const playerObj = {
+        ...socket.data.user,
+        id: socket.data.user.id,
+        ready: false,
+        left: false,
+        connected: true
+      };
 
       const lobby = {
         code,
         hostSocketId: socket.id,
         hostUserId: socket.data.user.id,
-        players: [{ ...socket.data.user, id: socket.data.user.id, ready: false }],
+        players: [playerObj],
         config: {
           players: config.players || 2,
           rounds: config.rounds || 20,
@@ -187,11 +196,7 @@ export default class LobbyManager {
 
       this.lobbies[code] = lobby;
 
-      try {
-        await this.save();
-      } catch (e) {
-        console.warn("[LobbyManager] failed to persist created lobby:", e);
-      }
+      try { await this.save(); } catch (e) { console.warn("[LobbyManager] failed to persist created lobby:", e); }
 
       socket.join(code);
       socket.emit("lobby-created", code);
@@ -199,26 +204,51 @@ export default class LobbyManager {
     });
 
     // ---------- JOIN LOBBY ----------
-    socket.on("join-lobby", async (codeRaw) => {
-      if (!socket.data.user) return socket.emit("join-failed", { reason: "unauthenticated" });
-      if (typeof codeRaw !== "string") return socket.emit("join-failed", { reason: "invalid_code" });
-
+    socket.on("join-lobby", async (codeRaw, maybeUserId) => {
+      if (!codeRaw || typeof codeRaw !== "string") return socket.emit("join-failed", { reason: "invalid_code" });
       const code = codeRaw.trim().toUpperCase();
       const lobby = this.lobbies[code];
       if (!lobby) return socket.emit("join-failed", { reason: "notfound" });
 
-      if (lobby.players.length >= (lobby.config?.players || 2)) {
+      // resolve user id
+      let uid = socket.data.user?.id || maybeUserId || null;
+      if (!uid) return socket.emit("join-failed", { reason: "unauthenticated" });
+
+      // seed socket.data.user if missing
+      if (!socket.data.user) socket.data.user = { id: uid };
+
+      // check capacity using only present players (not counting left)
+      const presentCount = (lobby.players || []).filter(p => !p.left).length;
+      if (presentCount >= (lobby.config?.players || 2)) {
         return socket.emit("join-failed", { reason: "full" });
       }
 
       const existing = lobby.players.find(p => String(p.id) === String(socket.data.user.id));
       if (!existing) {
-        lobby.players.push({ ...socket.data.user, id: socket.data.user.id, ready: false });
-        lobby.players = lobby.players.filter(Boolean).reduce((acc, p) => {
-          if (!acc.find(x => String(x.id) === String(p.id))) acc.push(p);
-          return acc;
-        }, []);
+        lobby.players.push({
+          id: uid,
+          name: socket.data.user.name || socket.data.user?.name || `Player${uid}`,
+          ready: false,
+          left: false,
+          connected: true
+        });
+
+        const dedup = [];
+        for (const p of lobby.players) {
+          if (!dedup.find(x => String(x.id) === String(p.id))) dedup.push(p);
+        }
+        lobby.players = dedup;
+
         try { await this.save(); } catch (e) { console.warn("[LobbyManager] save after join failed:", e); }
+      } else {
+        if (existing.left) {
+          existing.left = false;
+          existing.connected = true;
+          existing.ready = false;
+          try { await this.save(); } catch (e) { console.warn("[LobbyManager] save after rejoin failed:", e); }
+        } else {
+          existing.connected = true;
+        }
       }
 
       socket.join(code);
@@ -287,13 +317,18 @@ export default class LobbyManager {
     });
 
     // ---------- TOGGLE READY ----------
-    socket.on("toggle-ready", async (codeRaw) => {
+    socket.on("toggle-ready", async (codeRaw, maybeUserId) => {
       if (typeof codeRaw !== "string") return;
       const code = codeRaw.trim().toUpperCase();
       const lobby = this.lobbies[code];
       if (!lobby) return;
 
-      const player = lobby.players.find(p => String(p.id) === String(socket.data.user?.id));
+      let uid = socket.data.user?.id || maybeUserId || null;
+      if (!uid) return;
+
+      if (!socket.data.user) socket.data.user = { id: uid };
+
+      const player = lobby.players.find(p => String(p.id) === String(uid));
       if (!player) return;
 
       player.ready = !player.ready;
@@ -317,8 +352,11 @@ export default class LobbyManager {
       // ensure host
       if (socket.id !== lobby.hostSocketId) return;
 
-      const allReady = lobby.players.every(p => p.ready);
-      if (!allReady || lobby.players.length < 2) return;
+      // ensure players are present
+      const activePlayers = (lobby.players || []).filter(p => !p.left);
+
+      const allReady = activePlayers.length > 0 && activePlayers.every(p => p.ready);
+      if (!allReady || activePlayers.length < 2) return;
 
       // create game state
       const game = {
@@ -330,7 +368,9 @@ export default class LobbyManager {
           avatar: p.avatar || null,
           score: 0,
           comboStats: { pair:0, twoPair:0, triple:0, fullHouse:0, fourOfAKind:0, fiveOfAKind:0, straight:0 },
-          hasRolled: false
+          hasRolled: false,
+          left: false,
+          connected: true
         })),
         currentIndex: 0,
         round: 1,
@@ -394,6 +434,9 @@ export default class LobbyManager {
       const player = game.players[playerIndex];
       if (!player) return;
 
+      // check if the player has left
+      if (player.left) return;
+
       // ensure this socket is the active player
       if (player.id !== socket.data.user?.id) return;
 
@@ -437,8 +480,11 @@ export default class LobbyManager {
       if (!game) return;
 
       const currentPlayer = game.players[game.currentIndex];
-      if (!currentPlayer || currentPlayer.id !== socket.data.user?.id) return;
 
+      // check if the player has left
+      if (currentPlayer.left) return;
+
+      if (!currentPlayer || currentPlayer.id !== socket.data.user?.id) return;
       if (!currentPlayer.hasRolled) {
         socket.emit("end-turn-failed", { reason: "not_rolled" });
         return;
@@ -502,62 +548,56 @@ export default class LobbyManager {
   if (!lobby) {
     const gameOnly = this.activeGames[code];
     if (gameOnly) {
-      const beforeLen = gameOnly.players.length;
-      gameOnly.players = gameOnly.players.filter(p => p.id !== socket.data.user?.id);
-      if (gameOnly.players.length !== beforeLen) {
-        if (gameOnly.currentIndex >= gameOnly.players.length) gameOnly.currentIndex = 0;
-        this.io.to(code).emit("player-left", { id: socket.data.user?.id });
-        if (gameOnly.players.length === 1) {
-          this.io.to(code).emit("game-finished", {
-            code,
-            scores: gameOnly.players.map(p => p.score),
-            comboStats: gameOnly.players.map(p => p.comboStats),
-            names: gameOnly.players.map(p => p.name),
-            players: gameOnly.players
-          });
-          delete this.activeGames[code];
-        }
+      const uid = socket.data.user?.id;
+      if (!uid) return;
+      const pl = gameOnly.players.find(p => String(p.id) === String(uid));
+      if (pl) {
+        pl.left = true;
+        pl.connected = false;
+      }
+      const activeCount = gameOnly.players.filter(p => !p.left).length;
+      if (activeCount <= 1) {
+        this.io.to(code).emit("game-finished", {
+          code,
+          scores: gameOnly.players.map(p => p.score),
+          comboStats: gameOnly.players.map(p => p.comboStats),
+          names: gameOnly.players.map(p => p.name),
+          players: gameOnly.players
+        });
+        delete this.activeGames[code];
+      } else {
+        this.io.to(code).emit("player-left", { id: uid });
       }
     }
     return;
   }
 
-  // remove the player (by user id)
-  const before = lobby.players.length;
-  const removedId = String(socket.data.user?.id);
-  lobby.players = lobby.players.filter(p => String(p.id) !== removedId);
+  const uid = socket.data.user?.id;
+  if (!uid) return;
+  const pl = (lobby.players || []).find(p => String(p.id) === String(uid));
+  if (!pl) {
+    return;
+  }
 
-  // If nothing changed, nothing to do
-  if (lobby.players.length === before) return;
+  pl.left = true;
+  pl.connected = false;
 
-  // ---------- CASE: lobby now empty -> delete the lobby ----------
-  if (lobby.players.length === 0) {
-    if (this.lobbies[code]) delete this.lobbies[code];
-
-    try {
-      await this.save();
-    } catch (e) {
-      console.warn("[LobbyManager] save after removing last player failed:", e);
-    }
-
-    try {
-      await deleteSupabaseLobby(code);
-    } catch (e) {
-      console.warn("[LobbyManager] deleteSupabaseLobby failed while deleting empty lobby:", e);
-    }
-
-    // notify room (clients can handle lobby-deleted)
+  // If everyone left -> delete lobby
+  const activeCount = (lobby.players || []).filter(p => !p.left).length;
+  if (activeCount === 0) {
+    delete this.lobbies[code];
+    try { await this.save(); } catch (e) { console.warn("[LobbyManager] save after deleting empty lobby failed:", e); }
+    try { await deleteSupabaseLobby(code); } catch (e) { console.warn("[LobbyManager] deleteSupabaseLobby failed:", e); }
     try { this.io.to(code).emit("lobby-deleted", { code }); } catch (e) {}
     return;
   }
 
-  // ---------- CASE: lobby still has players -> ensure host is valid ----------
-  // If hostUserId no longer present among players or hostSocketId invalid, transfer host to first player
-  const remainingIds = new Set(lobby.players.map(p => String(p.id)));
+  // ensure host is valid (transfer if needed to first non-left player)
+  const remainingIds = new Set(lobby.players.filter(p => !p.left).map(p => String(p.id)));
   if (!lobby.hostUserId || !remainingIds.has(String(lobby.hostUserId))) {
-    const newHostUser = lobby.players[0];
-    lobby.hostUserId = newHostUser.id;
-    const newHostSocket = [...this.io.sockets.sockets.values()].find(s => String(s.data?.user?.id) === String(newHostUser.id));
+    const newHost = lobby.players.find(p => !p.left);
+    lobby.hostUserId = newHost ? newHost.id : null;
+    const newHostSocket = [...this.io.sockets.sockets.values()].find(s => String(s.data?.user?.id) === String(newHost?.id));
     lobby.hostSocketId = newHostSocket ? newHostSocket.id : null;
   } else {
     if (lobby.hostSocketId) {
@@ -569,66 +609,65 @@ export default class LobbyManager {
     }
   }
 
-  // persist changes and broadcast update
-  try {
-    await this.save();
-  } catch (e) {
-    console.warn("[LobbyManager] save after removePlayer failed:", e);
-  }
+  // persist changes
+  try { await this.save(); } catch (e) { console.warn("[LobbyManager] save after removePlayer failed:", e); }
 
+  // broadcast update (clients will display left/connected false)
   this.broadcastLobbyUpdate(code);
 
-  // If there is an active game associated with this room, remove the player from it too
+  // If there is an active game associated with this room, mark player as left there too (do not re-index)
   const game = this.activeGames[code];
   if (game) {
-    const beforeLen = game.players.length;
-    game.players = game.players.filter(p => String(p.id) !== removedId);
-
-    this.io.to(code).emit("player-left", { id: removedId });
-
-    if (game.players.length === 0) {
-      delete this.activeGames[code];
-      return;
+    const gpl = game.players.find(p => String(p.id) === String(uid));
+    if (gpl) {
+      gpl.left = true;
+      gpl.connected = false;
     }
 
-    if (game.currentIndex >= game.players.length) {
-      game.currentIndex = 0;
-    }
-
-    if (game.players.length === 1) {
-      this.io.to(code).emit("game-finished", { code, players: game.players });
-      delete this.activeGames[code];
-      return;
-    }
-
+    // emit player-left event (UI will tint player and show left)
     try {
-      const payload = {
-        players: game.players.map(p => ({ id: p.id, name: p.name, avatar: p.avatar || null, connected: true })),
+      this.io.to(code).emit("player-left", { id: uid });
+    } catch (err) { console.warn("[LobbyManager] emit player-left failed:", err); }
+
+    // If active players reduced to <=1, finish the game
+    const activeCountG = game.players.filter(p => !p.left).length;
+    if (activeCountG <= 1) {
+      this.io.to(code).emit("game-finished", {
+        code,
         scores: game.players.map(p => p.score),
         comboStats: game.players.map(p => p.comboStats),
-        round: game.round,
-        totalRounds: game.totalRounds,
-        room: code,
-        currentPlayerIndex: game.currentIndex,
-        timeLimitSeconds: game.timeLimitSeconds || 30,
-        turnExpiresAt: game.turnExpiresAt || null
-      };
-      this.io.to(code).emit('game-state', payload);
-    } catch (err) {
-      console.warn("[LobbyManager] emit game-state after player-left failed:", err);
+        names: game.players.map(p => p.name),
+        players: game.players
+      });
+      delete this.activeGames[code];
+      return;
     }
 
-    // small delay so clients process the game-state update before server starts the next turn
-    setTimeout(() => {
-      try {
+    // Adjust currentIndex if it now points to a left player: advance to next active index
+    if (game.currentIndex >= game.players.length || game.players[game.currentIndex].left) {
+      // find next active index
+      let next = game.currentIndex % game.players.length;
+      let tries = 0;
+      while (tries < game.players.length && game.players[next].left) {
+        next = (next + 1) % game.players.length;
+        tries++;
+      }
+      game.currentIndex = next;
+    }
+
+    // send updated game-state to clients and ensure server continues turn flow
+    try {
+      this.emitGameState(code);
+      // small delay then attempt to startTurn if needed
+      setTimeout(() => {
         const g = this.activeGames[code];
-        if (g && g.players && g.players.length > 1) {
+        if (g && g.players && g.players.filter(p => !p.left).length > 0) {
           this.startTurn(code);
         }
-      } catch (e) {
-        console.warn("[LobbyManager] deferred startTurn failed:", e);
-      }
-    }, 120);
+      }, 120);
+    } catch (err) {
+      console.warn("[LobbyManager] post-remove game update failed:", err);
+    }
   }
 }
 
@@ -771,24 +810,33 @@ export default class LobbyManager {
 
     if (game.turnTimer) { clearTimeout(game.turnTimer); game.turnTimer = null; }
 
-    game.currentIndex++;
+    // move to the next non-left player
+    const playerCount = game.players.length;
+    if (playerCount === 0) return;
 
-    if (game.currentIndex >= game.players.length) {
-      game.currentIndex = 0;
-      game.round++;
-
-      if (game.round > game.totalRounds) {
-        this.io.to(code).emit("game-finished", {
-          code,
-          scores: game.players.map(p => p.score),
-          comboStats: game.players.map(p => p.comboStats),
-          names: game.players.map(p => p.name),
-          players: game.players
-        });
-        delete this.activeGames[code];
-        return;
-      }
+    let nextIdx = (game.currentIndex + 1) % playerCount;
+    let attempts = 0;
+    while (attempts < playerCount && game.players[nextIdx].left) {
+      nextIdx = (nextIdx + 1) % playerCount;
+      attempts++;
     }
+
+    // if nobody active found -> finish game
+    const activeCount = game.players.filter(p => !p.left).length;
+    if (activeCount <= 1) {
+      this.io.to(code).emit("game-finished", {
+        code,
+        scores: game.players.map(p => p.score),
+        comboStats: game.players.map(p => p.comboStats),
+        names: game.players.map(p => p.name),
+        players: game.players
+      });
+      delete this.activeGames[code];
+      return;
+    }
+
+    game.currentIndex = nextIdx;
+    if (game.currentIndex >= game.players.length) game.currentIndex = 0;
 
     this.startTurn(code);
   }

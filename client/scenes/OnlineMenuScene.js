@@ -1,4 +1,4 @@
-import { getSocket } from '../utils/SocketManager.js';
+import { getSocket, getServerUrl, probeHealth, connectTo } from '../utils/SocketManager.js';
 import GlobalAudio from '../utils/AudioManager.js';
 
 export default class OnlineMenuScene extends Phaser.Scene {
@@ -27,29 +27,37 @@ export default class OnlineMenuScene extends Phaser.Scene {
         this.add.text(600, 60, 'Online Mode', { fontSize: 48 }).setOrigin(0.5);
 
         // Check server availability: if socket library missing or socket not connected => maintenance view
-        let socket = null;
-        let serverAvailable = false;
-        try {
-          socket = getSocket();
-          serverAvailable = !!(socket && socket.connected);
-        } catch (e) {
-          socket = null;
-          serverAvailable = false;
-        }
-
+        const socket = getSocket();
+        let serverAvailable = !!(socket && socket.connected);
         if (!serverAvailable) {
-            this.add.text(600, 200, "Server Under Maintenance", {
-                fontSize: 38,
-                color: "#ff4444"
-            }).setOrigin(0.5);
-
-            this.add.text(600, 240, "Try again later or visit the main site.", {
-                fontSize: 20,
-                color: "#cccccc"
-            }).setOrigin(0.5);
-            
+          try {
+            const healthy = await probeHealth();
+            if (!healthy) {
+              this.add.text(600, 200, "Online mode currently not available, please try again later.", {
+                fontSize: 30, color: "#ff4444"
+              }).setOrigin(0.5);
             return;
+          } else {
+            const server = getServerUrl();
+            connectTo(server);
+            this.add.text(600, 200, "Server Under Maintenance", {
+              fontSize: 38, color: "#ff4444"
+            }).setOrigin(0.5);
+            this.add.text(600, 240, "Try again later or visit the main site.", {
+              fontSize: 20, color: "#cccccc"
+            }).setOrigin(0.5);
+            return;
+          }
+        } catch (e) {
+            this.add.text(600, 200, "Online mode currently not available, please try again later.", {
+              fontSize: 30, color: "#ff4444"
+            }).setOrigin(0.5);
+            return;
+          }
         }
+
+        const server = getServerUrl();
+        connectTo(server);
 
         // server appears available — load cached/remote auth
         await this.refreshAuth();
@@ -179,7 +187,22 @@ export default class OnlineMenuScene extends Phaser.Scene {
             if (!this.joinInput) return;
             const code = (this.joinInput.node.value || "").trim().toUpperCase();
             if (code) {
-                try { socket.emit('join-lobby', code); } catch (e) { console.warn('emit failed', e); }
+                try { 
+                    let myId = null;
+                    try { myId = getSocket().data?.user?.id || getSocket().userId || null; } catch (e) { myId = null; }
+                    if (!myId) {
+                      try {
+                        const raw = localStorage.getItem('fives_user');
+                        if (raw) {
+                          const cached = JSON.parse(raw);
+                          if (cached && cached.id) myId = cached.id;
+                        }
+                      } catch (e) {}
+                   }
+                   socket.emit('join-lobby', code, myId);
+                } catch (e) { 
+                  console.warn('emit failed', e); 
+                }
             }
         });
 
@@ -209,7 +232,8 @@ export default class OnlineMenuScene extends Phaser.Scene {
         const socketLibAvailable = (typeof io === 'function');
         if (socketLibAvailable) {
             try {
-                const resp = await fetch('/auth/me', { credentials: 'include' });
+                const server = getServerUrl();
+                const resp = await fetch(`${server.replace(/\/$/, '')}/auth/me`, { credentials: 'include' });
                 const data = await resp.json();
                 if (data?.ok && data.user) {
                     this.user = data.user;
