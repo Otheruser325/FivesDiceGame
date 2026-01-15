@@ -407,14 +407,30 @@ const sessionConfig = {
   secret: process.env.SESSION_SECRET || "keyboardcat",
   resave: false,
   saveUninitialized: false,
+  rolling: true,  // Reset expiration on each request
   cookie: {
     secure: process.env.NODE_ENV === 'production',  // true on HTTPS (Vercel)
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',  // 'none' for cross-site in production
     httpOnly: true,                   // Prevent XSS access
     maxAge: 24 * 60 * 60 * 1000,     // 24 hours
-    domain: process.env.NODE_ENV === 'production' ? '.vercel.app' : undefined  // For cross-subdomain cookies
+    domain: process.env.NODE_ENV === 'production' ? '.vercel.app' : undefined,  // For cross-subdomain cookies
+    path: '/',                        // Ensure cookie is available for all paths
+    // Additional cookie attributes for stability
+    partitioned: process.env.NODE_ENV === 'production', // Partitioned cookies for cross-site
+    priority: 'high'                  // Higher priority for session cookies
   },
-  name: 'fives.sid'  // Custom session name to avoid conflicts
+  name: 'fives.sid',  // Custom session name to avoid conflicts
+  // Add session store options for better session management
+  unset: 'destroy',
+  genid: (req) => {
+    // Generate more robust session IDs to reduce session conflicts
+    const crypto = require('crypto');
+    return crypto.randomBytes(32).toString('hex');
+  },
+  // Enhanced session validation
+  proxy: process.env.NODE_ENV === 'production', // Trust proxy for secure cookies
+  // Add session resave options for better reliability
+  touchAfter: 24 * 3600 // Only update session every 24 hours unless modified
 };
 
 if (sessionStore) {
@@ -598,11 +614,57 @@ const socketMetrics = {
   startTime: Date.now()
 };
 
-// Socket.io middleware to attach session to each connection (lightweight version)
+// Socket.io middleware to attach session to each connection with session validation
 io.use((socket, next) => {
-  // Minimal middleware - just pass through
-  // Socket.io will handle all initialization
-  next();
+  // Extract session from handshake
+  const sessionID = socket.handshake.query?.sid || socket.handshake.auth?.sid;
+  
+  if (!sessionID) {
+    // No session ID - allow connection but mark as unauthenticated
+    socket.sessionValid = false;
+    socket.authenticated = false;
+    console.log('[Socket] No session ID provided - allowing unauthenticated connection');
+    return next();
+  }
+  
+  // Try to retrieve session from store
+  if (sessionStore) {
+    sessionStore.get(sessionID, (err, session) => {
+      if (err) {
+        console.error('[Socket] Session retrieval error:', err?.message || err);
+        socket.sessionValid = false;
+        socket.authenticated = false;
+        return next(); // Allow connection but mark as invalid
+      }
+      
+      if (!session) {
+        console.log('[Socket] Session not found - may be expired or invalid');
+        socket.sessionValid = false;
+        socket.authenticated = false;
+        return next(); // Allow connection but mark as invalid
+      }
+      
+      // Session found and valid
+      socket.session = session;
+      socket.sessionID = sessionID;
+      socket.sessionValid = true;
+      socket.authenticated = session.passport?.user ? true : false;
+      
+      console.log('[Socket] Session validated:', {
+        sessionID: sessionID.substring(0, 8) + '...',
+        authenticated: socket.authenticated,
+        userId: session.passport?.user || 'none'
+      });
+      
+      next();
+    });
+  } else {
+    // No session store available (fallback mode)
+    console.warn('[Socket] No session store available - operating in fallback mode');
+    socket.sessionValid = false;
+    socket.authenticated = false;
+    next();
+  }
 });
 
 io.on("connection", socket => {

@@ -212,13 +212,25 @@ function _attachSocketHandlers(sock, server) {
   sock.on('connect_error', (err) => {
     const errMsg = err && err.message ? err.message : String(err);
     const isSessionError = errMsg.includes('Session ID unknown') || err?.data?.content?.includes?.('Session ID');
+    const isTransportError = errMsg.includes('transport error') || errMsg.includes('xhr poll error');
     
     // ⚠️ SUPPRESS: Session errors are NORMAL when clients reconnect with stale sessions
     // The server's new error handler now suppresses HTTP 400 for these, client just reconnects
     if (isSessionError) {
-      console.info('[Socket] Session expired, reconnecting...', {
+      console.info('[Socket] Session expired, forcing new connection...', {
         retries: _connectionRetries + 1,
-        note: 'Server will send fresh session'
+        note: 'Creating fresh socket to avoid stale session'
+      });
+      
+      // For session errors, force a completely new connection to get a fresh session
+      // This is more aggressive than just forceNew=true as it recreates the entire socket
+      setTimeout(() => {
+        forceNewConnection();
+      }, 100); // Small delay to avoid rapid reconnection loops
+    } else if (isTransportError) {
+      console.info('[Socket] Transport error (normal on Vercel), reconnecting...', {
+        retries: _connectionRetries + 1,
+        note: 'Polling transport retry'
       });
     } else {
       console.warn('[Socket] connect_error:', errMsg);
@@ -227,7 +239,7 @@ function _attachSocketHandlers(sock, server) {
     _connectionRetries++;
     
     // Only log non-session errors as warnings
-    if (!isSessionError) {
+    if (!isSessionError && !isTransportError) {
       console.info('[Socket] reconnect attempt', _connectionRetries, 'of', MAX_CONNECTION_RETRIES);
     }
     
@@ -360,8 +372,8 @@ export function getSocket() {
     reconnectionDelayMax: MAX_RECONNECT_DELAY,
     reconnectionAttempts: MAX_CONNECTION_RETRIES,
     // Polling-specific tuning for mobile/Ethernet/Wi-Fi resilience
-    upgrade: true,                           // Allow upgrade from polling to websocket
-    upgradeTimeout: 10000,                   // Time to attempt upgrade
+    upgrade: !isVercel,                      // Don't upgrade on Vercel (WebSocket not supported)
+    upgradeTimeout: isVercel ? 1000 : 10000, // Quick timeout on Vercel
     rememberUpgrade: false,                  // Don't cache transport choice
     // Ping/pong timing (critical for polling stability)
     pingInterval: 20000,                     // Send ping every 20s (polling-friendly)
@@ -373,6 +385,13 @@ export function getSocket() {
     // Connection lifecycle
     connectTimeout: CONNECTION_TIMEOUT,      // 15s timeout for initial connection
     forceNew: false,                         // Reuse existing connection if available
+    // Session management improvements
+    forceJSONP: false,                       // Don't use JSONP (modern browsers support CORS)
+    timestampRequests: true,                 // Add timestamps to prevent caching issues
+    timestampParam: 't',                     // Parameter name for timestamp
+    // Additional stability improvements
+    autoUnref: false,                        // Keep connection alive in background
+    closeOnBeforeunload: true,               // Clean up on page unload
   });
 
   // attach default handlers
@@ -382,4 +401,33 @@ export function getSocket() {
   _backgroundProbeAndReconnect();
 
   return OnlineSocket;
+}
+
+// Force reconnection with a fresh session
+export function forceReconnect() {
+  if (OnlineSocket) {
+    console.log('[Socket] Forcing reconnection with fresh session...');
+    OnlineSocket.disconnect();
+    // Force a completely new connection to avoid session reuse
+    OnlineSocket.io.opts.forceNew = true;
+    OnlineSocket.connect();
+  }
+}
+
+// Force complete reconnection with new socket instance (for session errors)
+export function forceNewConnection() {
+  if (OnlineSocket) {
+    console.log('[Socket] Forcing completely new connection (session reset)...');
+    // Clean up existing socket
+    OnlineSocket.removeAllListeners();
+    OnlineSocket.disconnect();
+    OnlineSocket = null;
+    
+    // Reset connection state
+    _connectionRetries = 0;
+    _maintenanceMode = false;
+    
+    // Create new socket instance
+    getSocket();
+  }
 }

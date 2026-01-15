@@ -265,15 +265,37 @@ router.get("/discord",
     })(req, res, next)
 );
 
+// Handle OPTIONS preflight for Discord callback
+router.options("/discord/callback", (req, res) => {
+  const origin = req.headers.origin;
+  if (origin && (origin.includes('vercel.app') || origin.includes('localhost'))) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Max-Age', '86400'); // 24 hours
+  }
+  res.status(200).end();
+});
+
 router.get(
   "/discord/callback",
   requireStrategy("discord", "Discord OAuth is not configured"),
   (req, res, next) => {
-    // Set CORS headers for the callback
+    // Set comprehensive CORS headers for the callback
     const origin = req.headers.origin;
     if (origin && (origin.includes('vercel.app') || origin.includes('localhost'))) {
       res.header('Access-Control-Allow-Origin', origin);
       res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+      
+      // Set additional headers to help with cross-site cookie issues
+      res.header('Vary', 'Origin');
+      res.header('Access-Control-Expose-Headers', 'Set-Cookie');
+      res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.header('Pragma', 'no-cache');
+      res.header('Expires', '0');
     }
     
     // Add custom error handler for Discord auth
@@ -296,17 +318,84 @@ router.get(
           return res.redirect(`/?error=${errorMsg}`);
         }
         
-        // Save session before redirect to ensure cookie is set
-        req.session.save((saveErr) => {
+        // Enhanced session configuration for cross-site authentication
+        req.session.authenticated = true;
+        req.session.provider = 'discord';
+        req.session.loginTime = new Date().toISOString();
+        req.session.lastActivity = new Date().toISOString();
+        
+        // Ensure session is properly configured for cross-site cookies
+        if (process.env.NODE_ENV === 'production') {
+          req.session.cookie.sameSite = 'none';
+          req.session.cookie.secure = true;
+          req.session.cookie.domain = '.vercel.app';
+          req.session.cookie.partitioned = true;
+          req.session.cookie.priority = 'high';
+        }
+        
+        // Save session with enhanced error handling and retry logic
+        req.session.save(async (saveErr) => {
           if (saveErr) {
             console.error('[Discord callback] Session save error:', saveErr?.message || saveErr);
+            
+            // Try to save session again with fallback options
+            try {
+              await new Promise((resolve, reject) => {
+                req.session.save((fallbackErr) => {
+                  if (fallbackErr) {
+                    console.error('[Discord callback] Fallback session save failed:', fallbackErr?.message || fallbackErr);
+                    reject(fallbackErr);
+                  } else {
+                    console.log('[Discord callback] Fallback session save successful');
+                    resolve();
+                  }
+                });
+              });
+            } catch (fallbackErr) {
+              console.error('[Discord callback] All session save attempts failed:', fallbackErr?.message || fallbackErr);
+              const errorMsg = encodeURIComponent(`Session save failed: ${fallbackErr?.message || 'Unknown error'}`);
+              return res.redirect(`/?error=${errorMsg}`);
+            }
           }
           
-          // Success
-          if (req.query.state === "json") {
-            return res.json({ ok: true, user: publicUser(user) });
+          console.log('[Discord callback] Session saved successfully');
+          
+          // Set additional cookies for cross-site authentication
+          if (process.env.NODE_ENV === 'production') {
+            // Set authentication indicator cookie
+            res.cookie('auth_provider', 'discord', {
+              maxAge: 24 * 60 * 60 * 1000, // 24 hours
+              httpOnly: false, // Allow JavaScript access
+              secure: true,
+              sameSite: 'none',
+              domain: '.vercel.app',
+              partitioned: true
+            });
+            
+            // Set session confirmation cookie
+            res.cookie('session_confirmed', 'true', {
+              maxAge: 24 * 60 * 60 * 1000, // 24 hours
+              httpOnly: false,
+              secure: true,
+              sameSite: 'none',
+              domain: '.vercel.app',
+              partitioned: true
+            });
           }
-          res.redirect("/FivesDiceGame");
+          
+          // Success - redirect with timestamp to prevent caching
+          if (req.query.state === "json") {
+            return res.json({
+              ok: true,
+              user: publicUser(user),
+              sessionId: req.sessionID,
+              timestamp: Date.now()
+            });
+          }
+          
+          const redirectUrl = "/FivesDiceGame?auth=success&provider=discord&timestamp=" + Date.now();
+          console.log('[Discord callback] Redirecting to:', redirectUrl);
+          res.redirect(redirectUrl);
         });
       });
     })(req, res, next);

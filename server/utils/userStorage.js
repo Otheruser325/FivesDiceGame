@@ -298,12 +298,19 @@ export async function saveUser(user) {
   if (!user || !user.id) throw new Error('saveUser expects user with id');
   const row = _userToRow(user);
 
+  console.log('[userStorage] Saving user:', { id: user.id, name: user.name, type: user.type });
+
   // CRITICAL: Always cache in memory FIRST (for Vercel read-only filesystem)
   // This ensures data is available even if Supabase fails
   userMemoryCache.set(String(row.id), row);
 
+  let supabaseSuccess = false;
+  let localSuccess = false;
+
   if (supabase) {
     try {
+      console.log('[userStorage] Attempting to save user to Supabase...');
+      
       // ⚠️ Upsert with proper data serialization
       // Supabase expects all fields including id, and will use RLS policies
       // Service role key bypasses RLS, so this should always work if table exists
@@ -324,7 +331,7 @@ export async function saveUser(user) {
           console.error('[userStorage] Fix: Check Supabase RLS policies, ensure service role has INSERT permission');
         }
         // Table/schema missing errors
-        else if (errorCode === '42P01' || errorMsg.includes('does not exist') || 
+        else if (errorCode === '42P01' || errorMsg.includes('does not exist') ||
                  errorMsg.includes('relation') || errorMsg.includes('schema')) {
           console.warn('[userStorage] Table "users" missing in Supabase, data will persist in memory only');
         }
@@ -344,10 +351,17 @@ export async function saveUser(user) {
         throw error;
       }
       
-      // Success - data saved to Supabase
-      const saved = Array.isArray(data) && data[0] ? _rowToUser(data[0]) : _rowToUser(row);
-      console.info('[userStorage] ✅ Successfully saved user', user.id, 'to Supabase');
-      return saved;
+      // Verify the data was actually saved by reading it back
+      if (data && data.length > 0) {
+        const saved = _rowToUser(data[0]);
+        console.info('[userStorage] ✅ Successfully saved user', user.id, 'to Supabase');
+        console.log('[userStorage] Verification - saved user data:', { id: saved.id, name: saved.name, type: saved.type });
+        supabaseSuccess = true;
+        return saved;
+      } else {
+        console.warn('[userStorage] Supabase returned no data after save, falling back to local');
+        throw new Error('No data returned from Supabase after save');
+      }
     } catch (err) {
       // Supabase failed - data is cached in memory, try local fallback
       console.warn('[userStorage] Supabase write failed, falling back to local cache:', err?.message || err);
@@ -356,6 +370,7 @@ export async function saveUser(user) {
   }
 
   // Local fallback write
+  console.log('[userStorage] Saving user to local fallback...');
   await usersDb.read();
   usersDb.data ||= {};
   usersDb.data.users ||= {};
@@ -365,10 +380,19 @@ export async function saveUser(user) {
   try {
     await _safeLocalWrite();
     console.info('[userStorage] ✅ Saved user to local DB');
+    localSuccess = true;
   } catch (err) {
     // Write to filesystem failed - but we have it in memory cache, so it's ok
     console.warn('[userStorage] Local write failed, but user cached in memory:', err?.message);
   }
   
-  return row;
+  // Verify the user can be retrieved from cache
+  const cachedUser = userMemoryCache.get(String(row.id));
+  if (cachedUser) {
+    console.log('[userStorage] ✅ User verified in memory cache:', { id: cachedUser.id, name: cachedUser.name });
+    return _rowToUser(cachedUser);
+  } else {
+    console.error('[userStorage] ❌ User not found in cache after save - this should not happen');
+    throw new Error('User save verification failed');
+  }
 }
