@@ -30,12 +30,13 @@ export default class OnlineMenuScene extends Phaser.Scene {
 
         // Initialize socket connection
         const socket = getSocket();
+        const server = getServerUrl();
         
         // Check if socket is already connected - if so, proceed immediately
-        let socketReady = socket.connected;
+        let socketReady = socket && socket.connected;
         
         // If not connected, wait for connection with extended timeout for Vercel polling delays
-        if (!socketReady) {
+        if (!socketReady && socket) {
             socketReady = await new Promise((resolve) => {
                 const timeout = setTimeout(() => {
                     console.warn('[OnlineMenuScene] Socket connection timeout after 8 seconds');
@@ -47,36 +48,63 @@ export default class OnlineMenuScene extends Phaser.Scene {
                     socket.off('connect', onConnect);
                     resolve(true);
                 };
+                
+                const onError = () => {
+                    clearTimeout(timeout);
+                    socket.off('connect', onConnect);
+                    socket.off('connect_error', onError);
+                    resolve(false);
+                };
+                
                 socket.on('connect', onConnect);
+                socket.on('connect_error', onError);
             });
         }
 
         if (!socketReady) {
             try {
+                // Probe health to determine if server is actually down
                 const healthy = await probeHealth();
                 if (!healthy) {
-                    this.add.text(600, 200, "Online mode currently not available, please try again later.", {
-                        fontSize: 30, color: "#ff4444"
+                    this.add.text(600, 150, "❌ Server Unavailable", {
+                        fontSize: 32, color: "#ff4444"
                     }).setOrigin(0.5);
-                    return;
-                } else {
-                    this.add.text(600, 200, "Server Under Maintenance", {
-                        fontSize: 38, color: "#ff4444"
+                    this.add.text(600, 200, "Online mode currently not available.", {
+                        fontSize: 20, color: "#ffaa88"
                     }).setOrigin(0.5);
-                    this.add.text(600, 240, "Try again later or visit the main site.", {
-                        fontSize: 20, color: "#cccccc"
+                    this.add.text(600, 240, "Please try again later.", {
+                        fontSize: 18, color: "#cccccc"
                     }).setOrigin(0.5);
                     return;
                 }
+                
+                // Server is healthy but socket won't connect - might be Vercel timeout
+                this.add.text(600, 150, "⚠️  Connection Slow", {
+                    fontSize: 32, color: "#ffaa00"
+                }).setOrigin(0.5);
+                this.add.text(600, 200, "Server is responding but socket connection is slow.", {
+                    fontSize: 18, color: "#ffccaa"
+                }).setOrigin(0.5);
+                this.add.text(600, 240, "This may be a temporary network issue. Try again.", {
+                    fontSize: 16, color: "#cccccc"
+                }).setOrigin(0.5);
+                return;
             } catch (e) {
-                this.add.text(600, 200, "Online mode currently not available, please try again later.", {
-                    fontSize: 30, color: "#ff4444"
+                console.error('[OnlineMenuScene] Health check error:', e);
+                this.add.text(600, 150, "❌ Connection Failed", {
+                    fontSize: 32, color: "#ff4444"
+                }).setOrigin(0.5);
+                this.add.text(600, 200, "Unable to reach the server.", {
+                    fontSize: 20, color: "#ffaa88"
+                }).setOrigin(0.5);
+                this.add.text(600, 240, "Check your internet connection and try again.", {
+                    fontSize: 16, color: "#cccccc"
                 }).setOrigin(0.5);
                 return;
             }
         }
 
-        const server = getServerUrl();
+        // Socket is ready, establish connection to ensure session is current
         connectTo(server);
 
         // server appears available — load cached/remote auth

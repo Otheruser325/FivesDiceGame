@@ -199,11 +199,17 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // Use file-based session store to avoid MemoryStore memory leaks in production
-const sessionStore = new FileSessionStore({ dir: SESSION_DIR });
-console.log('[Session] Using file-based session store at:', SESSION_DIR);
+let sessionStore;
+try {
+  sessionStore = new FileSessionStore({ dir: SESSION_DIR });
+  console.log('[Session] ✅ Using file-based session store at:', SESSION_DIR);
+} catch (err) {
+  console.error('[Session] ⚠️  Failed to initialize FileSessionStore:', err.message);
+  console.warn('[Session] Falling back to MemoryStore (production not recommended)');
+  sessionStore = undefined; // Will use default MemoryStore if specified below
+}
 
-app.use(session({
-  store: sessionStore,
+const sessionConfig = {
   secret: process.env.SESSION_SECRET || "keyboardcat",
   resave: false,
   saveUninitialized: false,
@@ -213,7 +219,14 @@ app.use(session({
     httpOnly: true,                   // Prevent XSS access
     maxAge: 24 * 60 * 60 * 1000      // 24 hours
   }
-}));
+};
+
+// Only set store if successfully initialized (otherwise uses default MemoryStore)
+if (sessionStore) {
+  sessionConfig.store = sessionStore;
+}
+
+app.use(session(sessionConfig));
 
 app.use(passport.initialize());
 app.use(passport.session());
@@ -268,13 +281,26 @@ app.get('/FivesDiceGame/*', (req, res) => {
 
 app.get('/health', (req, res) => {
   // Comprehensive health check for monitoring and recovery
+  // Count connected sockets safely (avoiding crash on engine access)
+  let connectedClients = 0;
+  try {
+    if (io && io.engine && io.engine.clients) {
+      connectedClients = Object.keys(io.engine.clients).length;
+    }
+  } catch (e) {
+    // Safely fallback if engine access fails
+    connectedClients = socketMetrics.activeConnections || 0;
+  }
+  
   const health = {
     ok: true,
     ts: Date.now(),
     uptime: process.uptime(),
     environment: MODE === 'development' ? 'development' : 'production',
     socketIO: {
-      connected: io.engine.clientsCount || 0,
+      connected: connectedClients,
+      activeConnections: socketMetrics.activeConnections,
+      totalConnections: socketMetrics.totalConnections,
       transports: ['polling'],  // Vercel deployment
       status: 'operational'
     },

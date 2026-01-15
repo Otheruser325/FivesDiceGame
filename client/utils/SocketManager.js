@@ -178,8 +178,8 @@ function _attachSocketHandlers(sock, server) {
     _connectionRetries++;
     console.info('[Socket] reconnect attempt', _connectionRetries, 'of', MAX_CONNECTION_RETRIES);
     
-    // If we've exceeded retries and polling is active, trigger maintenance mode
-    if (_connectionRetries > MAX_CONNECTION_RETRIES && sock.io?.engine?.transport?.name === 'polling') {
+    // If we've exceeded retries, trigger maintenance mode (don't try to access socket.io internals)
+    if (_connectionRetries > MAX_CONNECTION_RETRIES) {
       console.error('[Socket] Connection timeout after', MAX_CONNECTION_RETRIES, 'retries — server may be down');
       _maintenanceMode = true;
     }
