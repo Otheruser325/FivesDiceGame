@@ -167,13 +167,17 @@ export async function loadLobbies() {
         return {};
       }
       
-      // Successfully loaded data from Supabase
+      // Successfully loaded data from Supabase - cache all in memory
       const map = {};
       (data || []).forEach(r => {
         const l = _rowToLobby(r);
-        if (l && l.code) map[String(l.code).trim().toUpperCase()] = l;
+        if (l && l.code) {
+          const code = String(l.code).trim().toUpperCase();
+          map[code] = l;
+          lobbyMemoryCache.set(code, l);
+        }
       });
-      console.info('[lobbyStorage] Loaded', Object.keys(map).length, 'lobbies from Supabase');
+      console.info('[lobbyStorage] Loaded', Object.keys(map).length, 'lobbies from Supabase (cached in memory)');
       return map;
     } catch (err) {
       console.warn('[lobbyStorage] Supabase loadLobbies failed, falling back to local DB:', err?.message || err);
@@ -191,7 +195,11 @@ export async function loadLobbies() {
   for (const k of Object.keys(raw)) {
     try {
       const norm = _rowToLobby({ ...(raw[k] || {}), code: k });
-      if (norm && norm.code) out[String(norm.code).trim().toUpperCase()] = norm;
+      if (norm && norm.code) {
+        const code = String(norm.code).trim().toUpperCase();
+        out[code] = norm;
+        lobbyMemoryCache.set(code, norm);
+      }
     } catch (e) {
       // ignore malformed entries
     }
@@ -208,6 +216,13 @@ export async function saveLobby(lobby) {
   if (!lobby || !lobby.code) throw new Error('saveLobby expects a lobby object with a code');
 
   const row = _lobbyToRow(lobby);
+  const code = String(row.code).trim().toUpperCase();
+  
+  // ALWAYS cache in memory first (instant, never fails)
+  const normalized = _rowToLobby({ ...row, code });
+  if (normalized) {
+    lobbyMemoryCache.set(code, normalized);
+  }
 
   if (supabase) {
     try {
@@ -219,7 +234,7 @@ export async function saveLobby(lobby) {
             error.message?.includes('does not exist') ||
             error.message?.includes('relation') ||
             error.message?.includes('schema')) {
-          console.warn('[lobbyStorage] Supabase table "lobbies" missing or not initialized, saving to local only');
+          console.warn('[lobbyStorage] Supabase table "lobbies" missing or not initialized, using memory cache');
         } else {
           console.warn('[lobbyStorage] Supabase saveLobby error:', error?.message || error);
         }
@@ -227,10 +242,12 @@ export async function saveLobby(lobby) {
       }
       
       const retRow = Array.isArray(data) && data[0] ? data[0] : row;
+      const ret = _rowToLobby(retRow);
+      if (ret) lobbyMemoryCache.set(code, ret);
       console.info('[lobbyStorage] Successfully saved lobby', row.code, 'to Supabase');
-      return _rowToLobby(retRow);
+      return ret;
     } catch (err) {
-      console.warn('[lobbyStorage] Supabase saveLobby failed, saving to local file instead:', err?.message || err);
+      console.warn('[lobbyStorage] Supabase saveLobby failed, falling back to local:', err?.message || err);
       // fallthrough to local
     }
   }
@@ -239,7 +256,6 @@ export async function saveLobby(lobby) {
   await lobbiesDb.read();
   lobbiesDb.data ||= {};
   lobbiesDb.data.lobbies ||= {};
-  const code = String(row.code).trim().toUpperCase();
   const players = Array.isArray(row.players) ? row.players : (row.players || []);
   const createdAt = typeof row.created_at === 'number' ? row.created_at : (typeof row.createdAt === 'number' ? row.createdAt : Date.now());
 
@@ -247,6 +263,7 @@ export async function saveLobby(lobby) {
   if (!Array.isArray(players) || players.length === 0 || (Date.now() - createdAt > DEFAULT_EXPIRE_MS)) {
     if (lobbiesDb.data.lobbies && lobbiesDb.data.lobbies[code]) {
       delete lobbiesDb.data.lobbies[code];
+      lobbyMemoryCache.delete(code);
       await enqueueWrite(async () => _safeLocalWrite());
       console.info(`[lobbyStorage] saveLobby: removed empty/expired lobby ${code} from local DB`);
     }

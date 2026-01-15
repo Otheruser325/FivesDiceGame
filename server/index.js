@@ -299,8 +299,8 @@ const sessionConfig = {
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: false,                    // Set to true if using HTTPS
-    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',  // true on HTTPS (Vercel)
+    sameSite: 'none',                  // Required for cross-site requests
     httpOnly: true,                   // Prevent XSS access
     maxAge: 24 * 60 * 60 * 1000      // 24 hours
   }

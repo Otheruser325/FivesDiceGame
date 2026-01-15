@@ -234,13 +234,17 @@ export default class OnlineAccountScene extends Phaser.Scene {
     });
 
     // Add focus/blur events for better UX
-    if (this.passwordInput.node) {
-      this.passwordInput.node.addEventListener('focus', () => {
-        this.passwordInput.node.style.border = '1px solid #66ff66';
-      });
-      this.passwordInput.node.addEventListener('blur', () => {
-        this.passwordInput.node.style.border = '1px solid rgba(255,255,255,0.3)';
-      });
+    if (this.passwordInput?.node) {
+      try {
+        this.passwordInput.node.addEventListener('focus', () => {
+          if (this.passwordInput?.node) this.passwordInput.node.style.border = '1px solid #66ff66';
+        });
+        this.passwordInput.node.addEventListener('blur', () => {
+          if (this.passwordInput?.node) this.passwordInput.node.style.border = '1px solid rgba(255,255,255,0.3)';
+        });
+      } catch (err) {
+        console.warn('[OnlineAccountScene] Failed to attach password input listeners:', err);
+      }
     }
 
     // Restrict guest creation if localStorage has a user or recent guest created
@@ -287,13 +291,17 @@ export default class OnlineAccountScene extends Phaser.Scene {
     });
 
     // Add focus/blur events for login username input
-    if (this.loginUserInput.node) {
-      this.loginUserInput.node.addEventListener('focus', () => {
-        this.loginUserInput.node.style.border = '1px solid #66ff66';
-      });
-      this.loginUserInput.node.addEventListener('blur', () => {
-        this.loginUserInput.node.style.border = '1px solid rgba(255,255,255,0.3)';
-      });
+    if (this.loginUserInput?.node) {
+      try {
+        this.loginUserInput.node.addEventListener('focus', () => {
+          if (this.loginUserInput?.node) this.loginUserInput.node.style.border = '1px solid #66ff66';
+        });
+        this.loginUserInput.node.addEventListener('blur', () => {
+          if (this.loginUserInput?.node) this.loginUserInput.node.style.border = '1px solid rgba(255,255,255,0.3)';
+        });
+      } catch (err) {
+        console.warn('[OnlineAccountScene] Failed to attach username input listeners:', err);
+      }
     }
 
     this.add.text(640, 620, "Guest Password:", { fontSize: 20, color: "#aaaaaa" }).setOrigin(0.5);
@@ -314,13 +322,17 @@ export default class OnlineAccountScene extends Phaser.Scene {
     });
 
     // Add focus/blur events for login password input
-    if (this.loginPassInput.node) {
-      this.loginPassInput.node.addEventListener('focus', () => {
-        this.loginPassInput.node.style.border = '1px solid #66ff66';
-      });
-      this.loginPassInput.node.addEventListener('blur', () => {
-        this.loginPassInput.node.style.border = '1px solid rgba(255,255,255,0.3)';
-      });
+    if (this.loginPassInput?.node) {
+      try {
+        this.loginPassInput.node.addEventListener('focus', () => {
+          if (this.loginPassInput?.node) this.loginPassInput.node.style.border = '1px solid #66ff66';
+        });
+        this.loginPassInput.node.addEventListener('blur', () => {
+          if (this.loginPassInput?.node) this.loginPassInput.node.style.border = '1px solid rgba(255,255,255,0.3)';
+        });
+      } catch (err) {
+        console.warn('[OnlineAccountScene] Failed to attach login password listeners:', err);
+      }
     }
 
     this.loginBtn = this.add.text(640, 680, 'Login as Guest', { fontSize: 20, color: '#66aaff' }).setOrigin(0.5).setInteractive();
