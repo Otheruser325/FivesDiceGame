@@ -18,6 +18,10 @@ lobbiesDb.data.lobbies ||= {};
 const LOCAL_DB_PATH = lobbiesFile;
 const DEFAULT_EXPIRE_MS = 1000 * 60 * 60 * 3;
 
+// In-memory cache for lobbies (needed for Vercel read-only filesystem)
+const lobbyMemoryCache = new Map();
+const isVercel = process.env.VERCEL === '1';
+
 // try to create supabase client (optional)
 const SUPA_URL = process.env.SUPABASE_URL;
 const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -45,6 +49,12 @@ function enqueueWrite(fn) {
 }
 
 async function _safeLocalWrite() {
+  // On Vercel/serverless, filesystem is read-only, so skip writes
+  if (isVercel) {
+    console.debug('[lobbyStorage] Vercel environment: skipping filesystem write (read-only)');
+    return;
+  }
+
   // attempt lowdb write with simple backoff
   const MAX_RETRIES = 4;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -53,13 +63,20 @@ async function _safeLocalWrite() {
       console.info('[lobbyStorage] wrote local DB via lowdb at', new Date().toISOString());
       return;
     } catch (err) {
+      // Read-only filesystem - give up and use memory cache
+      if (err && (err.code === 'EROFS' || err.code === 'EACCES')) {
+        console.warn(`[lobbyStorage] Filesystem is read-only (${err.code}), using memory cache only`);
+        return; // Don't throw - just use memory cache
+      }
+
       // transient-ish errors we want to retry
-      if (err && (err.code === 'EPERM' || err.code === 'EBUSY' || err.code === 'EACCES')) {
+      if (err && (err.code === 'EPERM' || err.code === 'EBUSY')) {
         const waitMs = 80 * (attempt + 1);
         console.warn(`[lobbyStorage] local write attempt ${attempt + 1} failed (${err.code}), retrying in ${waitMs}ms`);
         await new Promise(r => setTimeout(r, waitMs));
         continue;
       }
+
       // non-transient: rethrow
       throw err;
     }

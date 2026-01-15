@@ -32,14 +32,22 @@ async function ensureSessionDir() {
 await ensureSessionDir();
 
 /**
- * Simple file-based session store for production
- * Stores session data as JSON files to avoid MemoryStore memory leaks
+ * Hybrid session store: tries file-based, falls back to memory
+ * This handles both local development and Vercel's read-only filesystem
  */
-class FileSessionStore extends session.Store {
+class HybridSessionStore extends session.Store {
   constructor(options = {}) {
     super(options);
     this.dir = options.dir || SESSION_DIR;
     this.ttl = options.ttl || 86400000; // 24 hours default
+    this.inMemory = new Map(); // In-memory fallback
+    this.useFileSystem = true; // Track if we can use filesystem
+    this.isVercel = process.env.VERCEL === '1'; // Detect Vercel environment
+    
+    if (this.isVercel) {
+      console.warn('[Session] Vercel environment detected - using in-memory session store');
+      this.useFileSystem = false;
+    }
   }
 
   async _getSessionPath(sid) {
@@ -47,6 +55,22 @@ class FileSessionStore extends session.Store {
   }
 
   get(sid, callback) {
+    // First try memory (fastest)
+    const memSession = this.inMemory.get(sid);
+    if (memSession) {
+      // Check if expired
+      if (memSession.expires && new Date(memSession.expires) < new Date()) {
+        this.inMemory.delete(sid);
+        return callback(null);
+      }
+      return callback(null, memSession);
+    }
+
+    // If not in memory and filesystem available, try file
+    if (!this.useFileSystem) {
+      return callback(null);
+    }
+
     this._getSessionPath(sid).then(filepath => {
       fs.readFile(filepath, 'utf8')
         .then(data => {
@@ -54,50 +78,89 @@ class FileSessionStore extends session.Store {
           // Check if session expired
           if (sess.expires && new Date(sess.expires) < new Date()) {
             this.destroy(sid, callback);
-            return callback(null);
+            return;
           }
+          // Cache in memory
+          this.inMemory.set(sid, sess);
           callback(null, sess);
         })
         .catch(err => {
           if (err.code === 'ENOENT') {
             callback(null); // Session not found
+          } else if (err.code === 'EROFS' || err.code === 'EACCES') {
+            console.warn('[Session] Filesystem unavailable, using memory store only');
+            this.useFileSystem = false;
+            callback(null);
           } else {
             console.error('[Session] Error reading session:', err.message);
-            callback(err);
+            callback(null); // Don't fail auth on session read error
           }
         });
     });
   }
 
   set(sid, sess, callback) {
+    // Always save to memory
+    const expires = sess.cookie.expires || new Date(Date.now() + this.ttl);
+    const sessionData = { ...sess, expires };
+    this.inMemory.set(sid, sessionData);
+
+    // Also try to save to filesystem (if available)
+    if (!this.useFileSystem) {
+      return callback?.(null);
+    }
+
     this._getSessionPath(sid).then(filepath => {
-      const expires = sess.cookie.expires || new Date(Date.now() + this.ttl);
-      const sessionData = { ...sess, expires };
       fs.writeFile(filepath, JSON.stringify(sessionData), 'utf8')
         .then(() => callback?.(null))
         .catch(err => {
-          console.error('[Session] Error writing session:', err.message);
-          callback?.(err);
+          if (err.code === 'EROFS' || err.code === 'EACCES') {
+            console.warn('[Session] Filesystem unavailable, using memory store only');
+            this.useFileSystem = false;
+            callback?.(null); // Success - memory store worked
+          } else {
+            console.error('[Session] Error writing session:', err.message);
+            callback?.(null); // Don't fail on write error - memory store has it
+          }
         });
     });
   }
 
   destroy(sid, callback) {
+    // Remove from memory
+    this.inMemory.delete(sid);
+
+    // Try to remove from filesystem
+    if (!this.useFileSystem) {
+      return callback?.(null);
+    }
+
     this._getSessionPath(sid).then(filepath => {
       fs.unlink(filepath)
         .then(() => callback?.(null))
         .catch(err => {
           if (err.code === 'ENOENT') {
             callback?.(null); // Already deleted
+          } else if (err.code === 'EROFS') {
+            this.useFileSystem = false;
+            callback?.(null);
           } else {
             console.error('[Session] Error deleting session:', err.message);
-            callback?.(err);
+            callback?.(null); // Don't fail logout on filesystem error
           }
         });
     });
   }
 
   clear(callback) {
+    // Clear memory
+    this.inMemory.clear();
+
+    // Try to clear filesystem
+    if (!this.useFileSystem) {
+      return callback?.(null);
+    }
+
     fs.readdir(this.dir)
       .then(files => {
         const promises = files
@@ -107,8 +170,13 @@ class FileSessionStore extends session.Store {
       })
       .then(() => callback?.(null))
       .catch(err => {
-        console.error('[Session] Error clearing sessions:', err.message);
-        callback?.(err);
+        if (err.code === 'EROFS') {
+          this.useFileSystem = false;
+          callback?.(null);
+        } else {
+          console.error('[Session] Error clearing sessions:', err.message);
+          callback?.(null);
+        }
       });
   }
 }
@@ -214,13 +282,14 @@ app.use((req, res, next) => {
   express.urlencoded({ limit: '10mb', extended: true })(req, res, next);
 });
 
-// Use file-based session store to avoid MemoryStore memory leaks in production
+// Use hybrid session store to avoid MemoryStore memory leaks in production
+// Falls back to in-memory only on Vercel (read-only filesystem)
 let sessionStore;
 try {
-  sessionStore = new FileSessionStore({ dir: SESSION_DIR });
-  console.log('[Session] ✅ Using file-based session store at:', SESSION_DIR);
+  sessionStore = new HybridSessionStore({ dir: SESSION_DIR });
+  console.log('[Session] ✅ Using hybrid session store (memory + file backup)');
 } catch (err) {
-  console.error('[Session] ⚠️  Failed to initialize FileSessionStore:', err.message);
+  console.error('[Session] ⚠️  Failed to initialize HybridSessionStore:', err.message);
   console.warn('[Session] Falling back to MemoryStore (production not recommended)');
   sessionStore = undefined; // Will use default MemoryStore if specified below
 }

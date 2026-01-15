@@ -8,7 +8,7 @@ import { JSONFile } from 'lowdb/node';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Lowdb (local fallback) setup
+// Lowdb (local fallback) setup - with in-memory cache
 const usersFile = path.join(__dirname, "../data/users.json");
 const usersAdapter = new JSONFile(usersFile);
 const usersDb = new Low(usersAdapter);
@@ -16,6 +16,10 @@ await usersDb.read();
 usersDb.data ||= {};
 usersDb.data.users ||= {};
 const LOCAL_DB_PATH = usersFile;
+
+// In-memory cache for users (needed for Vercel read-only filesystem)
+const userMemoryCache = new Map();
+const isVercel = process.env.VERCEL === '1';
 
 // Supabase client (optional)
 const SUPA_URL = process.env.SUPABASE_URL;
@@ -34,6 +38,12 @@ if (SUPA_URL && SUPA_KEY) {
 }
 
 async function _safeLocalWrite() {
+  // On Vercel/serverless, filesystem is read-only, so skip writes
+  if (isVercel) {
+    console.debug('[userStorage] Vercel environment: skipping filesystem write (read-only)');
+    return;
+  }
+
   // attempt lowdb write with simple backoff
   const MAX_RETRIES = 4;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -41,13 +51,20 @@ async function _safeLocalWrite() {
       await usersDb.write();
       return;
     } catch (err) {
+      // Read-only filesystem - give up and use memory cache
+      if (err && (err.code === 'EROFS' || err.code === 'EACCES')) {
+        console.warn(`[userStorage] Filesystem is read-only (${err.code}), using memory cache only`);
+        return; // Don't throw - just use memory cache
+      }
+
       // transient-ish errors we want to retry
-      if (err && (err.code === 'EPERM' || err.code === 'EBUSY' || err.code === 'EACCES')) {
+      if (err && (err.code === 'EPERM' || err.code === 'EBUSY')) {
         const waitMs = 80 * (attempt + 1);
         console.warn(`[userStorage] local write attempt ${attempt + 1} failed (${err.code}), retrying in ${waitMs}ms`);
         await new Promise(r => setTimeout(r, waitMs));
         continue;
       }
+
       // non-transient: rethrow
       throw err;
     }
@@ -179,6 +196,13 @@ export async function saveUsers(users) {
 
 export async function loadUser(id) {
   if (!id) return null;
+  
+  // Check memory cache first (fastest for Vercel)
+  const cached = userMemoryCache.get(String(id));
+  if (cached) {
+    return _rowToUser(cached);
+  }
+
   if (supabase) {
     try {
       const { data, error } = await supabase.from('users').select('*').eq('id', id).limit(1);
@@ -197,17 +221,32 @@ export async function loadUser(id) {
       }
       
       if (!data || data.length === 0) return null;
-      return _rowToUser(data[0]);
+      const user = _rowToUser(data[0]);
+      // Cache in memory
+      userMemoryCache.set(String(id), data[0]);
+      return user;
     } catch (err) {
       console.warn('[userStorage] Supabase loadUser failed, trying local:', err?.message || err);
     }
   }
 
   // local fallback
-  await usersDb.read();
+  try {
+    await usersDb.read();
+  } catch (err) {
+    console.warn('[userStorage] Failed to read local DB:', err?.message);
+  }
+  
   usersDb.data ||= {};
   usersDb.data.users ||= {};
-  return usersDb.data.users?.[id] || null;
+  const user = usersDb.data.users?.[id] || null;
+  
+  // Cache in memory
+  if (user) {
+    userMemoryCache.set(String(id), user);
+  }
+  
+  return user;
 }
 
 export async function saveUser(user) {
@@ -244,6 +283,17 @@ export async function saveUser(user) {
   usersDb.data ||= {};
   usersDb.data.users ||= {};
   usersDb.data.users[String(row.id)] = row;
-  await _safeLocalWrite();
+  
+  // Always cache in memory (for Vercel read-only filesystem)
+  userMemoryCache.set(String(row.id), row);
+  
+  // Try to write to filesystem (may fail on Vercel)
+  try {
+    await _safeLocalWrite();
+  } catch (err) {
+    // Write to filesystem failed - but we have it in memory cache, so it's ok
+    console.warn('[userStorage] Local write failed, but user cached in memory:', err?.message);
+  }
+  
   return row;
 }
