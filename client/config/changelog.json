@@ -2,6 +2,15 @@
   "title": "Fives — Changelog",
   "entries": [
     {
+      "version": "1.1.0",
+      "date": "14/01/2026",
+      "tags": ["Release"],
+      "changes": [
+        "Added Teams rule: players can form teams and share scores and work together to win.",
+        "Online functionality improvements and bug fixes."
+      ]
+    },
+    {
       "version": "1.0.0",
       "date": "13/12/2025",
       "tags": ["Release"],

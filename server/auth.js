@@ -21,6 +21,23 @@ passport.deserializeUser(async (id, done) => {
   }
 });
 
+// Helper to check if a strategy is registered
+function isStrategyAvailable(name) {
+  return passport._strategies && passport._strategies[name];
+}
+
+// Helper to handle missing strategy gracefully
+function requireStrategy(strategyName, fallbackMsg) {
+  return (req, res, next) => {
+    if (!isStrategyAvailable(strategyName)) {
+      console.warn(`[Auth] Strategy '${strategyName}' not available`);
+      const message = encodeURIComponent(fallbackMsg || `${strategyName} OAuth is not configured`);
+      return res.redirect(`/?error=${message}`);
+    }
+    next();
+  };
+}
+
 // SAFE HELPER
 function publicUser(u) {
   if (!u) return null;
@@ -66,6 +83,11 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 
 // ----------------- DISCORD OAUTH -----------------
 if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
+  // Support dynamic callback URLs for localhost development
+  // In production, set DISCORD_CALLBACK_URL env var to your production URL
+  const discordCallbackURL = process.env.DISCORD_CALLBACK_URL || 
+    (process.env.NODE_ENV === 'development' ? 'http://localhost:8080/auth/discord/callback' : '/auth/discord/callback');
+  
   passport.use(
     "discord",
     new OAuth2Strategy(
@@ -74,7 +96,7 @@ if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
         tokenURL: "https://discord.com/api/oauth2/token",
         clientID: process.env.DISCORD_CLIENT_ID,
         clientSecret: process.env.DISCORD_CLIENT_SECRET,
-        callbackURL: "/auth/discord/callback",
+        callbackURL: discordCallbackURL,
         scope: ["identify"],
       },
       async (accessToken, refreshToken, params, done) => {
@@ -187,15 +209,18 @@ router.post("/logout", (req, res) => {
 });
 
 // ----------------- OAUTH ROUTES -----------------
-router.get("/google", (req, res, next) =>
-  passport.authenticate("google", {
-    scope: ["profile"],
-    state: req.query.redirect === "json" ? "json" : undefined,
-  })(req, res, next)
+router.get("/google", 
+  requireStrategy("google", "Google OAuth is not configured on this server. Please restart the server with GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET set."),
+  (req, res, next) =>
+    passport.authenticate("google", {
+      scope: ["profile"],
+      state: req.query.redirect === "json" ? "json" : undefined,
+    })(req, res, next)
 );
 
 router.get(
   "/google/callback",
+  requireStrategy("google", "Google OAuth is not configured"),
   passport.authenticate("google", { failureRedirect: "/" }),
   (req, res) => {
     if (req.query.state === "json") return res.json({ ok: true, user: publicUser(req.user) });
@@ -203,17 +228,30 @@ router.get(
   }
 );
 
-router.get("/discord", (req, res, next) =>
-  passport.authenticate("discord", {
-    state: req.query.redirect === "json" ? "json" : undefined,
-  })(req, res, next)
+router.get("/discord",
+  requireStrategy("discord", "Discord OAuth is not configured on this server. Please restart the server with DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET set."),
+  (req, res, next) =>
+    passport.authenticate("discord", {
+      state: req.query.redirect === "json" ? "json" : undefined,
+    })(req, res, next)
 );
 
 router.get(
   "/discord/callback",
+  requireStrategy("discord", "Discord OAuth is not configured"),
   passport.authenticate("discord", { failureRedirect: "/" }),
   (req, res) => {
     if (req.query.state === "json") return res.json({ ok: true, user: publicUser(req.user) });
     res.redirect("/FivesDiceGame");
   }
 );
+
+// ---------- REPORT AVAILABLE AUTH METHODS ----------
+router.get("/methods", (req, res) => {
+  const methods = {
+    guest: true, // Always available
+    google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+    discord: !!(process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET),
+  };
+  res.json(methods);
+});

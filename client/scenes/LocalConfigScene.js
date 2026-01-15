@@ -1,4 +1,5 @@
 import GlobalAudio from '../utils/AudioManager.js';
+import ErrorHandler from '../utils/ErrorManager.js';
 
 export default class LocalConfigScene extends Phaser.Scene {
     constructor() {
@@ -7,9 +8,11 @@ export default class LocalConfigScene extends Phaser.Scene {
         this.selectedPlayers = 2;
         this.selectedRounds = 20;
         this.comboRules = false;
+        this.teamsEnabled = false;
 		this.playerNames = ["Player 1", "Player 2", "Player 3", "Player 4", "Player 5", "Player 6"];
         this.isAI = [false, true, true, true, true, true];
         this.aiDifficulty = ["Medium", "Medium", "Medium", "Medium", "Medium", "Medium"];
+        this.playerTeams = ['blue', 'red', 'blue', 'red', 'blue', 'red'];
         this.aiDifficultyLevels = [
           { name: "Baby", value: 0.5 },
           { name: "Easy", value: 0.75 },
@@ -20,6 +23,7 @@ export default class LocalConfigScene extends Phaser.Scene {
     }
 
     create() {
+        ErrorHandler.setScene(this);
         this.add.text(600, 60, 'Game Configuration', {
             fontSize: 40
         }).setOrigin(0.5);
@@ -106,6 +110,25 @@ for (let i = 0; i < this.selectedPlayers; i++) {
     } else {
         this.add.text(320, y, "Human", { fontSize: 24, color: "#999999" }).setOrigin(0.5);
     }
+
+    // Team toggle (only if teams enabled)
+    if (this.teamsEnabled) {
+        const team = this.playerTeams[i];
+        const teamBtn = this.add.text(560, y,
+            team.toUpperCase(),
+            {
+                fontSize: 24,
+                color: team === 'blue' ? '#66aaff' : '#ff6666'
+            }
+        )
+            .setOrigin(0.5)
+            .setInteractive();
+
+        teamBtn.on("pointerdown", () => {
+            this.playerTeams[i] = team === 'blue' ? 'red' : 'blue';
+            this.refreshScene();
+        });
+    }
 }
 
         // --------------------------------------
@@ -116,7 +139,7 @@ for (let i = 0; i < this.selectedPlayers; i++) {
             fontSize: 28
         }).setOrigin(0.5);
 
-        const roundOptions = [10, 15, 20, 25, 30];
+        const roundOptions = [1, 10, 15, 20, 25, 30];
 
         roundOptions.forEach((r, i) => {
             const btn = this.add.text(600, 400 + i * 40, `${r} rounds`, {
@@ -140,19 +163,27 @@ for (let i = 0; i < this.selectedPlayers; i++) {
 
         this.comboBtn = this.add.text(600, 660,
             `More points for combos: ${this.comboRules ? "YES" : "NO"}`,
-            { fontSize: 24 }
+            { fontSize: 24, color: this.comboRules ? '#66aaff' : '#ff6666' }
         ).setOrigin(0.5).setInteractive();
 
         this.comboBtn.on('pointerdown', () => {
             this.comboRules = !this.comboRules;
             this.refreshScene();
         });
+        this.teamsBtn = this.add.text(600, 700,
+            `Teams: ${this.teamsEnabled ? "ON" : "OFF"}`,
+            { fontSize: 24, color: this.teamsEnabled ? '#66aaff' : '#ff6666' }
+        ).setOrigin(0.5).setInteractive();
 
+        this.teamsBtn.on('pointerdown', () => {
+            this.teamsEnabled = !this.teamsEnabled;
+            this.refreshScene();
+        });
         // --------------------------------------
         // Continue Button
         // --------------------------------------
 
-        const startBtn = this.add.text(600, 720, 'Start Game', {
+        const startBtn = this.add.text(600, 750, 'Start Game', {
             fontSize: 32,
             color: '#66ff66'
         }).setOrigin(0.5).setInteractive();
@@ -163,6 +194,8 @@ for (let i = 0; i < this.selectedPlayers; i++) {
                 players: this.selectedPlayers,
                 rounds: this.selectedRounds,
                 combos: this.comboRules,
+                teamsEnabled: this.teamsEnabled,
+                teams: this.playerTeams.slice(0, this.selectedPlayers),
 				names: this.playerNames.slice(0, this.selectedPlayers),
                 ai: this.isAI.slice(0, this.selectedPlayers),
                 difficulty: this.aiDifficulty.slice(0, this.selectedPlayers)

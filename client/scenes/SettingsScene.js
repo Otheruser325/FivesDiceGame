@@ -1,5 +1,6 @@
 import GlobalAudio from '../utils/AudioManager.js';
 import GlobalSettings from '../utils/SettingsManager.js';
+import ErrorHandler from '../utils/ErrorManager.js';
 
 export default class SettingsScene extends Phaser.Scene {
     constructor() {
@@ -7,6 +8,7 @@ export default class SettingsScene extends Phaser.Scene {
     }
 
     create() {
+        ErrorHandler.setScene(this);
         this.add.text(600, 80, 'Settings', {
             fontSize: 48
         }).setOrigin(0.5);
@@ -124,13 +126,34 @@ export default class SettingsScene extends Phaser.Scene {
             color: '#ffffaa'
         }).setOrigin(0.5).setDepth(22);
 
+        // ---- Shuffle toggle (new) ----
+        const settings = GlobalSettings.get(this);
+        const shuffleOn = !!settings.shuffleTrack;
+        const shuffleBtn = this.add.text(600, 195, `Shuffle Track: ${shuffleOn ? 'ON' : 'OFF'}`, {
+            fontSize: 22,
+            color: shuffleOn ? '#66ff66' : '#ffffff'
+        }).setOrigin(0.5).setDepth(22).setInteractive({ useHandCursor: true });
+
+        shuffleBtn.on('pointerdown', () => {
+            GlobalAudio.playButton(this);
+            const newVal = GlobalSettings.toggle(this, 'shuffleTrack');
+            GlobalSettings.save(this);
+            shuffleBtn.setText(`Shuffle Track: ${newVal ? 'ON' : 'OFF'}`);
+            shuffleBtn.setColor(newVal ? '#66ff66' : '#ffffff');
+
+            // Immediately update playback mode
+            // If shuffle is enabled, we avoid forcing manual loop; otherwise keep behavior.
+            // Recreate playback to apply the new behaviour.
+            GlobalAudio._cleanupMusic && GlobalAudio._cleanupMusic(); // defensive; method exists
+            GlobalAudio.playMusic(this);
+        });
+
         // ---- Track list ----
         const trackNames = ['Hero Time', 'Energy', 'Powerhouse'];
         const trackY = 250;
         const spacing = 70;
 
-        const settings = GlobalSettings.get(this);
-        const selected = settings.trackIndex;
+        const selected = GlobalSettings.get(this).trackIndex;
 
         // Buttons stored for highlight
         const trackBtns = [];
@@ -178,6 +201,7 @@ export default class SettingsScene extends Phaser.Scene {
             popup.destroy();
             closeBtn.destroy();
             trackBtns.forEach(btn => btn.destroy());
+            shuffleBtn.destroy();
 			
 			// hide jukebox title
 			this.jukeboxTitle.setVisible(false);

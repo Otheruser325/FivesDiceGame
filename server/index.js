@@ -16,7 +16,7 @@ import { router as authRouter } from './auth.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = process.env.PORT || 8084;
+const PORT = process.env.PORT || 8080;
 
 const app = express();
 const server = http.createServer(app);
@@ -24,13 +24,7 @@ const server = http.createServer(app);
 const DEV_LOCALHOST_REGEX = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 const CLIENT_ORIGINS = (process.env.CLIENT_ORIGINS && process.env.CLIENT_ORIGINS.split(',')) || [
   'http://localhost:8080',
-  'http://localhost:8081',
-  'http://localhost:8082',
-  'http://localhost:8083',
-  'http://localhost:8084',
-  'http://localhost:8085',
-  'http://127.0.0.1:8080',
-  'http://127.0.0.1:8084'
+  'http://127.0.0.1:8080'
 ];
 
 app.use(cors({
@@ -78,15 +72,40 @@ app.use(passport.session());
 
 app.use("/auth", authRouter);
 
-// serve static files from client
+// ===== CRITICAL: Intercept socket.io requests BEFORE static/SPA fallback =====
+app.use((req, res, next) => {
+  // If requesting socket.io.js from any path, serve it directly
+  if (req.path === '/socket.io.js' || req.path === '/FivesDiceGame/socket.io.js') {
+    const socketIOPath = path.join(__dirname, 'node_modules/socket.io/client-dist/socket.io.min.js');
+    
+    // Debug: log the path being served
+    console.log('[Socket.io] Serving from:', socketIOPath);
+    
+    return res.type('application/javascript').sendFile(socketIOPath, (err) => {
+      if (err) {
+        console.error('[Socket.io] Error serving file:', err.message);
+        res.status(500).send('Socket.io library not found: ' + err.message);
+      }
+    });
+  }
+  next();
+});
+
+// Serve static files from client at root
+app.use("/", express.static(path.join(__dirname, "../client")));
+
+// Serve static files from client under /FivesDiceGame
 app.use("/FivesDiceGame", express.static(path.join(__dirname, "../client")));
+
+// SPA fallback for root path
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, '../client/index.html'));
+});
 
 // SPA fallback for client-side routes under /FivesDiceGame
 app.get('/FivesDiceGame/*', (req, res) => {
   res.sendFile(path.join(__dirname, '../client/index.html'));
 });
-
-app.get("/", (req, res) => res.redirect("/FivesDiceGame"));
 
 app.get('/health', (req, res) => {
   res.json({ ok: true, ts: Date.now() });

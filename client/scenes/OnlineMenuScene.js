@@ -1,5 +1,6 @@
 import { getSocket, getServerUrl, probeHealth, connectTo } from '../utils/SocketManager.js';
 import GlobalAudio from '../utils/AudioManager.js';
+import ErrorHandler from '../utils/ErrorManager.js';
 
 export default class OnlineMenuScene extends Phaser.Scene {
     constructor() {
@@ -14,6 +15,7 @@ export default class OnlineMenuScene extends Phaser.Scene {
     }
 
     async create() {
+        ErrorHandler.setScene(this);
         const backBtn = this.add.text(600, 360, '← Back', {
             fontSize: 28,
             color: '#66aaff'
@@ -26,34 +28,55 @@ export default class OnlineMenuScene extends Phaser.Scene {
 
         this.add.text(600, 60, 'Online Mode', { fontSize: 48 }).setOrigin(0.5);
 
-        // Check server availability: if socket library missing or socket not connected => maintenance view
+        // Initialize socket connection
         const socket = getSocket();
-        let serverAvailable = !!(socket && socket.connected);
-        if (!serverAvailable) {
-          try {
-            const healthy = await probeHealth();
-            if (!healthy) {
-              this.add.text(600, 200, "Online mode currently not available, please try again later.", {
-                fontSize: 30, color: "#ff4444"
-              }).setOrigin(0.5);
-            return;
-          } else {
-            const server = getServerUrl();
-            connectTo(server);
-            this.add.text(600, 200, "Server Under Maintenance", {
-              fontSize: 38, color: "#ff4444"
-            }).setOrigin(0.5);
-            this.add.text(600, 240, "Try again later or visit the main site.", {
-              fontSize: 20, color: "#cccccc"
-            }).setOrigin(0.5);
-            return;
-          }
-        } catch (e) {
-            this.add.text(600, 200, "Online mode currently not available, please try again later.", {
-              fontSize: 30, color: "#ff4444"
-            }).setOrigin(0.5);
-            return;
-          }
+        
+        // Wait for socket to be ready (with timeout to prevent hanging)
+        let socketReady = false;
+        const waitForSocket = new Promise((resolve) => {
+            const timeout = setTimeout(() => {
+                console.warn('[OnlineMenuScene] Socket connection timeout after 3 seconds');
+                resolve(false);
+            }, 3000);
+            
+            if (socket.connected) {
+                clearTimeout(timeout);
+                resolve(true);
+            } else {
+                const onConnect = () => {
+                    clearTimeout(timeout);
+                    socket.off('connect', onConnect);
+                    resolve(true);
+                };
+                socket.on('connect', onConnect);
+            }
+        });
+        
+        socketReady = await waitForSocket;
+
+        if (!socketReady) {
+            try {
+                const healthy = await probeHealth();
+                if (!healthy) {
+                    this.add.text(600, 200, "Online mode currently not available, please try again later.", {
+                        fontSize: 30, color: "#ff4444"
+                    }).setOrigin(0.5);
+                    return;
+                } else {
+                    this.add.text(600, 200, "Server Under Maintenance", {
+                        fontSize: 38, color: "#ff4444"
+                    }).setOrigin(0.5);
+                    this.add.text(600, 240, "Try again later or visit the main site.", {
+                        fontSize: 20, color: "#cccccc"
+                    }).setOrigin(0.5);
+                    return;
+                }
+            } catch (e) {
+                this.add.text(600, 200, "Online mode currently not available, please try again later.", {
+                    fontSize: 30, color: "#ff4444"
+                }).setOrigin(0.5);
+                return;
+            }
         }
 
         const server = getServerUrl();
@@ -237,6 +260,8 @@ export default class OnlineMenuScene extends Phaser.Scene {
                 const data = await resp.json();
                 if (data?.ok && data.user) {
                     this.user = data.user;
+                    // Emit auth-user to socket immediately so it's ready for lobby operations
+                    this._emitAuthToSocket(this.user);
                     return;
                 }
             } catch (err) {
@@ -250,6 +275,8 @@ export default class OnlineMenuScene extends Phaser.Scene {
             const raw = localStorage.getItem('fives_user');
             if (raw) {
                 this.user = JSON.parse(raw);
+                // Emit auth-user to socket immediately
+                this._emitAuthToSocket(this.user);
                 return;
             }
         } catch (err) {
@@ -259,6 +286,20 @@ export default class OnlineMenuScene extends Phaser.Scene {
 
         // no user
         this.user = null;
+    }
+
+    _emitAuthToSocket(user) {
+        try {
+            if (!user || !user.id) return;
+            const socket = getSocket && typeof getSocket === 'function' ? getSocket() : null;
+            if (socket && socket.emit) {
+                console.log('[OnlineMenuScene] Emitting auth-user to socket:', user.name);
+                socket.emit('auth-user', user);
+                socket.userId = user.id;
+            }
+        } catch (e) {
+            console.warn('[OnlineMenuScene] Failed to emit auth-user:', e);
+        }
     }
 
     getUserLabel() {

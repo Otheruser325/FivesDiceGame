@@ -151,114 +151,156 @@ export default class LobbyManager {
 
     // ---------- AUTH USER ----------
     socket.on("auth-user", async (user) => {
-      // minimal sanitisation
-      if (!user || !user.id) return;
-      socket.data.user = { ...user, ready: false };
+      try {
+        // minimal sanitisation
+        if (!user || !user.id) {
+          console.warn('[LobbyManager] auth-user received invalid user:', user);
+          return;
+        }
+        
+        socket.data.user = { 
+          id: String(user.id).trim(),
+          name: (user.name && String(user.name).trim()) || `Guest${String(user.id).substring(0, 6)}`,
+          type: user.type || 'guest'
+        };
+        
+        console.log('[LobbyManager] Socket authenticated as:', socket.data.user.name);
+      } catch (err) {
+        console.error('[LobbyManager] Error in auth-user:', err);
+        socket.data.user = null;
+      }
     });
 
     // ---------- CREATE LOBBY ----------
     socket.on("create-lobby", async (config = {}, maybeUserId) => {
-      let uid = socket.data.user?.id || maybeUserId || null;
-      if (!uid) return socket.emit("create-failed", { reason: "unauthenticated" });
+      try {
+        let uid = socket.data.user?.id || maybeUserId || null;
+        if (!uid) {
+          console.warn('[LobbyManager] create-lobby: no user id available');
+          return socket.emit("create-failed", { reason: "unauthenticated" });
+        }
 
-      // best-effort: seed socket.data.user minimally so future ops work
-      if (!socket.data.user) socket.data.user = { id: uid, name: (socket.data?.user?.name || `Guest${uid}`) };
+        // best-effort: seed socket.data.user minimally so future ops work
+        if (!socket.data.user) {
+          socket.data.user = { 
+            id: String(uid).trim(),
+            name: (socket.data?.user?.name || `Guest${String(uid).substring(0, 6)}`)
+          };
+        }
 
-      // ensure unique code (retry if collision)
-      let code;
-      for (let i = 0; i < 6; i++) {
-        code = Math.random().toString(36).slice(2, 7).toUpperCase();
-        if (!this.lobbies[code]) break;
-        code = null;
+        // ensure unique code (retry if collision)
+        let code;
+        for (let i = 0; i < 6; i++) {
+          code = Math.random().toString(36).slice(2, 7).toUpperCase();
+          if (!this.lobbies[code]) break;
+          code = null;
+        }
+        if (!code) code = ("L" + Date.now()).slice(-6).toUpperCase();
+
+        const playerObj = {
+          id: socket.data.user.id,
+          name: socket.data.user.name || `Guest${String(uid).substring(0, 6)}`,
+          ready: false,
+          left: false,
+          connected: true
+        };
+
+        const lobby = {
+          code,
+          hostSocketId: socket.id,
+          hostUserId: socket.data.user.id,
+          players: [playerObj],
+          config: {
+            players: config.players || 2,
+            rounds: config.rounds || 20,
+            combos: !!config.combos
+          },
+          createdAt: Date.now()
+        };
+
+        this.lobbies[code] = lobby;
+
+        try { await this.save(); } catch (e) { console.warn("[LobbyManager] failed to persist created lobby:", e); }
+
+        socket.join(code);
+        socket.emit("lobby-created", code);
+        this.broadcastLobbyUpdate(code);
+      } catch (err) {
+        console.error('[LobbyManager] Error in create-lobby:', err);
+        socket.emit("create-failed", { reason: "server_error" });
       }
-      if (!code) code = ("L" + Date.now()).slice(-6).toUpperCase();
-
-      const playerObj = {
-        ...socket.data.user,
-        id: socket.data.user.id,
-        ready: false,
-        left: false,
-        connected: true
-      };
-
-      const lobby = {
-        code,
-        hostSocketId: socket.id,
-        hostUserId: socket.data.user.id,
-        players: [playerObj],
-        config: {
-          players: config.players || 2,
-          rounds: config.rounds || 20,
-          combos: !!config.combos
-        },
-        createdAt: Date.now()
-      };
-
-      this.lobbies[code] = lobby;
-
-      try { await this.save(); } catch (e) { console.warn("[LobbyManager] failed to persist created lobby:", e); }
-
-      socket.join(code);
-      socket.emit("lobby-created", code);
-      this.broadcastLobbyUpdate(code);
     });
 
     // ---------- JOIN LOBBY ----------
     socket.on("join-lobby", async (codeRaw, maybeUserId) => {
-      if (!codeRaw || typeof codeRaw !== "string") return socket.emit("join-failed", { reason: "invalid_code" });
-      const code = codeRaw.trim().toUpperCase();
-      const lobby = this.lobbies[code];
-      if (!lobby) return socket.emit("join-failed", { reason: "notfound" });
+      try {
+        if (!codeRaw || typeof codeRaw !== "string") return socket.emit("join-failed", { reason: "invalid_code" });
+        const code = codeRaw.trim().toUpperCase();
+        const lobby = this.lobbies[code];
+        if (!lobby) return socket.emit("join-failed", { reason: "notfound" });
 
-      // resolve user id
-      let uid = socket.data.user?.id || maybeUserId || null;
-      if (!uid) return socket.emit("join-failed", { reason: "unauthenticated" });
-
-      // seed socket.data.user if missing
-      if (!socket.data.user) socket.data.user = { id: uid };
-
-      // check capacity using only present players (not counting left)
-      const presentCount = (lobby.players || []).filter(p => !p.left).length;
-      if (presentCount >= (lobby.config?.players || 2)) {
-        return socket.emit("join-failed", { reason: "full" });
-      }
-
-      const existing = lobby.players.find(p => String(p.id) === String(socket.data.user.id));
-      if (!existing) {
-        lobby.players.push({
-          id: uid,
-          name: socket.data.user.name || socket.data.user?.name || `Player${uid}`,
-          ready: false,
-          left: false,
-          connected: true
-        });
-
-        const dedup = [];
-        for (const p of lobby.players) {
-          if (!dedup.find(x => String(x.id) === String(p.id))) dedup.push(p);
+        // resolve user id
+        let uid = socket.data.user?.id || maybeUserId || null;
+        if (!uid) {
+          console.warn('[LobbyManager] join-lobby: no user id');
+          return socket.emit("join-failed", { reason: "unauthenticated" });
         }
-        lobby.players = dedup;
 
-        try { await this.save(); } catch (e) { console.warn("[LobbyManager] save after join failed:", e); }
-      } else {
-        if (existing.left) {
-          existing.left = false;
-          existing.connected = true;
-          existing.ready = false;
-          try { await this.save(); } catch (e) { console.warn("[LobbyManager] save after rejoin failed:", e); }
+        // seed socket.data.user if missing
+        if (!socket.data.user) {
+          socket.data.user = { 
+            id: String(uid).trim(),
+            name: `Guest${String(uid).substring(0, 6)}`
+          };
+        }
+
+        // check capacity using only present players (not counting left)
+        const presentCount = (lobby.players || []).filter(p => !p.left).length;
+        if (presentCount >= (lobby.config?.players || 2)) {
+          console.info('[LobbyManager] Lobby full:', code);
+          return socket.emit("join-failed", { reason: "full" });
+        }
+
+        const existing = lobby.players.find(p => String(p.id) === String(socket.data.user.id));
+        if (!existing) {
+          lobby.players.push({
+            id: uid,
+            name: socket.data.user.name || `Player${String(uid).substring(0, 6)}`,
+            ready: false,
+            left: false,
+            connected: true
+          });
+
+          const dedup = [];
+          for (const p of lobby.players) {
+            if (!dedup.find(x => String(x.id) === String(p.id))) dedup.push(p);
+          }
+          lobby.players = dedup;
+
+          try { await this.save(); } catch (e) { console.warn("[LobbyManager] save after join failed:", e); }
         } else {
-          existing.connected = true;
+          if (existing.left) {
+            existing.left = false;
+            existing.connected = true;
+            existing.ready = false;
+            try { await this.save(); } catch (e) { console.warn("[LobbyManager] save after rejoin failed:", e); }
+          } else {
+            existing.connected = true;
+          }
         }
-      }
 
-      socket.join(code);
-      socket.emit("join-success", {
-        code,
-        players: lobby.players,
-        hostSocketId: lobby.hostSocketId || lobby.host || null,
-        hostUserId: lobby.hostUserId || lobby.hostUserId || null
-      });
-      this.broadcastLobbyUpdate(code);
+        socket.join(code);
+        socket.emit("join-success", {
+          code,
+          players: lobby.players,
+          hostSocketId: lobby.hostSocketId || lobby.host || null,
+          hostUserId: lobby.hostUserId || lobby.hostUserId || null
+        });
+        this.broadcastLobbyUpdate(code);
+      } catch (err) {
+        console.error('[LobbyManager] Error in join-lobby:', err);
+        socket.emit("join-failed", { reason: "server_error" });
+      }
     });
 
     // ---------- REQUEST LOBBY DATA ----------

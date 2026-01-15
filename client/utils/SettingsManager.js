@@ -2,6 +2,7 @@ const DEFAULTS = {
   audio: true,            // SFX on/off
   music: true,            // Music on/off
   visualEffects: true,    // combo FX / overlays
+  shuffleTrack: false,    // shuffle music tracks
   trackIndex: 0,          // which music track
 };
 

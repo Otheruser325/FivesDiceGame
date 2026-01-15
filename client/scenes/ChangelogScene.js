@@ -1,4 +1,5 @@
 import GlobalAudio from '../utils/AudioManager.js';
+import ErrorHandler from '../utils/ErrorManager.js';
 
 export default class ChangelogScene extends Phaser.Scene {
   constructor() {
@@ -6,11 +7,13 @@ export default class ChangelogScene extends Phaser.Scene {
   }
 
   create() {
+    ErrorHandler.setScene(this);
+
     const CENTER_X = 600;
     const VIEW_WIDTH = 320;
     const VIEW_TOP = 160;
     const VIEW_HEIGHT = 440;
-
+    
     const data = this.cache.json.get('changelog');
     if (!data) {
       console.warn('Changelog JSON missing');

@@ -1,5 +1,6 @@
 import { getSocket } from '../utils/SocketManager.js';
 import GlobalAudio from '../utils/AudioManager.js';
+import ErrorHandler from '../utils/ErrorManager.js';
 
 export default class OnlineConfigScene extends Phaser.Scene {
     constructor() {
@@ -8,16 +9,18 @@ export default class OnlineConfigScene extends Phaser.Scene {
         this.selectedPlayers = 2;
         this.selectedRounds = 20;
         this.comboRules = false;
+        this.teamsEnabled = false;
     }
 
     init(data) {
         if (data.players) this.selectedPlayers = data.players;
         if (data.rounds) this.selectedRounds = data.rounds;
         if (typeof data.combos === "boolean") this.comboRules = data.combos;
+        if (typeof data.teamsEnabled === "boolean") this.teamsEnabled = data.teamsEnabled;
     }
 
     create() {
-
+        ErrorHandler.setScene(this);
         this.add.text(600, 60, 'Online Game Configuration', { fontSize: 40 }).setOrigin(0.5);
 
         // PLAYERS COUNT
@@ -67,7 +70,7 @@ export default class OnlineConfigScene extends Phaser.Scene {
             600,
             660,
             `More points for combos: ${this.comboRules ? "YES" : "NO"}`,
-            { fontSize: 24 }
+            { fontSize: 24, color: this.comboRules ? '#66aaff' : '#ff6666' }
         )
             .setOrigin(0.5)
             .setInteractive();
@@ -77,8 +80,23 @@ export default class OnlineConfigScene extends Phaser.Scene {
             this.refreshScene();
         });
 
+        // TEAMS MODE
+        this.teamsBtn = this.add.text(
+            600,
+            700,
+            `Teams: ${this.teamsEnabled ? "ON" : "OFF"}`,
+            { fontSize: 24, color: this.teamsEnabled ? '#66aaff' : '#ff6666' }
+        )
+            .setOrigin(0.5)
+            .setInteractive();
+
+        this.teamsBtn.on('pointerdown', () => {
+            this.teamsEnabled = !this.teamsEnabled;
+            this.refreshScene();
+        });
+
         // CREATE LOBBY
-        const startBtn = this.add.text(600, 720, 'Create Lobby!', {
+        const startBtn = this.add.text(600, 750, 'Create Lobby!', {
             fontSize: 32, color: '#66ff66'
         }).setOrigin(0.5).setInteractive();
 
@@ -88,7 +106,8 @@ export default class OnlineConfigScene extends Phaser.Scene {
             const payload = {
                 players: this.selectedPlayers,
                 rounds: this.selectedRounds,
-                combos: this.comboRules
+                combos: this.comboRules,
+                teamsEnabled: this.teamsEnabled
             };
 
             const socket = getSocket();
@@ -131,7 +150,8 @@ export default class OnlineConfigScene extends Phaser.Scene {
         this.scene.restart({
             players: this.selectedPlayers,
             rounds: this.selectedRounds,
-            combos: this.comboRules
+            combos: this.comboRules,
+            teamsEnabled: this.teamsEnabled
         });
     }
 }

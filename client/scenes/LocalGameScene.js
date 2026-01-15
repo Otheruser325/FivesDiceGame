@@ -2,6 +2,7 @@ import GlobalAudio from '../utils/AudioManager.js';
 import { animateDiceRoll } from '../utils/AnimationManager.js';
 import { checkCombo, showComboText, playComboFX } from '../utils/ComboManager.js';
 import Dice from '../utils/DiceManager.js';
+import ErrorHandler from '../utils/ErrorManager.js';
 
 export default class LocalGameScene extends Phaser.Scene {
     constructor() {
@@ -12,9 +13,14 @@ export default class LocalGameScene extends Phaser.Scene {
         this.totalPlayers = data.players || 2;
         this.totalRounds = data.rounds || 20;
         this.comboRules = data.combos ?? false;
+        this.teamsEnabled = data.teamsEnabled ?? false;
+        this.playerTeams = data.teams || Array.from({ length: this.totalPlayers }, (_, i) => i % 2 === 0 ? 'blue' : 'red');
 
         this.currentRound = 1;
         this.playerNames = data.names || Array.from({ length: this.totalPlayers }, (_, i) => `P${i + 1}`);
+        this.playerTints = [0x66aaff, 0xffff66, 0x66ff99, 0xff6666, 0xffaa44, 0xee88ff];
+        this.teamTints = { blue: 0x66aaff, red: 0xff6666 };
+
         this.isAI = data.ai || Array.from({ length: this.totalPlayers }, (_, i) => i !== 0);
         this.aiDifficultyNames = data.difficulty || [];
         this.aiDifficulty = this.aiDifficultyNames.map(name => {
@@ -49,12 +55,25 @@ export default class LocalGameScene extends Phaser.Scene {
             id: i,
             name: this.playerNames[i] || `P${i + 1}`,
             avatar: this.isAI[i] ? 'botIcon' : 'playerIcon',
-            connected: true
+            connected: true,
+            team: this.playerTeams[i] || (i % 2 === 0 ? 'blue' : 'red')
         }));
     }
 
     create() {
+        ErrorHandler.setScene(this);
         this.exitLocked = true;
+        
+        // Team score display (if teams enabled)
+        this.teamScoreText = null;
+        if (this.teamsEnabled) {
+            this.teamScoreText = this.add.text(600, 30, '', {
+                fontSize: 28,
+                color: '#ffffff',
+                align: 'center'
+            }).setOrigin(0.5);
+        }
+        
         this.roundTitle = this.add.text(600, 50,
             `Local Game — Round ${this.currentRound}/${this.totalRounds}`, {
                 fontSize: 32
@@ -152,6 +171,15 @@ export default class LocalGameScene extends Phaser.Scene {
         this.updatePlayerBar();
     }
 
+    getPlayerTintColor(playerIndex) {
+        if (this.teamsEnabled && this.playerTeams) {
+            const team = this.playerTeams[playerIndex] || (playerIndex % 2 === 0 ? 'blue' : 'red');
+            return this.teamTints[team] || 0x66aaff;
+        } else {
+            return this.playerTints[playerIndex % this.playerTints.length] || 0x66aaff;
+        }
+    }
+
     updatePlayerBar() {
         const total = this.totalPlayers;
         const spacing = 200;
@@ -167,8 +195,13 @@ export default class LocalGameScene extends Phaser.Scene {
             if (p.scoreText) { p.scoreText.x = x; p.scoreText.y = y - 70; p.scoreText.setVisible(index < total); }
             if (p.ring) { p.ring.x = x; p.ring.y = y; p.ring.setVisible(index < total); }
 
-            // highlight active
-            if (p.ring) p.ring.setVisible(index === this.currentPlayer);
+            // highlight active player and apply ring color based on team/position
+            if (p.ring) {
+                p.ring.setVisible(index === this.currentPlayer);
+                const ringColor = this.getPlayerTintColor(index);
+                p.ring.setFillStyle(ringColor, 0.25);
+                p.ring.setStrokeStyle(3, ringColor);
+            }
 
             // supply name/avatar from playerSlots (keeps parity with OnlineGameScene approach)
             const slot = this.playerSlots && this.playerSlots[index] ? this.playerSlots[index] : null;
@@ -180,11 +213,9 @@ export default class LocalGameScene extends Phaser.Scene {
                 if (p.scoreText) p.scoreText.setText(sc).setVisible(true);
 
                 if (slot.connected === false) {
-                    if (p.icon) p.icon.setTint(0x444444);
                     if (p.tag) p.tag.setText(`${slot.name} (left)`);
                     if (p.scoreText) p.scoreText.setTint(0x444444);
                 } else {
-                    if (p.icon) p.icon.clearTint();
                     if (p.scoreText) p.scoreText.clearTint();
                 }
             } else {
@@ -194,6 +225,29 @@ export default class LocalGameScene extends Phaser.Scene {
                 if (p.scoreText) p.scoreText.setText(sc);
             }
         });
+
+        // Update team scores if teams are enabled
+        if (this.teamsEnabled) {
+            this.updateTeamScoreDisplay();
+        }
+    }
+
+    updateTeamScoreDisplay() {
+        if (!this.teamsEnabled || !this.teamScoreText) return;
+
+        let blueScore = 0;
+        let redScore = 0;
+
+        for (let i = 0; i < this.totalPlayers; i++) {
+            const team = this.playerTeams[i] || this.playerSlots[i]?.team || (i % 2 === 0 ? 'blue' : 'red');
+            if (team === 'blue') {
+                blueScore += this.scores[i] || 0;
+            } else if (team === 'red') {
+                redScore += this.scores[i] || 0;
+            }
+        }
+
+        this.teamScoreText.setText(`🔵 BLUE: ${blueScore}  |  🔴 RED: ${redScore}`);
     }
 
     startTurn() {
@@ -483,6 +537,8 @@ export default class LocalGameScene extends Phaser.Scene {
             combos: this.comboStats,
             rounds: this.totalRounds,
             names: this.playerNames,
+            teamsEnabled: this.teamsEnabled,
+            teams: this.playerTeams,
         });
 
         this.scene.start('LocalPostGameScene');

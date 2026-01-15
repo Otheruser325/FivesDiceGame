@@ -2,7 +2,7 @@ let OnlineSocket = null;
 let _serverUrl = null;
 let _probing = false;
 
-const DEFAULT_PORTS = [8084, 8080, 8081, 8082, 8083, 8085];
+const DEFAULT_PORTS = [8080, 8081, 8082, 8083, 8084, 8085];
 
 function _norm(url) {
   return String(url).replace(/\/+$/, '');
@@ -35,7 +35,7 @@ function _initialServerCandidate() {
 
   // fallback to reasonable default (same protocol as page)
   const proto = (typeof window !== 'undefined' && window.location && window.location.protocol === 'https:') ? 'https' : 'http';
-  _serverUrl = `${proto}://localhost:8084`;
+  _serverUrl = `${proto}://localhost:8080`;
   return _serverUrl;
 }
 

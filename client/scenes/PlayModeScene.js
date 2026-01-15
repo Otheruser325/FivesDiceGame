@@ -1,4 +1,5 @@
 import GlobalAudio from '../utils/AudioManager.js';
+import ErrorHandler from '../utils/ErrorManager.js';
 
 export default class PlayModeScene extends Phaser.Scene {
     constructor() {
@@ -6,6 +7,7 @@ export default class PlayModeScene extends Phaser.Scene {
     }
 
     create() {
+        ErrorHandler.setScene(this);
         this.add.text(600, 80, 'Play', { fontSize: 48 }).setOrigin(0.5);
 
         const localBtn = this.add.text(600, 200, 'Local Play', { fontSize: 32 })

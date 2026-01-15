@@ -1,5 +1,6 @@
 import { getSocket, getServerUrl } from '../utils/SocketManager.js';
 import GlobalAudio from '../utils/AudioManager.js';
+import ErrorHandler from '../utils/ErrorManager.js';
 
 export default class OnlineAccountScene extends Phaser.Scene {
   constructor() {
@@ -16,6 +17,8 @@ export default class OnlineAccountScene extends Phaser.Scene {
   }
 
   create() {
+    ErrorHandler.setScene(this);
+    
     // translucent background rectangle (recreated on UI rebuild)
     this.bg = this.add.rectangle(640, 480, 1280, 960, 0x000000, 0.85);
 
@@ -137,6 +140,24 @@ export default class OnlineAccountScene extends Phaser.Scene {
     } catch (e) {}
   }
 
+  /**
+   * Fetch available auth methods from server
+   * @returns {Promise<{guest: boolean, google: boolean, discord: boolean}>}
+   */
+  async getAvailableAuthMethods() {
+    try {
+      const server = getServerUrl();
+      const res = await fetch(`${server.replace(/\/$/, '')}/auth/methods`);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (err) {
+      console.warn('[Auth] Failed to fetch available auth methods:', err);
+    }
+    // Fallback: assume guest is always available
+    return { guest: true, google: false, discord: false };
+  }
+
   // ============================
   // LOGIN / REGISTER UI
   // ============================
@@ -146,27 +167,46 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
     this.add.text(640, 140, 'Login to Fives', { fontSize: 48 }).setOrigin(0.5);
 
-    // Google login
-    const googleBtn = this.add.text(640, 260, 'Login with Google', {
-      fontSize: 32, color: '#ffeb3b'
-    }).setOrigin(0.5).setInteractive();
+    // Fetch available auth methods asynchronously
+    this.getAvailableAuthMethods().then(methods => {
+      let yPos = 260;
 
-    googleBtn.on('pointerdown', async () => {
-      GlobalAudio.playButton(this);
-      await this.oauthLogin('/auth/google?redirect=json');
+      // Google login
+      if (methods.google) {
+        const googleBtn = this.add.text(640, yPos, 'Login with Google', {
+          fontSize: 32, color: '#ffeb3b'
+        }).setOrigin(0.5).setInteractive();
+
+        googleBtn.on('pointerdown', async () => {
+          GlobalAudio.playButton(this);
+          await this.oauthLogin('/auth/google?redirect=json');
+        });
+        yPos += 60;
+      } else {
+        this.add.text(640, yPos, 'Google OAuth (not configured)', {
+          fontSize: 20, color: '#666666'
+        }).setOrigin(0.5);
+        yPos += 60;
+      }
+
+      // Discord login
+      if (methods.discord) {
+        const discordBtn = this.add.text(640, yPos, 'Login with Discord', {
+          fontSize: 32, color: '#7289da'
+        }).setOrigin(0.5).setInteractive();
+
+        discordBtn.on('pointerdown', async () => {
+          GlobalAudio.playButton(this);
+          await this.oauthLogin('/auth/discord?redirect=json');
+        });
+      } else {
+        this.add.text(640, yPos, 'Discord OAuth (not configured)', {
+          fontSize: 20, color: '#666666'
+        }).setOrigin(0.5);
+      }
     });
 
-    // Discord login
-    const discordBtn = this.add.text(640, 320, 'Login with Discord', {
-      fontSize: 32, color: '#7289da'
-    }).setOrigin(0.5).setInteractive();
-
-    discordBtn.on('pointerdown', async () => {
-      GlobalAudio.playButton(this);
-      await this.oauthLogin('/auth/discord?redirect=json');
-    });
-
-    // Guest Signup
+    // Guest Signup (always available)
     this.add.text(640, 400, 'Or Sign Up as Guest', {
       fontSize: 28, color: '#cccccc'
     }).setOrigin(0.5);
@@ -178,20 +218,30 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
     // Create styled DOM input and keep a reference so we can destroy it reliably
     this.passwordInput = this.add.dom(640, 470, 'input', {
-      width: '250px', fontSize: '22px', padding: '6px',
-      type: 'password', placeholder: '6+ characters',
-      background: 'transparent', outline: 'none', border: '1px solid rgba(255,255,255,0.1)'
+      type: 'password',
+      placeholder: '6+ characters',
+      style: `
+        width: 250px;
+        font-size: 22px;
+        padding: 6px;
+        background: rgba(0,0,0,0.5);
+        color: #ffffff;
+        border: 1px solid rgba(255,255,255,0.3);
+        border-radius: 6px;
+        outline: none;
+        font-family: Arial, sans-serif;
+      `
     });
 
-    // Best-effort styling (older Phaser versions may not accept full style object)
-    try {
-      if (this.passwordInput.node) {
-        this.passwordInput.node.style.background = 'transparent';
-        this.passwordInput.node.style.outline = 'none';
-        this.passwordInput.node.style.borderRadius = '6px';
-        this.passwordInput.node.style.color = '#ffffff';
-      }
-    } catch (e) {}
+    // Add focus/blur events for better UX
+    if (this.passwordInput.node) {
+      this.passwordInput.node.addEventListener('focus', () => {
+        this.passwordInput.node.style.border = '1px solid #66ff66';
+      });
+      this.passwordInput.node.addEventListener('blur', () => {
+        this.passwordInput.node.style.border = '1px solid rgba(255,255,255,0.3)';
+      });
+    }
 
     // Restrict guest creation if localStorage has a user or recent guest created
     const cachedUser = localStorage.getItem('fives_user');
@@ -240,8 +290,45 @@ export default class OnlineAccountScene extends Phaser.Scene {
   async oauthLogin(url) {
     try {
       const server = getServerUrl();
-      const resp = await fetch(`${server.replace(/\/$/, '')}${url.startsWith('/') ? '' : '/'}${url}`, { credentials: 'include' });
-      const j = await resp.json();
+      const fullUrl = `${server.replace(/\/$/, '')}${url.startsWith('/') ? '' : '/'}${url}`;
+      const resp = await fetch(fullUrl, { credentials: 'include' });
+      
+      // Check response status first
+      if (!resp.ok) {
+        const text = await resp.text();
+        console.error('[OAuth] Server returned error:', resp.status, text);
+        
+        // Try to parse as JSON if it looks like JSON
+        if (text.trim().startsWith('{')) {
+          try {
+            const errData = JSON.parse(text);
+            alert(`OAuth Error: ${errData.error || 'Unknown error'}`);
+          } catch (e) {
+            alert(`OAuth failed: Server error ${resp.status}`);
+          }
+        } else {
+          // HTML error page or redirect
+          alert('OAuth configuration issue on server. Please check server logs.');
+        }
+        return;
+      }
+      
+      // Try to parse response as JSON
+      let j;
+      const contentType = resp.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        j = await resp.json();
+      } else {
+        const text = await resp.text();
+        try {
+          j = JSON.parse(text);
+        } catch (e) {
+          console.error('[OAuth] Response is not JSON:', text.substring(0, 100));
+          alert('OAuth error: Server returned invalid response. Check that Discord/Google credentials are configured.');
+          return;
+        }
+      }
+      
       if (j.ok && j.user) {
         localStorage.setItem('fives_user', JSON.stringify(j.user));
         this.user = j.user;
@@ -260,11 +347,12 @@ export default class OnlineAccountScene extends Phaser.Scene {
         this.scene.resume(this.returnTo);
         this.scene.stop();
       } else {
-        alert('OAuth login failed');
+        const reason = j.error || 'Unknown error';
+        alert(`OAuth login failed: ${reason}`);
       }
     } catch (err) {
-      console.error(err);
-      alert('Network error');
+      console.error('[OAuth] Error during login:', err);
+      alert('Network error: ' + (err.message || 'Could not connect to server'));
     }
   }
 

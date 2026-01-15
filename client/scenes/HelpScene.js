@@ -1,4 +1,5 @@
 import GlobalAudio from '../utils/AudioManager.js';
+import ErrorHandler from '../utils/ErrorManager.js';
 
 export default class HelpScene extends Phaser.Scene {
     constructor() {
@@ -6,6 +7,7 @@ export default class HelpScene extends Phaser.Scene {
     }
 
     create() {
+        ErrorHandler.setScene(this);
         this.popupOpen = false;
 		
         this.add.text(600, 70, 'Help', {

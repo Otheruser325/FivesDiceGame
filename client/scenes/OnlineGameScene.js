@@ -2,6 +2,7 @@ import { getSocket } from '../utils/SocketManager.js';
 import GlobalAudio from '../utils/AudioManager.js';
 import { animateDiceRoll } from '../utils/AnimationManager.js';
 import { checkCombo, showComboText, playComboFX } from '../utils/ComboManager.js';
+import ErrorHandler from '../utils/ErrorManager.js';
 
 export default class OnlineGameScene extends Phaser.Scene {
   constructor() {
@@ -20,7 +21,8 @@ export default class OnlineGameScene extends Phaser.Scene {
     this.gameConfig = {
       players: data.players ?? 2,
       rounds: data.rounds ?? 20,
-      comboRules: data.comboRules ?? false
+      comboRules: data.comboRules ?? false,
+      teamsEnabled: data.teamsEnabled ?? false
     };
 
     // If the scene was started with a config (from OnlineLobbyScene), apply it
@@ -28,11 +30,16 @@ export default class OnlineGameScene extends Phaser.Scene {
       this.gameConfig.players = data.config.players ?? this.gameConfig.players;
       this.gameConfig.rounds = data.config.rounds ?? this.gameConfig.rounds;
       this.gameConfig.comboRules = data.config.combos ?? this.gameConfig.comboRules;
+      this.gameConfig.teamsEnabled = data.config.teamsEnabled ?? this.gameConfig.teamsEnabled;
     } else {
       this.gameConfig.players = data.players ?? this.gameConfig.players;
       this.gameConfig.rounds = data.rounds ?? this.gameConfig.rounds;
       this.gameConfig.comboRules = data.comboRules ?? this.gameConfig.comboRules;
+      this.gameConfig.teamsEnabled = data.teamsEnabled ?? this.gameConfig.teamsEnabled;
     }
+
+    this.playerTints = [0x66aaff, 0xffff66, 0x66ff99, 0xff6666, 0xffaa44, 0xee88ff];
+    this.teamTints = { blue: 0x66aaff, red: 0xff6666 };
 
     // runtime
     this.currentRound = 1;
@@ -47,12 +54,24 @@ export default class OnlineGameScene extends Phaser.Scene {
   }
 
   create() {
+    ErrorHandler.setScene(this);
     this.exitLocked = true;
     this.debug = false;
 
     if (this.debug) console.log('[OnlineGameScene] create() room=', this.roomCode);
 
     this.add.rectangle(600, 480, 1280, 960, 0x111111, 0.95);
+    
+    // Team score display (if teams enabled)
+    this.teamScoreText = null;
+    if (this.gameConfig.teamsEnabled) {
+      this.teamScoreText = this.add.text(600, 30, '', {
+        fontSize: 28,
+        color: '#ffffff',
+        align: 'center'
+      }).setOrigin(0.5);
+    }
+    
     this.roundTitle = this.add.text(600, 50, 'Online Game', { fontSize: 32 }).setOrigin(0.5);
     this.info = this.add.text(600, 180, '', { fontSize: 24, align: 'center' }).setOrigin(0.5);
 
@@ -169,6 +188,15 @@ export default class OnlineGameScene extends Phaser.Scene {
     this.updatePlayerBar();
   }
 
+  getPlayerTintColor(playerIndex) {
+    if (this.gameConfig.teamsEnabled && this.playerSlots && this.playerSlots[playerIndex]) {
+      const team = this.playerSlots[playerIndex].team || (playerIndex % 2 === 0 ? 'blue' : 'red');
+      return this.teamTints[team] || 0x66aaff;
+    } else {
+      return this.playerTints[playerIndex % this.playerTints.length] || 0x66aaff;
+    }
+  }
+
   updatePlayerBar() {
     const total = Math.max(this.playerSlots.length || 1, this.gameConfig.players || 1);
     const spacing = 200;
@@ -184,8 +212,13 @@ export default class OnlineGameScene extends Phaser.Scene {
       if (slot.scoreText) { slot.scoreText.x = x; slot.scoreText.y = y - 70; slot.scoreText.setVisible(idx < total); }
       if (slot.ring) { slot.ring.x = x; slot.ring.y = y; slot.ring.setVisible(idx < total); }
 
-      // highlight active
-      if (slot.ring) slot.ring.setVisible(idx === this.currentPlayerIndex);
+      // highlight active player and apply ring color based on team/position
+      if (slot.ring) {
+        slot.ring.setVisible(idx === this.currentPlayerIndex);
+        const ringColor = this.getPlayerTintColor(idx);
+        slot.ring.setFillStyle(ringColor, 0.25);
+        slot.ring.setStrokeStyle(3, ringColor);
+      }
 
       if (this.playerSlots[idx]) {
         slot.icon.setTexture(this.playerSlots[idx].avatar || 'playerIcon');
@@ -197,11 +230,9 @@ export default class OnlineGameScene extends Phaser.Scene {
         if (slot.scoreText) { slot.scoreText.setText(sc).setVisible(true); }
 
         if (this.playerSlots[idx].connected === false) {
-          slot.icon.setTint(0x444444);
           slot.tag.setText(`${this.playerSlots[idx].name} (left)`);
           if (slot.scoreText) slot.scoreText.setTint(0x444444);
         } else {
-          slot.icon.clearTint();
           if (slot.scoreText) slot.scoreText.clearTint();
         }
       } else {
@@ -210,6 +241,29 @@ export default class OnlineGameScene extends Phaser.Scene {
         if (slot.scoreText) slot.scoreText.setVisible(false);
       }
     });
+
+    // Update team scores if teams are enabled
+    if (this.gameConfig.teamsEnabled) {
+      this.updateTeamScoreDisplay();
+    }
+  }
+
+  updateTeamScoreDisplay() {
+    if (!this.gameConfig.teamsEnabled || !this.teamScoreText) return;
+
+    let blueScore = 0;
+    let redScore = 0;
+
+    for (let i = 0; i < this.playerSlots.length; i++) {
+      const team = this.playerSlots[i]?.team || (i % 2 === 0 ? 'blue' : 'red');
+      if (team === 'blue') {
+        blueScore += this.scores[i] || 0;
+      } else if (team === 'red') {
+        redScore += this.scores[i] || 0;
+      }
+    }
+
+    this.teamScoreText.setText(`🔵 BLUE: ${blueScore}  |  🔴 RED: ${redScore}`);
   }
 
   // -----------------------
@@ -565,65 +619,118 @@ export default class OnlineGameScene extends Phaser.Scene {
   // Player left handler
   // -----------------------
   onPlayerLeft(payload) {
-    if (!payload) return;
-    const id = payload.id;
-    let idx = (typeof payload.index === 'number') ? payload.index : -1;
+    try {
+      if (!payload) return;
+      
+      const id = payload.id;
+      let idx = (typeof payload.index === 'number') ? payload.index : -1;
 
-    if (idx === -1 && id) {
-      idx = this.playerSlots.findIndex(p => String(p.id) === String(id));
-    }
-    if (idx === -1) {
-      return;
-    }
+      if (idx === -1 && id) {
+        idx = this.playerSlots.findIndex(p => p && String(p.id) === String(id));
+      }
+      if (idx === -1) {
+        console.warn('[OnlineGameScene] Player left but index not found:', id);
+        return;
+      }
 
-    // mark disconnected
-    if (this.playerSlots[idx]) {
-      this.playerSlots[idx].connected = false;
-      this.updatePlayerBar();
-      const name = this.playerSlots[idx].name || `P${idx + 1}`;
-      this.info.setText(`${name} left the game`);
+      // Safely mark disconnected
+      if (this.playerSlots && this.playerSlots[idx]) {
+        this.playerSlots[idx].connected = false;
+        
+        // Update UI if available
+        if (typeof this.updatePlayerBar === 'function') {
+          this.updatePlayerBar();
+        }
+        
+        // Display notification
+        const name = (this.playerSlots[idx] && this.playerSlots[idx].name) || `P${idx + 1}`;
+        if (this.info && typeof this.info.setText === 'function') {
+          this.info.setText(`${name} left the game`);
+        }
+      }
+    } catch (err) {
+      console.error('[OnlineGameScene] Error handling player-left:', err);
+      ErrorHandler.logError(err);
     }
   }
 
   // lobby deleted while in-game
   onLobbyDeleted(payload) {
-    // server requested cleanup — return to menu
-    this.info.setText('Lobby closed by host.');
-    this.clearTurnTimer();
-    this.time.delayedCall(1500, () => {
-      this.exitLocked = false;
-      this.scene.start('MenuScene');
-    });
+    try {
+      // server requested cleanup — return to menu
+      if (this.info && typeof this.info.setText === 'function') {
+        this.info.setText('Lobby closed by host.');
+      }
+      
+      this.clearTurnTimer();
+      
+      this.time.delayedCall(1500, () => {
+        try {
+          this.exitLocked = false;
+          if (this.scene.isActive()) {
+            this.scene.start('MenuScene');
+          }
+        } catch (e) {
+          console.error('[OnlineGameScene] Failed to transition after lobby delete:', e);
+          ErrorHandler.logError(e);
+        }
+      });
+    } catch (err) {
+      console.error('[OnlineGameScene] Error handling lobby-deleted:', err);
+      ErrorHandler.logError(err);
+    }
   }
 
   // -----------------------
   // Game end / postgame
   // -----------------------
   endGame(payload = {}) {
-    const scores = Array.isArray(payload.scores) ? payload.scores : (this.scores || []);
-    const combos = Array.isArray(payload.comboStats) ? payload.comboStats : (this.comboStats || []);
+    try {
+      const scores = Array.isArray(payload.scores) ? payload.scores : (this.scores || []);
+      const combos = Array.isArray(payload.comboStats) ? payload.comboStats : (this.comboStats || []);
 
-    let resultText = 'Game Over\n\n';
-    resultText += scores.map((s, i) => {
-      const name = (this.playerSlots[i] && this.playerSlots[i].name) || `P${i + 1}`;
-      return `${name}: ${s}`;
-    }).join('\n');
+      let resultText = 'Game Over\n\n';
+      resultText += scores.map((s, i) => {
+        const name = (this.playerSlots && this.playerSlots[i] && this.playerSlots[i].name) || `P${i + 1}`;
+        return `${name}: ${s}`;
+      }).join('\n');
 
-    this.info.setText(resultText);
-    this.rollBtn.disableInteractive();
-    this.endTurnBtn.disableInteractive();
-    this.clearTurnTimer();
+      if (this.info && typeof this.info.setText === 'function') {
+        this.info.setText(resultText);
+      }
+      
+      if (this.rollBtn) this.rollBtn.disableInteractive();
+      if (this.endTurnBtn) this.endTurnBtn.disableInteractive();
+      this.clearTurnTimer();
 
-    this.time.delayedCall(4000, () => {
-      this.exitLocked = false;
-      this.registry.set('onlinePostGame', {
-        players: this.playerSlots.length,
-        names: this.playerSlots.map(p => p.name),
-        scores: scores,
-        combos: combos
+      this.time.delayedCall(4000, () => {
+        try {
+          this.exitLocked = false;
+          
+          // Extract team data from playerSlots
+          const teamsArray = (this.playerSlots || []).map((p, i) => p?.team || (i % 2 === 0 ? 'blue' : 'red'));
+          
+          this.registry.set('onlinePostGame', {
+            players: (this.playerSlots && this.playerSlots.length) || 0,
+            names: (this.playerSlots && this.playerSlots.map(p => p?.name || 'Player')) || [],
+            scores: scores,
+            combos: combos,
+            teamsEnabled: (this.gameConfig && this.gameConfig.teamsEnabled) || false,
+            teams: teamsArray
+          });
+          
+          if (this.scene.isActive()) {
+            this.scene.start('OnlinePostGameScene');
+          }
+        } catch (e) {
+          console.error('[OnlineGameScene] Failed to transition to postgame:', e);
+          ErrorHandler.logError(e);
+        }
       });
-      this.scene.start('OnlinePostGameScene');
-    });
+    } catch (err) {
+      console.error('[OnlineGameScene] Error in endGame:', err);
+      ErrorHandler.logError(err);
+    }
   }
 
   // -----------------------
