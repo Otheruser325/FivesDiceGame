@@ -25,16 +25,38 @@ const isVercel = process.env.VERCEL === '1';
 const SUPA_URL = process.env.SUPABASE_URL;
 const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 let supabase = null;
+
+// ⚠️ CRITICAL: Log Supabase initialization status on startup
+console.log('[userStorage] Supabase initialization:');
+console.log('  SUPABASE_URL:', SUPA_URL ? `✅ Set (${SUPA_URL.substring(0, 30)}...)` : '❌ MISSING');
+console.log('  SUPABASE_SERVICE_ROLE_KEY:', SUPA_KEY ? `✅ Set (${SUPA_KEY.substring(0, 20)}...)` : '❌ MISSING');
+
 if (SUPA_URL && SUPA_KEY) {
   try {
     supabase = createClient(SUPA_URL, SUPA_KEY);
+    console.log('[userStorage] ✅ Supabase client created successfully');
+    console.log('[userStorage] Attempting initial health check...');
+    
+    // Test connection immediately
+    try {
+      const { data, error } = await supabase.from('users').select('count');
+      if (error) {
+        console.error('[userStorage] ⚠️ Health check failed:', error.message);
+        console.error('[userStorage] Error details:', { code: error.code, message: error.message });
+      } else {
+        console.log('[userStorage] ✅ Supabase connection verified, table accessible');
+      }
+    } catch (healthErr) {
+      console.error('[userStorage] Health check error:', healthErr?.message || healthErr);
+    }
   } catch (err) {
-    console.warn('[userStorage] Supabase init failed, falling back to local DB', err);
+    console.error('[userStorage] ❌ Supabase client initialization failed:', err?.message || err);
+    console.error('[userStorage] Falling back to local DB only');
     supabase = null;
   }
 } else {
-  // no env — remain silent-ish but informative
-  // console.info('[userStorage] Supabase not configured, using local storage.');
+  console.warn('[userStorage] ⚠️ Supabase not configured (missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY)');
+  console.warn('[userStorage] Using local storage only - data will not persist across server restarts');
 }
 
 async function _safeLocalWrite() {

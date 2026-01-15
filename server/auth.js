@@ -83,10 +83,26 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 
 // ----------------- DISCORD OAUTH -----------------
 if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
-  // Support dynamic callback URLs for localhost development
-  // In production, set DISCORD_CALLBACK_URL env var to your production URL
-  const discordCallbackURL = process.env.DISCORD_CALLBACK_URL || 
-    (process.env.NODE_ENV === 'development' ? 'http://localhost:8080/auth/discord/callback' : '/auth/discord/callback');
+  // ⚠️ CRITICAL: Discord OAuth requires absolute HTTPS URL
+  // Determine the correct callback URL based on environment
+  let discordCallbackURL;
+  
+  if (process.env.DISCORD_CALLBACK_URL) {
+    // Explicit override (highest priority)
+    discordCallbackURL = process.env.DISCORD_CALLBACK_URL;
+  } else if (process.env.VERCEL === '1') {
+    // Vercel production - use HTTPS and Vercel URL
+    const vercelUrl = process.env.VERCEL_URL || 'fivesapi.vercel.app';
+    discordCallbackURL = `https://${vercelUrl}/auth/discord/callback`;
+  } else if (process.env.NODE_ENV === 'production') {
+    // Other production - use HTTPS with host header
+    discordCallbackURL = `https://${process.env.HOST || 'localhost'}/auth/discord/callback`;
+  } else {
+    // Development - use HTTP localhost
+    discordCallbackURL = 'http://localhost:8080/auth/discord/callback';
+  }
+  
+  console.log('[Discord OAuth] Callback URL:', discordCallbackURL);
   
   passport.use(
     "discord",
@@ -104,7 +120,18 @@ if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
           const response = await fetch("https://discord.com/api/users/@me", {
             headers: { Authorization: `Bearer ${accessToken}` },
           });
+          
+          if (!response.ok) {
+            console.error('[Discord] API error:', response.status, response.statusText);
+            return done(new Error(`Discord API error: ${response.status}`));
+          }
+          
           const discord = await response.json();
+          
+          if (!discord.id) {
+            console.error('[Discord] No user ID in response:', discord);
+            return done(new Error('Invalid Discord user response'));
+          }
 
           const users = await loadUsers();
           let user = Object.values(users).find((u) => u.oauthDiscord === discord.id);
@@ -117,12 +144,14 @@ if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
               oauthDiscord: discord.id,
               avatar: discord.avatar ? `https://cdn.discordapp.com/avatars/${discord.id}/${discord.avatar}.png` : null
             };
+            console.log('[Discord] Creating new user:', { id: user.id, name: user.name });
             await saveUser(user);
           }
 
+          console.log('[Discord] OAuth successful for user:', user.id);
           done(null, user);
         } catch (err) {
-          console.error("Discord OAuth error:", err);
+          console.error('[Discord] OAuth error:', err?.message || err);
           done(err, null);
         }
       }
@@ -239,10 +268,34 @@ router.get("/discord",
 router.get(
   "/discord/callback",
   requireStrategy("discord", "Discord OAuth is not configured"),
-  passport.authenticate("discord", { failureRedirect: "/" }),
-  (req, res) => {
-    if (req.query.state === "json") return res.json({ ok: true, user: publicUser(req.user) });
-    res.redirect("/FivesDiceGame");
+  (req, res, next) => {
+    // Add custom error handler for Discord auth
+    passport.authenticate("discord", (err, user, info) => {
+      if (err) {
+        console.error('[Discord callback] Authentication error:', err?.message || err);
+        const errorMsg = encodeURIComponent(`Discord login failed: ${err?.message || 'Unknown error'}`);
+        return res.redirect(`/?error=${errorMsg}`);
+      }
+      
+      if (!user) {
+        console.warn('[Discord callback] No user returned from strategy');
+        return res.redirect('/?error=Discord%20login%20failed');
+      }
+      
+      req.login(user, (loginErr) => {
+        if (loginErr) {
+          console.error('[Discord callback] Login error:', loginErr?.message || loginErr);
+          const errorMsg = encodeURIComponent(`Login failed: ${loginErr?.message || 'Unknown error'}`);
+          return res.redirect(`/?error=${errorMsg}`);
+        }
+        
+        // Success
+        if (req.query.state === "json") {
+          return res.json({ ok: true, user: publicUser(user) });
+        }
+        res.redirect("/FivesDiceGame");
+      });
+    })(req, res, next);
   }
 );
 
