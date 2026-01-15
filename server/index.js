@@ -184,6 +184,29 @@ class HybridSessionStore extends session.Store {
 const app = express();
 const server = http.createServer(app);
 
+// ============ CRITICAL: Socket.io request interceptor ============
+// This MUST run before ANY other middleware to prevent 400 errors
+// It catches socket.io polling/transport requests and bypasses Express processing
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/socket.io')) {
+    return next();
+  }
+
+  // Socket.io request detected - set flags to skip middleware processing
+  req._skipBodyParser = true;
+  req._skipSession = true;
+  
+  // Log socket.io activity for debugging
+  const method = req.method;
+  const transport = req.query?.transport || 'unknown';
+  const sid = req.query?.sid ? req.query.sid.substring(0, 8) : 'handshake';
+  
+  // Continue to socket.io handler (socket.io.js handles these internally)
+  return next();
+});
+
+// ============ END Socket.io interceptor ============
+
 const DEV_LOCALHOST_REGEX = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 const PRODUCTION_DOMAINS_REGEX = /^https:\/\/.*fivesdicegame\.com(:\d+)?$/; // Allows subdomains
 const VERCEL_DOMAINS_REGEX = /^https?:\/\/.*vercel\.app(:\d+)?$/; // Allows all vercel.app subdomains
@@ -212,7 +235,7 @@ const isOriginAllowed = (origin) => {
     console.log('[CORS] Allowed production origin:', origin);
     return true;
   }
-  
+
   console.warn('[CORS] Rejected origin:', origin);
   return false;
 };
@@ -238,29 +261,71 @@ const io = new Server(server, {
     methods: ['GET', 'POST'],
     credentials: true
   },
-  // Vercel/Lambda doesn't support WebSocket, use polling + fallback
-  transports: ['polling', 'websocket'],      // Try polling first (Vercel-safe), fallback to ws
+  // ⚠️ CRITICAL: Vercel/Lambda doesn't support WebSocket, polling only!
+  // On Vercel, attempting WebSocket upgrade causes connection issues
+  transports: process.env.VERCEL === '1' 
+    ? ['polling']                    // Vercel: POLLING ONLY
+    : ['polling', 'websocket'],      // Local: Try polling first, upgrade to WS
+  
   // Polling-specific config for mobile/ETH/Wi-Fi resilience
   maxHttpBufferSize: 1e6,                    // 1MB - allow decent payload sizes
   allowEIO3: true,                          // Support older clients
   allowEIO4: true,                          // Support new protocol
+  
   // Connection tuning for polling reliability across network types
   pingInterval: 25000,                       // Send ping every 25s (Vercel/polling friendly)
   pingTimeout: 15000,                        // Wait 15s for pong before considering dead
   connectTimeout: 60000,                     // 60s timeout for initial connection (mobile networks)
+  
   // Polling upgrade behavior
-  upgrade: true,                             // Allow upgrade to WebSocket if available
-  upgradeTimeout: 15000,                     // Time to attempt upgrade before giving up
-  // Polling-specific tuning
-  httpCompression: {
-    level: 6,                                // Compression level
-    threshold: 1024                          // Only compress > 1KB
-  },
+  upgrade: process.env.VERCEL !== '1',       // Don't try WebSocket upgrade on Vercel
+  upgradeTimeout: 10000,                     // Quick timeout if upgrade attempted
+  
+  // Polling-specific tuning - conservative to avoid 400 errors
+  httpCompression: process.env.VERCEL === '1'
+    ? { level: -1 }                          // Vercel: DISABLE compression (may cause issues)
+    : { level: 6, threshold: 1024 },         // Local: Full compression
+  
   // Connection pool management
-  perMessageDeflate: {
-    threshold: 1024                          // Only compress WebSocket messages > 1KB
+  perMessageDeflate: process.env.VERCEL === '1'
+    ? false                                  // Vercel: No WebSocket compression
+    : { threshold: 1024 }                    // Local: Compress if > 1KB
+});
+
+// ============ Socket.io Error Handlers ============
+
+// Log socket.io configuration on startup
+console.log('[Socket.io] Configuration:', {
+  environment: process.env.VERCEL === '1' ? 'VERCEL' : 'LOCAL',
+  transports: process.env.VERCEL === '1' ? ['polling'] : ['polling', 'websocket'],
+  compression: process.env.VERCEL === '1' ? 'DISABLED' : 'ENABLED',
+  upgrade: process.env.VERCEL === '1' ? 'DISABLED' : 'ENABLED',
+  maxBufferSize: '1MB',
+  pingInterval: '25s',
+  pingTimeout: '15s'
+});
+
+io.engine.on('connection_error', (err) => {
+  console.error('[Socket.io] Connection error:', {
+    message: err.message,
+    code: err.code,
+    type: err.type
+  });
+});
+
+// Catch HTTP errors from socket.io polling transport
+server.on('clientError', (err, socket) => {
+  if (err.code === 'HPE_INVALID_CONSTANT') {
+    console.warn('[Socket.io] Client error - invalid data, socket will close');
+    socket.destroy();
+  } else if (err.code === 'ECONNRESET') {
+    console.warn('[Socket.io] Connection reset');
+  } else {
+    console.error('[Socket.io] Unexpected client error:', err.code, err.message);
   }
 });
+
+// ============ END Socket.io Error Handlers ============
 
 // CRITICAL: Socket.io MUST be attached to server BEFORE middleware chains
 // that might reject its requests. We'll handle body parsing conditionally.
@@ -298,14 +363,26 @@ const skipSocketIO = (req, res, next) => req.path.startsWith('/socket.io') ? nex
 
 // JSON body parser - SKIP socket.io
 app.use((req, res, next) => {
-  if (req.path.startsWith('/socket.io')) return next();
-  express.json({ limit: '10mb' })(req, res, next);
+  if (req.path.startsWith('/socket.io') || req._skipBodyParser) return next();
+  express.json({ limit: '10mb' })(req, res, (err) => {
+    if (err) {
+      console.warn('[Body Parser] JSON parse error:', err.message);
+      return next(err);
+    }
+    next();
+  });
 });
 
 // URL-encoded body parser - SKIP socket.io
 app.use((req, res, next) => {
-  if (req.path.startsWith('/socket.io')) return next();
-  express.urlencoded({ limit: '10mb', extended: true })(req, res, next);
+  if (req.path.startsWith('/socket.io') || req._skipBodyParser) return next();
+  express.urlencoded({ limit: '10mb', extended: true })(req, res, (err) => {
+    if (err) {
+      console.warn('[Body Parser] URL parse error:', err.message);
+      return next(err);
+    }
+    next();
+  });
 });
 
 // Session middleware - SKIP socket.io (they use cookies directly)
