@@ -173,11 +173,16 @@ async function _backgroundProbeAndReconnect() {
           try { OnlineSocket.close(); } catch (e) {}
           OnlineSocket = null;
         }
+        
+        // Determine transports based on server
+        const isVercel = c.includes('vercel.app');
+        const transports = isVercel ? ['polling'] : ['websocket', 'polling'];
+        
         // create new socket to discovered server (sync)
         // eslint-disable-next-line no-undef
         OnlineSocket = io(_serverUrl, { 
           autoConnect: true, 
-          transports: ['websocket', 'polling'],
+          transports: transports,
           withCredentials: true,
           reconnection: true,
           reconnectionDelay: 500,
@@ -217,12 +222,20 @@ export function getSocket() {
   // initial server to connect to (query string or default)
   const server = _initialServerCandidate();
 
+  // Determine transports based on server (Vercel doesn't support WebSocket)
+  const isVercel = server.includes('vercel.app');
+  const transports = isVercel ? ['polling'] : ['websocket', 'polling'];
+  
+  if (isVercel) {
+    console.info('[Socket] Connecting to Vercel (' + server + ') — using polling only');
+  }
+
   // create socket with optimized config for Vercel
   // eslint-disable-next-line no-undef
   OnlineSocket = io(server, {
     autoConnect: true,
-    // Prefer websocket, fallback to polling only if necessary
-    transports: ['websocket', 'polling'],
+    // Vercel doesn't support WebSocket, use polling only
+    transports: transports,
     withCredentials: true,
     // Aggressive reconnection for better UX
     reconnection: true,
