@@ -113,14 +113,12 @@ class ErrorManager {
             // Title
             const titleText = scene.add.text(cx, cy - height / 2 + 26, config.title, {
                 fontSize: 24,
-                fontFamily: 'Orbitron, Arial',
                 color: config.hex
         }).setOrigin(0.5);
 
             // Message
             const bodyText = scene.add.text(cx, cy - 10, displayMessage, {
                 fontSize: 18,
-                fontFamily: 'Orbitron, Arial',
                 color: '#ffffff',
                 align: 'center',
                 wordWrap: { width: width - 48 }
@@ -129,7 +127,6 @@ class ErrorManager {
             // Close button
             const closeBtn = scene.add.text(cx, cy + height / 2 - 32, 'Close', {
                 fontSize: 20,
-                fontFamily: 'Orbitron, Arial',
                 color: '#ff6666'
             })
             .setOrigin(0.5)
