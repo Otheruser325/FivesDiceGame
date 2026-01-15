@@ -218,7 +218,7 @@ export async function saveLobby(lobby) {
   const row = _lobbyToRow(lobby);
   const code = String(row.code).trim().toUpperCase();
   
-  // ALWAYS cache in memory first (instant, never fails)
+  // CRITICAL: ALWAYS cache in memory FIRST (instant, never fails)
   const normalized = _rowToLobby({ ...row, code });
   if (normalized) {
     lobbyMemoryCache.set(code, normalized);
@@ -226,28 +226,52 @@ export async function saveLobby(lobby) {
 
   if (supabase) {
     try {
-      const { data, error } = await supabase.from('lobbies').upsert(row, { onConflict: 'code' }).select();
+      // ⚠️ Upsert with proper data serialization
+      const { data, error } = await supabase
+        .from('lobbies')
+        .upsert([row], { onConflict: 'code' })
+        .select();
       
-      // Check for schema/table errors
+      // Check for RLS/policy errors vs table errors
       if (error) {
-        if (error.code === 'PGRST116' || error.code === '42P01' ||
-            error.message?.includes('does not exist') ||
-            error.message?.includes('relation') ||
-            error.message?.includes('schema')) {
-          console.warn('[lobbyStorage] Supabase table "lobbies" missing or not initialized, using memory cache');
-        } else {
-          console.warn('[lobbyStorage] Supabase saveLobby error:', error?.message || error);
+        const errorMsg = error?.message || String(error);
+        const errorCode = error?.code || '';
+        
+        // RLS Policy errors
+        if (errorCode === 'PGRST116' || errorMsg.includes('new row violates row-level security')) {
+          console.error('[lobbyStorage] ⚠️ RLS POLICY BLOCKING: Service role cannot write to lobbies table');
+          console.error('[lobbyStorage] Error details:', { code: errorCode, message: errorMsg });
+          console.error('[lobbyStorage] Fix: Check Supabase RLS policies, ensure service role has INSERT/UPDATE permission');
+        }
+        // Table/schema missing errors
+        else if (errorCode === '42P01' || errorMsg.includes('does not exist') || 
+                 errorMsg.includes('relation') || errorMsg.includes('schema')) {
+          console.warn('[lobbyStorage] Table "lobbies" missing, data will persist in memory only');
+        }
+        // Authorization/credential errors
+        else if (errorCode === '401' || errorMsg.includes('Unauthorized') || errorMsg.includes('invalid') && errorMsg.includes('JWT')) {
+          console.error('[lobbyStorage] ⚠️ SUPABASE AUTH ERROR: Invalid service role key');
+          console.error('[lobbyStorage] Fix: Verify SUPABASE_SERVICE_ROLE_KEY environment variable');
+        }
+        // Connection/network errors
+        else if (errorMsg.includes('Failed to fetch') || errorMsg.includes('network') || errorMsg.includes('timeout')) {
+          console.warn('[lobbyStorage] Network error connecting to Supabase, data cached locally');
+        }
+        // Other errors
+        else {
+          console.error('[lobbyStorage] Supabase saveLobby error:', { code: errorCode, message: errorMsg });
         }
         throw error;
       }
       
+      // Success - data saved to Supabase
       const retRow = Array.isArray(data) && data[0] ? data[0] : row;
       const ret = _rowToLobby(retRow);
       if (ret) lobbyMemoryCache.set(code, ret);
-      console.info('[lobbyStorage] Successfully saved lobby', row.code, 'to Supabase');
+      console.info('[lobbyStorage] ✅ Successfully saved lobby', row.code, 'to Supabase');
       return ret;
     } catch (err) {
-      console.warn('[lobbyStorage] Supabase saveLobby failed, falling back to local:', err?.message || err);
+      console.warn('[lobbyStorage] Supabase saveLobby failed, falling back to memory cache:', err?.message || err);
       // fallthrough to local
     }
   }
@@ -294,32 +318,61 @@ export async function saveLobbies(lobbies) {
     throw new Error('saveLobbies expects an object (map) or array');
   }
 
+  // CRITICAL: Always cache in memory FIRST
+  arr.forEach(row => {
+    const code = String(row.code).trim().toUpperCase();
+    const normalized = _rowToLobby({ ...row, code });
+    if (normalized) {
+      lobbyMemoryCache.set(code, normalized);
+    }
+  });
+
   if (supabase) {
     try {
       if (arr.length === 0) return {};
-      const { data, error } = await supabase.from('lobbies').upsert(arr, { onConflict: 'code' }).select();
       
-      // Check for schema/table errors
+      // ⚠️ Upsert with proper data serialization
+      const { data, error } = await supabase
+        .from('lobbies')
+        .upsert(arr, { onConflict: 'code' })
+        .select();
+      
+      // Check for RLS/policy errors vs table errors
       if (error) {
-        if (error.code === 'PGRST116' || error.code === '42P01' ||
-            error.message?.includes('does not exist') ||
-            error.message?.includes('relation') ||
-            error.message?.includes('schema')) {
-          console.warn('[lobbyStorage] Supabase table "lobbies" missing, saving', arr.length, 'lobbies to local only');
-        } else {
-          console.warn('[lobbyStorage] Supabase saveLobbies error:', error?.message || error);
+        const errorMsg = error?.message || String(error);
+        const errorCode = error?.code || '';
+        
+        // RLS Policy errors
+        if (errorCode === 'PGRST116' || errorMsg.includes('new row violates row-level security')) {
+          console.error('[lobbyStorage] ⚠️ RLS POLICY BLOCKING saveLobbies: Check Supabase RLS policies');
+          console.error('[lobbyStorage] Error:', { code: errorCode, message: errorMsg });
+        }
+        // Table/schema missing errors
+        else if (errorCode === '42P01' || errorMsg.includes('does not exist') || 
+                 errorMsg.includes('relation') || errorMsg.includes('schema')) {
+          console.warn('[lobbyStorage] Table "lobbies" missing, saving', arr.length, 'lobbies to memory only');
+        }
+        // Authorization errors
+        else if (errorCode === '401' || errorMsg.includes('Unauthorized')) {
+          console.error('[lobbyStorage] ⚠️ SUPABASE AUTH ERROR: Invalid service role key');
+        }
+        // Other errors
+        else {
+          console.error('[lobbyStorage] Supabase saveLobbies error:', { code: errorCode, message: errorMsg });
         }
         throw error;
       }
       
+      // Success
       const map = {};
       (data || []).forEach(r => {
         const l = _rowToLobby(r);
         if (l && l.code) map[String(l.code).trim().toUpperCase()] = l;
       });
+      console.info('[lobbyStorage] ✅ Successfully saved', arr.length, 'lobbies to Supabase');
       return map;
     } catch (err) {
-      console.warn('[lobbyStorage] Supabase saveLobbies failed, saving locally', err);
+      console.warn('[lobbyStorage] Supabase saveLobbies failed, using memory cache:', err?.message || err);
       // fall through to local
     }
   }

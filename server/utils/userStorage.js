@@ -156,29 +156,52 @@ export async function saveUsers(users) {
     return [];
   }
 
+  // CRITICAL: Always cache in memory FIRST
+  rows.forEach(row => {
+    userMemoryCache.set(String(row.id), row);
+  });
+
   if (supabase) {
     try {
-      const { data, error } = await supabase.from('users').upsert(rows, { onConflict: 'id' }).select();
+      // ⚠️ Upsert with proper data serialization
+      const { data, error } = await supabase
+        .from('users')
+        .upsert(rows, { onConflict: 'id' })
+        .select();
       
-      // Check for schema/table errors
+      // Check for RLS/policy errors vs table errors
       if (error) {
-        if (error.code === 'PGRST116' || error.code === '42P01' ||
-            error.message?.includes('does not exist') ||
-            error.message?.includes('relation') ||
-            error.message?.includes('schema')) {
-          console.warn('[userStorage] Supabase table "users" missing, saving', rows.length, 'users to local only');
-        } else {
-          console.warn('[userStorage] Supabase saveUsers error:', error?.message || error);
+        const errorMsg = error?.message || String(error);
+        const errorCode = error?.code || '';
+        
+        // RLS Policy errors
+        if (errorCode === 'PGRST116' || errorMsg.includes('new row violates row-level security')) {
+          console.error('[userStorage] ⚠️ RLS POLICY BLOCKING saveUsers: Check Supabase RLS policies');
+          console.error('[userStorage] Error:', { code: errorCode, message: errorMsg });
+        }
+        // Table/schema missing errors
+        else if (errorCode === '42P01' || errorMsg.includes('does not exist') || 
+                 errorMsg.includes('relation') || errorMsg.includes('schema')) {
+          console.warn('[userStorage] Table "users" missing, saving', rows.length, 'users to memory only');
+        }
+        // Authorization errors
+        else if (errorCode === '401' || errorMsg.includes('Unauthorized')) {
+          console.error('[userStorage] ⚠️ SUPABASE AUTH ERROR: Invalid service role key');
+        }
+        // Other errors
+        else {
+          console.error('[userStorage] Supabase saveUsers error:', { code: errorCode, message: errorMsg });
         }
         throw error;
       }
       
+      // Success
       const map = {};
       (data || []).forEach(r => { map[String(r.id)] = _rowToUser(r); });
-      console.info('[userStorage] Successfully saved', rows.length, 'users to Supabase');
+      console.info('[userStorage] ✅ Successfully saved', rows.length, 'users to Supabase');
       return map;
     } catch (err) {
-      console.warn('[userStorage] Supabase saveUsers failed, writing to local file:', err?.message || err);
+      console.warn('[userStorage] Supabase saveUsers failed, using memory cache:', err?.message || err);
       // fallthrough to local save
     }
   }
@@ -253,43 +276,73 @@ export async function saveUser(user) {
   if (!user || !user.id) throw new Error('saveUser expects user with id');
   const row = _userToRow(user);
 
+  // CRITICAL: Always cache in memory FIRST (for Vercel read-only filesystem)
+  // This ensures data is available even if Supabase fails
+  userMemoryCache.set(String(row.id), row);
+
   if (supabase) {
     try {
-      const { data, error } = await supabase.from('users').upsert(row, { onConflict: 'id' }).select();
+      // ⚠️ Upsert with proper data serialization
+      // Supabase expects all fields including id, and will use RLS policies
+      // Service role key bypasses RLS, so this should always work if table exists
+      const { data, error } = await supabase
+        .from('users')
+        .upsert([row], { onConflict: 'id' })
+        .select();
       
-      // Check for schema/table errors
+      // Check for RLS/policy errors vs table errors
       if (error) {
-        if (error.code === 'PGRST116' || error.code === '42P01' ||
-            error.message?.includes('does not exist') ||
-            error.message?.includes('relation') ||
-            error.message?.includes('schema')) {
-          console.warn('[userStorage] Supabase table "users" missing, saving to local only');
-        } else {
-          console.warn('[userStorage] Supabase saveUser error:', error?.message || error);
+        const errorMsg = error?.message || String(error);
+        const errorCode = error?.code || '';
+        
+        // RLS Policy errors - service role should bypass these, but log them
+        if (errorCode === 'PGRST116' || errorMsg.includes('new row violates row-level security')) {
+          console.error('[userStorage] ⚠️ RLS POLICY BLOCKING: Service role cannot write to users table');
+          console.error('[userStorage] Error details:', { code: errorCode, message: errorMsg });
+          console.error('[userStorage] Fix: Check Supabase RLS policies, ensure service role has INSERT permission');
+        }
+        // Table/schema missing errors
+        else if (errorCode === '42P01' || errorMsg.includes('does not exist') || 
+                 errorMsg.includes('relation') || errorMsg.includes('schema')) {
+          console.warn('[userStorage] Table "users" missing in Supabase, data will persist in memory only');
+        }
+        // Authorization/credential errors
+        else if (errorCode === '401' || errorMsg.includes('Unauthorized') || errorMsg.includes('invalid') && errorMsg.includes('JWT')) {
+          console.error('[userStorage] ⚠️ SUPABASE AUTH ERROR: Invalid service role key');
+          console.error('[userStorage] Fix: Verify SUPABASE_SERVICE_ROLE_KEY environment variable');
+        }
+        // Connection/network errors
+        else if (errorMsg.includes('Failed to fetch') || errorMsg.includes('network') || errorMsg.includes('timeout')) {
+          console.warn('[userStorage] Network error connecting to Supabase, data cached locally');
+        }
+        // Unexpected errors
+        else {
+          console.error('[userStorage] Supabase saveUser error:', { code: errorCode, message: errorMsg });
         }
         throw error;
       }
       
+      // Success - data saved to Supabase
       const saved = Array.isArray(data) && data[0] ? _rowToUser(data[0]) : _rowToUser(row);
-      console.info('[userStorage] Successfully saved user', user.id, 'to Supabase');
+      console.info('[userStorage] ✅ Successfully saved user', user.id, 'to Supabase');
       return saved;
     } catch (err) {
-      console.warn('[userStorage] Supabase saveUser failed, writing to local:', err?.message || err);
-      // fallthrough to local save
+      // Supabase failed - data is cached in memory, try local fallback
+      console.warn('[userStorage] Supabase write failed, falling back to local cache:', err?.message || err);
+      // Don't rethrow - memory cache is sufficient
     }
   }
 
+  // Local fallback write
   await usersDb.read();
   usersDb.data ||= {};
   usersDb.data.users ||= {};
   usersDb.data.users[String(row.id)] = row;
   
-  // Always cache in memory (for Vercel read-only filesystem)
-  userMemoryCache.set(String(row.id), row);
-  
   // Try to write to filesystem (may fail on Vercel)
   try {
     await _safeLocalWrite();
+    console.info('[userStorage] ✅ Saved user to local DB');
   } catch (err) {
     // Write to filesystem failed - but we have it in memory cache, so it's ok
     console.warn('[userStorage] Local write failed, but user cached in memory:', err?.message);
