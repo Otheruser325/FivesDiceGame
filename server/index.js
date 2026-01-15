@@ -300,30 +300,8 @@ const socketMetrics = {
 
 // Socket.io middleware to attach session to each connection (lightweight version)
 io.use((socket, next) => {
-  // Socket.io connections can access the session via handshake.headers.cookie
-  // We don't need to re-initialize session here - just attach what we can
-  const req = socket.request;
-  
-  // Try to extract session ID from cookies if available
-  const cookies = req.headers.cookie;
-  socket.cookies = {};
-  
-  if (cookies) {
-    cookies.split(';').forEach(cookie => {
-      const [name, value] = cookie.split('=');
-      if (name && value) {
-        socket.cookies[name.trim()] = decodeURIComponent(value);
-      }
-    });
-  }
-  
-  // Log connection but safely handle missing properties
-  if (process.env.DEBUG) {
-    console.debug('[Socket] Middleware - handshake:', {
-      transport: socket.io?.engine?.transport?.name || 'unknown'
-    });
-  }
-  
+  // Minimal middleware - just pass through
+  // Socket.io will handle all initialization
   next();
 });
 
@@ -331,41 +309,25 @@ io.on("connection", socket => {
   socketMetrics.totalConnections++;
   socketMetrics.activeConnections++;
   
-  // Safely get transport info
-  const transportName = socket.io?.engine?.transport?.name || 'unknown';
-  
-  const connectionInfo = {
-    id: socket.id,
-    transport: transportName,
-    remoteAddress: socket.request.socket.remoteAddress,
-    userAgent: socket.request.headers['user-agent']?.substring(0, 100),
-    timestamp: new Date().toISOString()
-  };
-  
+  // Minimal logging to avoid crashes
   console.log('[Socket] Connection:', {
-    ...connectionInfo,
+    id: socket.id,
     activeCount: socketMetrics.activeConnections,
     totalCount: socketMetrics.totalConnections
   });
   
   lobbyManager.registerSocket(socket);
   
-  // Track disconnections for diagnostics
+  // Track disconnections
   socket.on('disconnect', (reason) => {
     socketMetrics.activeConnections--;
-    if (reason === 'transport close' || reason === 'ping timeout' || reason === 'connection closed') {
-      socketMetrics.failedConnections++;
-      console.warn('[Socket] Disconnection:', { id: socket.id, reason, activeCount: socketMetrics.activeConnections });
-    } else {
-      console.info('[Socket] Disconnection:', { id: socket.id, reason, activeCount: socketMetrics.activeConnections });
-    }
+    console.info('[Socket] Disconnection:', { id: socket.id, reason, activeCount: socketMetrics.activeConnections });
   });
   
   // Expose metrics via socket event for debugging
   socket.on('request-diagnostics', (cb) => {
-    const transportName = socket.io?.engine?.transport?.name || 'unknown';
     cb({
-      socket: { id: socket.id, transport: transportName },
+      socket: { id: socket.id },
       server: {
         uptime: process.uptime(),
         activeConnections: socketMetrics.activeConnections,

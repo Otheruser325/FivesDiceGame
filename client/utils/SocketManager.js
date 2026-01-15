@@ -224,18 +224,23 @@ async function _backgroundProbeAndReconnect() {
         const isVercel = c.includes('vercel.app');
         const transports = isVercel ? ['polling'] : ['websocket', 'polling'];
         
-        // create new socket to discovered server (sync)
+        // create new socket to discovered server (sync) with optimized config
         // eslint-disable-next-line no-undef
         OnlineSocket = io(_serverUrl, { 
           autoConnect: true, 
           transports: transports,
           withCredentials: true,
           reconnection: true,
-          reconnectionDelay: 500,
-          reconnectionDelayMax: 3000,
-          reconnectionAttempts: 10,
-          pingInterval: 10000,
-          pingTimeout: 5000,
+          reconnectionDelay: INITIAL_RECONNECT_DELAY,
+          reconnectionDelayMax: MAX_RECONNECT_DELAY,
+          reconnectionAttempts: MAX_CONNECTION_RETRIES,
+          upgrade: true,
+          upgradeTimeout: 10000,
+          rememberUpgrade: false,
+          pingInterval: 20000,
+          pingTimeout: 10000,
+          path: '/socket.io/',
+          randomizationFactor: 0.5,
         });
         _attachSocketHandlers(OnlineSocket, _serverUrl);
         break;
