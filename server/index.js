@@ -22,8 +22,8 @@ const app = express();
 const server = http.createServer(app);
 
 const DEV_LOCALHOST_REGEX = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
-const PRODUCTION_DOMAINS_REGEX = /^https:\/\/(.*\.)?fivesdicegame\.com(:\d+)?$/; // For future domain
-const VERCEL_DOMAINS_REGEX = /^https:\/\/(.*\.)?vercel\.app(:\d+)?$/; // Vercel deployments
+const PRODUCTION_DOMAINS_REGEX = /^https:\/\/.*fivesdicegame\.com(:\d+)?$/; // Allows subdomains
+const VERCEL_DOMAINS_REGEX = /^https?:\/\/.*vercel\.app(:\d+)?$/; // Allows all vercel.app subdomains
 const CLIENT_ORIGINS = (process.env.CLIENT_ORIGINS && process.env.CLIENT_ORIGINS.split(',')) || [
   'http://localhost:8080',
   'http://127.0.0.1:8080'
@@ -39,11 +39,18 @@ const isOriginAllowed = (origin) => {
   if (DEV_LOCALHOST_REGEX.test(origin)) return true;
   
   // Allow Vercel deployments (for fivesdicegame.vercel.app and fivesapi.vercel.app)
-  if (VERCEL_DOMAINS_REGEX.test(origin)) return true;
+  if (VERCEL_DOMAINS_REGEX.test(origin)) {
+    console.log('[CORS] Allowed Vercel origin:', origin);
+    return true;
+  }
   
   // Allow custom domain when deployed
-  if (PRODUCTION_DOMAINS_REGEX.test(origin)) return true;
+  if (PRODUCTION_DOMAINS_REGEX.test(origin)) {
+    console.log('[CORS] Allowed production origin:', origin);
+    return true;
+  }
   
+  console.warn('[CORS] Rejected origin:', origin);
   return false;
 };
 

@@ -135,11 +135,12 @@ function _attachSocketHandlers(sock, server) {
       }
     } catch (e) {
       // ignore - server might not have session
+      console.warn('[Socket] auth fetch failed:', e?.message || e);
     }
   });
 
   sock.on('connect_error', (err) => {
-    console.warn('[Socket] connect_error', err && err.message ? err.message : err);
+    console.warn('[Socket] connect_error', err && err.message ? err.message : String(err), '— attempting to reconnect');
   });
 
   sock.on('reconnect_attempt', (n) => {
