@@ -22,20 +22,36 @@ const app = express();
 const server = http.createServer(app);
 
 const DEV_LOCALHOST_REGEX = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+const PRODUCTION_DOMAINS_REGEX = /^https:\/\/(.*\.)?fivesdicegame\.com(:\d+)?$/; // For future domain
+const VERCEL_DOMAINS_REGEX = /^https:\/\/(.*\.)?vercel\.app(:\d+)?$/; // Vercel deployments
 const CLIENT_ORIGINS = (process.env.CLIENT_ORIGINS && process.env.CLIENT_ORIGINS.split(',')) || [
   'http://localhost:8080',
   'http://127.0.0.1:8080'
 ];
 
+const isOriginAllowed = (origin) => {
+  if (!origin) return true;
+  
+  // Check explicit whitelist
+  if (CLIENT_ORIGINS.includes(origin)) return true;
+  
+  // Allow localhost in development
+  if (DEV_LOCALHOST_REGEX.test(origin)) return true;
+  
+  // Allow Vercel deployments (for fivesdicegame.vercel.app and fivesapi.vercel.app)
+  if (VERCEL_DOMAINS_REGEX.test(origin)) return true;
+  
+  // Allow custom domain when deployed
+  if (PRODUCTION_DOMAINS_REGEX.test(origin)) return true;
+  
+  return false;
+};
+
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin) return cb(null, true);
-    
-    if (CLIENT_ORIGINS.includes(origin)) {
-      return cb(null, origin);
+    if (isOriginAllowed(origin)) {
+      return cb(null, true);
     }
-
-    if (DEV_LOCALHOST_REGEX.test(origin)) return cb(null, origin);
     return cb(new Error('Not allowed by CORS'));
   },
   credentials: true
@@ -44,9 +60,9 @@ app.use(cors({
 const io = new Server(server, {
   cors: {
     origin: (origin, cb) => {
-      if (!origin) return cb(null, true);
-      if (CLIENT_ORIGINS.includes(origin)) return cb(null, true);
-      if (DEV_LOCALHOST_REGEX.test(origin)) return cb(null, true);
+      if (isOriginAllowed(origin)) {
+        return cb(null, true);
+      }
       return cb(null, false);
     },
     methods: ['GET', 'POST'],
