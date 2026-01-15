@@ -262,25 +262,8 @@ const io = new Server(server, {
   }
 });
 
-// MUST come before routers - but skip socket.io requests
-// Socket.io handles its own request parsing, so don't apply body parser to it
-app.use((req, res, next) => {
-  // Skip body parser middleware for socket.io requests
-  // These requests have specific formats that socket.io handles
-  if (req.path.startsWith('/socket.io')) {
-    return next();
-  }
-  // Apply body parser to all other requests
-  express.json({ limit: '10mb' })(req, res, next);
-});
-
-app.use((req, res, next) => {
-  // Skip urlencoded parser for socket.io requests
-  if (req.path.startsWith('/socket.io')) {
-    return next();
-  }
-  express.urlencoded({ limit: '10mb', extended: true })(req, res, next);
-});
+// CRITICAL: Socket.io MUST be attached to server BEFORE middleware chains
+// that might reject its requests. We'll handle body parsing conditionally.
 
 // Use hybrid session store to avoid MemoryStore memory leaks in production
 // Falls back to in-memory only on Vercel (read-only filesystem)
@@ -291,7 +274,7 @@ try {
 } catch (err) {
   console.error('[Session] ⚠️  Failed to initialize HybridSessionStore:', err.message);
   console.warn('[Session] Falling back to MemoryStore (production not recommended)');
-  sessionStore = undefined; // Will use default MemoryStore if specified below
+  sessionStore = undefined;
 }
 
 const sessionConfig = {
@@ -306,41 +289,54 @@ const sessionConfig = {
   }
 };
 
-// Only set store if successfully initialized (otherwise uses default MemoryStore)
 if (sessionStore) {
   sessionConfig.store = sessionStore;
 }
 
-app.use(session(sessionConfig));
+// Middleware that skips socket.io (they have their own protocol)
+const skipSocketIO = (req, res, next) => req.path.startsWith('/socket.io') ? next() : res.status(400).end();
+
+// JSON body parser - SKIP socket.io
+app.use((req, res, next) => {
+  if (req.path.startsWith('/socket.io')) return next();
+  express.json({ limit: '10mb' })(req, res, next);
+});
+
+// URL-encoded body parser - SKIP socket.io
+app.use((req, res, next) => {
+  if (req.path.startsWith('/socket.io')) return next();
+  express.urlencoded({ limit: '10mb', extended: true })(req, res, next);
+});
+
+// Session middleware - SKIP socket.io (they use cookies directly)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/socket.io')) return next();
+  session(sessionConfig)(req, res, next);
+});
 
 app.use(passport.initialize());
 app.use(passport.session());
 
 app.use("/auth", authRouter);
 
-// Log all requests to Socket.io for debugging and error detection
+// Log all requests to Socket.io for debugging
 app.use('/socket.io/', (req, res, next) => {
   const startTime = Date.now();
   const original_end = res.end;
   
-  // Intercept response to log status and errors
   res.end = function(chunk, encoding) {
     const duration = Date.now() - startTime;
     const statusCode = res.statusCode;
     const method = req.method;
     const transport = req.query?.transport || 'unknown';
+    const sid = req.query?.sid ? req.query.sid.substring(0, 8) : 'new';
     
-    // Log detailed errors - 400 errors are critical
     if (statusCode === 400) {
-      console.error(`[Socket.io] ❌ ERROR 400 on ${method} ${req.path} (${transport}) after ${duration}ms`, {
-        query: req.query,
-        contentType: req.headers['content-type'],
-        contentLength: req.headers['content-length']
-      });
+      console.error(`[Socket.io] ❌ 400 ERROR ${method} ${transport} sid=${sid} ${duration}ms`);
     } else if (statusCode >= 500) {
-      console.error(`[Socket.io] ❌ ERROR ${statusCode} on ${method} ${req.path}`);
-    } else {
-      console.debug(`[Socket.io] ✓ ${statusCode} ${method} ${transport}`);
+      console.error(`[Socket.io] ❌ ${statusCode} ERROR ${method} ${duration}ms`);
+    } else if (statusCode === 200) {
+      console.debug(`[Socket.io] ✓ 200 ${method} ${transport} sid=${sid} ${duration}ms`);
     }
     
     original_end.call(this, chunk, encoding);
@@ -380,6 +376,20 @@ app.use("/", express.static(path.join(__dirname, "../client")));
 
 // Serve static files from client under /FivesDiceGame
 app.use("/FivesDiceGame", express.static(path.join(__dirname, "../client")));
+
+// CRITICAL: Catch socket.io polling requests that bypass socket.io handler
+// This prevents 400 errors on HEAD/OPTIONS requests to /socket.io/
+app.options('/socket.io/*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, HEAD');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.status(200).end();
+});
+
+app.head('/socket.io/*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.status(200).end();
+});
 
 // SPA fallback for root path
 app.get('/', (req, res) => {
@@ -474,6 +484,25 @@ io.on("connection", socket => {
       }
     });
   });
+});
+
+// Error handling middleware - prevent uncaught exceptions from crashing server
+app.use((err, req, res, next) => {
+  if (req.path.startsWith('/socket.io')) {
+    console.error('[Socket.io] Middleware error:', err.message);
+    return res.status(200).end(); // socket.io will handle retries
+  }
+  
+  console.error('[Express] Error:', err.message);
+  res.status(500).json({ error: 'Internal Server Error' });
+});
+
+// 404 handler - but NOT for socket.io (it has its own)
+app.use((req, res) => {
+  if (req.path.startsWith('/socket.io')) {
+    return res.status(200).end();
+  }
+  res.status(404).json({ error: 'Not Found' });
 });
 
 server.listen(PORT, () =>
