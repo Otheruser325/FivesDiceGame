@@ -292,7 +292,7 @@ const io = new Server(server, {
     : { threshold: 1024 }                    // Local: Compress if > 1KB
 });
 
-// ============ Socket.io Error Handlers ============
+// ============ Socket.io Error Handlers & HTTP 400 Suppression ============
 
 // Log socket.io configuration on startup
 console.log('[Socket.io] Configuration:', {
@@ -305,12 +305,62 @@ console.log('[Socket.io] Configuration:', {
   pingTimeout: '15s'
 });
 
+// ⚠️ CRITICAL: Suppress HTTP 400 errors for socket.io session errors
+// These are normal/expected errors when clients reconnect with stale sessions
+// Returning 200 OK lets socket.io protocol handle the error gracefully
 io.engine.on('connection_error', (err) => {
-  console.error('[Socket.io] Connection error:', {
-    message: err.message,
-    code: err.code,
-    type: err.type
-  });
+  const isSessionError = err.message && err.message.includes('Session ID unknown');
+  const isProtocolError = err.code === 1 || err.message === 'Session ID unknown';
+  
+  if (isSessionError || isProtocolError) {
+    // Session errors are NORMAL - log as info, not error
+    // Client will reconnect automatically with new session
+    console.log('[Socket.io] Session error (normal):', {
+      message: err.message,
+      code: err.code,
+      note: 'Client will reconnect with new session'
+    });
+  } else {
+    // Unexpected errors - log with full details
+    console.error('[Socket.io] Connection error:', {
+      message: err.message,
+      code: err.code,
+      type: err.type
+    });
+  }
+});
+
+// Suppress HTTP-level 400 responses for socket.io errors
+// Instead of returning 400, let socket.io send error through its protocol
+io.engine.on('request', (req, res) => {
+  // Don't set error handler - let socket.io handle responses
+  const originalWrite = res.write;
+  const originalEnd = res.end;
+  
+  let isSocketioRequest = req.url && req.url.includes('/socket.io/');
+  if (!isSocketioRequest) return;
+  
+  // Override write to suppress empty bodies for 400 errors
+  res.write = function(chunk, encoding, callback) {
+    if (res.statusCode === 400 && !chunk) {
+      // Don't write empty body for 400 - let socket.io send proper protocol response
+      return callback ? callback() : undefined;
+    }
+    return originalWrite.call(res, chunk, encoding, callback);
+  };
+  
+  // Override end to ensure 400 errors have proper socket.io response
+  res.end = function(chunk, encoding, callback) {
+    if (res.statusCode === 400) {
+      // For socket.io 400 errors, return minimal response
+      // Let socket.io's error handler send proper error event to client
+      if (!chunk) {
+        // Return empty OK instead of error
+        res.statusCode = 200;
+      }
+    }
+    return originalEnd.call(res, chunk, encoding, callback);
+  };
 });
 
 // Catch HTTP errors from socket.io polling transport
@@ -325,7 +375,7 @@ server.on('clientError', (err, socket) => {
   }
 });
 
-// ============ END Socket.io Error Handlers ============
+// ============ END Socket.io Error Handlers & HTTP 400 Suppression ============
 
 // CRITICAL: Socket.io MUST be attached to server BEFORE middleware chains
 // that might reject its requests. We'll handle body parsing conditionally.

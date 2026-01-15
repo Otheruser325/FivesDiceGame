@@ -210,9 +210,26 @@ function _attachSocketHandlers(sock, server) {
   });
 
   sock.on('connect_error', (err) => {
-    console.warn('[Socket] connect_error:', err && err.message ? err.message : String(err));
+    const errMsg = err && err.message ? err.message : String(err);
+    const isSessionError = errMsg.includes('Session ID unknown') || err?.data?.content?.includes?.('Session ID');
+    
+    // ⚠️ SUPPRESS: Session errors are NORMAL when clients reconnect with stale sessions
+    // The server's new error handler now suppresses HTTP 400 for these, client just reconnects
+    if (isSessionError) {
+      console.info('[Socket] Session expired, reconnecting...', {
+        retries: _connectionRetries + 1,
+        note: 'Server will send fresh session'
+      });
+    } else {
+      console.warn('[Socket] connect_error:', errMsg);
+    }
+    
     _connectionRetries++;
-    console.info('[Socket] reconnect attempt', _connectionRetries, 'of', MAX_CONNECTION_RETRIES);
+    
+    // Only log non-session errors as warnings
+    if (!isSessionError) {
+      console.info('[Socket] reconnect attempt', _connectionRetries, 'of', MAX_CONNECTION_RETRIES);
+    }
     
     // If we've exceeded retries, trigger maintenance mode and stop reconnecting
     if (_connectionRetries >= MAX_CONNECTION_RETRIES) {
