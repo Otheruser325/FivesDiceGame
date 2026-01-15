@@ -298,53 +298,45 @@ const socketMetrics = {
   startTime: Date.now()
 };
 
-// Socket.io middleware to attach session to each connection
+// Socket.io middleware to attach session to each connection (lightweight version)
 io.use((socket, next) => {
-  // Try to get session from the handshake data
+  // Socket.io connections can access the session via handshake.headers.cookie
+  // We don't need to re-initialize session here - just attach what we can
   const req = socket.request;
   
-  // Wrap session middleware for Socket.io
-  const wrappedSession = session({
-    store: sessionStore,
-    secret: process.env.SESSION_SECRET || "keyboardcat",
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      secure: false,
-      sameSite: 'lax',
-      httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000
-    }
-  });
-
-  wrappedSession(req, {}, (err) => {
-    if (err) {
-      console.warn('[Socket] Session middleware error:', err.message);
-      return next(err);
-    }
-    
-    // Attach session to socket for access in handlers
-    socket.session = req.session;
-    socket.sessionID = req.sessionID;
-    
-    if (socket.session) {
-      console.debug('[Socket] Session attached:', { 
-        sid: req.sessionID?.substring(0, 8) + '...', 
-        hasUser: !!socket.session.passport?.user 
-      });
-    }
-    
-    next();
-  });
+  // Try to extract session ID from cookies if available
+  const cookies = req.headers.cookie;
+  socket.cookies = {};
+  
+  if (cookies) {
+    cookies.split(';').forEach(cookie => {
+      const [name, value] = cookie.split('=');
+      if (name && value) {
+        socket.cookies[name.trim()] = decodeURIComponent(value);
+      }
+    });
+  }
+  
+  // Log connection but safely handle missing properties
+  if (process.env.DEBUG) {
+    console.debug('[Socket] Middleware - handshake:', {
+      transport: socket.io?.engine?.transport?.name || 'unknown'
+    });
+  }
+  
+  next();
 });
 
 io.on("connection", socket => {
   socketMetrics.totalConnections++;
   socketMetrics.activeConnections++;
   
+  // Safely get transport info
+  const transportName = socket.io?.engine?.transport?.name || 'unknown';
+  
   const connectionInfo = {
     id: socket.id,
-    transport: socket.io.engine.transport.name,
+    transport: transportName,
     remoteAddress: socket.request.socket.remoteAddress,
     userAgent: socket.request.headers['user-agent']?.substring(0, 100),
     timestamp: new Date().toISOString()
@@ -371,8 +363,9 @@ io.on("connection", socket => {
   
   // Expose metrics via socket event for debugging
   socket.on('request-diagnostics', (cb) => {
+    const transportName = socket.io?.engine?.transport?.name || 'unknown';
     cb({
-      socket: { id: socket.id, transport: socket.io.engine.transport.name },
+      socket: { id: socket.id, transport: transportName },
       server: {
         uptime: process.uptime(),
         activeConnections: socketMetrics.activeConnections,
