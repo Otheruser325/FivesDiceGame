@@ -10,6 +10,7 @@ import passport from 'passport';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import LobbyManager from './lobbyManager.js';
+import fs from 'fs/promises';
 
 import { router as authRouter } from './auth.js';
 
@@ -18,6 +19,99 @@ const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 8080;
 const MODE = process.env.NODE_ENV || 'production';
+const SESSION_DIR = path.join(__dirname, 'data/sessions');
+
+// Ensure session directory exists
+async function ensureSessionDir() {
+  try {
+    await fs.mkdir(SESSION_DIR, { recursive: true });
+  } catch (err) {
+    console.error('[Session] Failed to create session directory:', err.message);
+  }
+}
+await ensureSessionDir();
+
+/**
+ * Simple file-based session store for production
+ * Stores session data as JSON files to avoid MemoryStore memory leaks
+ */
+class FileSessionStore extends session.Store {
+  constructor(options = {}) {
+    super(options);
+    this.dir = options.dir || SESSION_DIR;
+    this.ttl = options.ttl || 86400000; // 24 hours default
+  }
+
+  async _getSessionPath(sid) {
+    return path.join(this.dir, `${sid}.json`);
+  }
+
+  get(sid, callback) {
+    this._getSessionPath(sid).then(filepath => {
+      fs.readFile(filepath, 'utf8')
+        .then(data => {
+          const sess = JSON.parse(data);
+          // Check if session expired
+          if (sess.expires && new Date(sess.expires) < new Date()) {
+            this.destroy(sid, callback);
+            return callback(null);
+          }
+          callback(null, sess);
+        })
+        .catch(err => {
+          if (err.code === 'ENOENT') {
+            callback(null); // Session not found
+          } else {
+            console.error('[Session] Error reading session:', err.message);
+            callback(err);
+          }
+        });
+    });
+  }
+
+  set(sid, sess, callback) {
+    this._getSessionPath(sid).then(filepath => {
+      const expires = sess.cookie.expires || new Date(Date.now() + this.ttl);
+      const sessionData = { ...sess, expires };
+      fs.writeFile(filepath, JSON.stringify(sessionData), 'utf8')
+        .then(() => callback?.(null))
+        .catch(err => {
+          console.error('[Session] Error writing session:', err.message);
+          callback?.(err);
+        });
+    });
+  }
+
+  destroy(sid, callback) {
+    this._getSessionPath(sid).then(filepath => {
+      fs.unlink(filepath)
+        .then(() => callback?.(null))
+        .catch(err => {
+          if (err.code === 'ENOENT') {
+            callback?.(null); // Already deleted
+          } else {
+            console.error('[Session] Error deleting session:', err.message);
+            callback?.(err);
+          }
+        });
+    });
+  }
+
+  clear(callback) {
+    fs.readdir(this.dir)
+      .then(files => {
+        const promises = files
+          .filter(f => f.endsWith('.json'))
+          .map(f => fs.unlink(path.join(this.dir, f)));
+        return Promise.all(promises);
+      })
+      .then(() => callback?.(null))
+      .catch(err => {
+        console.error('[Session] Error clearing sessions:', err.message);
+        callback?.(err);
+      });
+  }
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -79,28 +173,45 @@ const io = new Server(server, {
   // Vercel/Lambda doesn't support WebSocket, use polling + fallback
   transports: ['polling', 'websocket'],      // Try polling first (Vercel-safe), fallback to ws
   // Polling-specific config for mobile/ETH/Wi-Fi resilience
-  maxHttpBufferSize: 1000000,
-  allowEIO3: true,
-  allowEIO4: true,
+  maxHttpBufferSize: 1e6,                    // 1MB - allow decent payload sizes
+  allowEIO3: true,                          // Support older clients
+  allowEIO4: true,                          // Support new protocol
   // Connection tuning for polling reliability across network types
   pingInterval: 25000,                       // Send ping every 25s (Vercel/polling friendly)
   pingTimeout: 15000,                        // Wait 15s for pong before considering dead
   connectTimeout: 60000,                     // 60s timeout for initial connection (mobile networks)
   // Polling upgrade behavior
   upgrade: true,                             // Allow upgrade to WebSocket if available
-  upgradeTimeout: 15000                      // Time to attempt upgrade before giving up
+  upgradeTimeout: 15000,                     // Time to attempt upgrade before giving up
+  // Polling-specific tuning
+  httpCompression: {
+    level: 6,                                // Compression level
+    threshold: 1024                          // Only compress > 1KB
+  },
+  // Connection pool management
+  perMessageDeflate: {
+    threshold: 1024                          // Only compress WebSocket messages > 1KB
+  }
 });
 
 // MUST come before routers
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+// Use file-based session store to avoid MemoryStore memory leaks in production
+const sessionStore = new FileSessionStore({ dir: SESSION_DIR });
+console.log('[Session] Using file-based session store at:', SESSION_DIR);
 
 app.use(session({
+  store: sessionStore,
   secret: process.env.SESSION_SECRET || "keyboardcat",
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: false,
-    sameSite: 'lax'
+    secure: false,                    // Set to true if using HTTPS
+    sameSite: 'lax',
+    httpOnly: true,                   // Prevent XSS access
+    maxAge: 24 * 60 * 60 * 1000      // 24 hours
   }
 }));
 
@@ -108,6 +219,17 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 app.use("/auth", authRouter);
+
+// Log all requests to Socket.io for debugging
+app.use('/socket.io/', (req, res, next) => {
+  console.debug('[Socket.io] Incoming request:', {
+    method: req.method,
+    path: req.path,
+    query: req.query,
+    transport: req.query.transport
+  });
+  next();
+});
 
 // ===== CRITICAL: Intercept socket.io requests BEFORE static/SPA fallback =====
 app.use((req, res, next) => {
@@ -175,6 +297,46 @@ const socketMetrics = {
   failedConnections: 0,
   startTime: Date.now()
 };
+
+// Socket.io middleware to attach session to each connection
+io.use((socket, next) => {
+  // Try to get session from the handshake data
+  const req = socket.request;
+  
+  // Wrap session middleware for Socket.io
+  const wrappedSession = session({
+    store: sessionStore,
+    secret: process.env.SESSION_SECRET || "keyboardcat",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: false,
+      sameSite: 'lax',
+      httpOnly: true,
+      maxAge: 24 * 60 * 60 * 1000
+    }
+  });
+
+  wrappedSession(req, {}, (err) => {
+    if (err) {
+      console.warn('[Socket] Session middleware error:', err.message);
+      return next(err);
+    }
+    
+    // Attach session to socket for access in handlers
+    socket.session = req.session;
+    socket.sessionID = req.sessionID;
+    
+    if (socket.session) {
+      console.debug('[Socket] Session attached:', { 
+        sid: req.sessionID?.substring(0, 8) + '...', 
+        hasUser: !!socket.session.passport?.user 
+      });
+    }
+    
+    next();
+  });
+});
 
 io.on("connection", socket => {
   socketMetrics.totalConnections++;

@@ -31,13 +31,13 @@ export default class OnlineMenuScene extends Phaser.Scene {
         // Initialize socket connection
         const socket = getSocket();
         
-        // Wait for socket to be ready (with timeout to prevent hanging)
+        // Wait for socket to be ready (with extended timeout for Vercel polling delays)
         let socketReady = false;
         const waitForSocket = new Promise((resolve) => {
             const timeout = setTimeout(() => {
-                console.warn('[OnlineMenuScene] Socket connection timeout after 3 seconds');
+                console.warn('[OnlineMenuScene] Socket connection timeout after 15 seconds');
                 resolve(false);
-            }, 3000);
+            }, 15000);
             
             if (socket.connected) {
                 clearTimeout(timeout);
