@@ -11,6 +11,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import LobbyManager from './lobbyManager.js';
 import fs from 'fs/promises';
+import { randomBytes } from 'crypto';
 
 import { router as authRouter } from './auth.js';
 
@@ -424,8 +425,15 @@ const sessionConfig = {
   unset: 'destroy',
   genid: (req) => {
     // Generate more robust session IDs to reduce session conflicts
-    const crypto = require('crypto');
-    return crypto.randomBytes(32).toString('hex');
+    try {
+      return randomBytes(32).toString('hex');
+    } catch (error) {
+      // Fallback if crypto.randomBytes fails
+      console.warn('[Session] randomBytes failed, using fallback:', error.message);
+      return Math.random().toString(36).substring(2, 15) +
+             Math.random().toString(36).substring(2, 15) +
+             Date.now().toString(36);
+    }
   },
   // Enhanced session validation
   proxy: process.env.NODE_ENV === 'production', // Trust proxy for secure cookies
