@@ -74,7 +74,21 @@ const io = new Server(server, {
     },
     methods: ['GET', 'POST'],
     credentials: true
-  }
+  },
+  // Optimize for Vercel: websocket-only is more stable, fallback to polling
+  transports: ['websocket', 'polling'],
+  // Reduce polling interval to prevent timeout on Vercel (default 25000ms)
+  pingInterval: 10000,     // Send ping every 10s
+  pingTimeout: 5000,       // Wait 5s for pong before considering socket dead
+  // Polling-specific config (only used if websocket fails)
+  maxHttpBufferSize: 1000000,
+  allowEIO3: true,
+  // Better handling of connection loss
+  connectTimeout: 45000,   // Timeout for initial connection
+  reconnection: true,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  reconnectionAttempts: 5
 });
 
 // MUST come before routers

@@ -175,7 +175,17 @@ async function _backgroundProbeAndReconnect() {
         }
         // create new socket to discovered server (sync)
         // eslint-disable-next-line no-undef
-        OnlineSocket = io(_serverUrl, { autoConnect: true, transports: ['websocket','polling'], withCredentials: true });
+        OnlineSocket = io(_serverUrl, { 
+          autoConnect: true, 
+          transports: ['websocket', 'polling'],
+          withCredentials: true,
+          reconnection: true,
+          reconnectionDelay: 500,
+          reconnectionDelayMax: 3000,
+          reconnectionAttempts: 10,
+          pingInterval: 10000,
+          pingTimeout: 5000,
+        });
         _attachSocketHandlers(OnlineSocket, _serverUrl);
         break;
       }
@@ -207,12 +217,21 @@ export function getSocket() {
   // initial server to connect to (query string or default)
   const server = _initialServerCandidate();
 
-  // create socket immediately (so callers can use it synchronously)
+  // create socket with optimized config for Vercel
   // eslint-disable-next-line no-undef
   OnlineSocket = io(server, {
     autoConnect: true,
-    transports: ['polling'],
+    // Prefer websocket, fallback to polling only if necessary
+    transports: ['websocket', 'polling'],
     withCredentials: true,
+    // Aggressive reconnection for better UX
+    reconnection: true,
+    reconnectionDelay: 500,          // Start with 500ms
+    reconnectionDelayMax: 3000,      // Cap at 3s
+    reconnectionAttempts: 10,        // Try up to 10 times
+    // Ping/pong timing
+    pingInterval: 10000,             // Send ping every 10s
+    pingTimeout: 5000,               // Wait 5s for pong
   });
 
   // attach default handlers
