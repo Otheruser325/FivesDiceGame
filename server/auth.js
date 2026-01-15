@@ -259,14 +259,87 @@ router.get(
 
 router.get("/discord",
   requireStrategy("discord", "Discord OAuth is not configured on this server. Please restart the server with DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET set."),
-  (req, res, next) =>
+  (req, res, next) => {
+    // Set CORS headers for the authorize endpoint
+    const origin = req.headers.origin;
+    if (origin && (origin.includes('vercel.app') || origin.includes('localhost'))) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    }
+    
     passport.authenticate("discord", {
       state: req.query.redirect === "json" ? "json" : undefined,
-    })(req, res, next)
+    })(req, res, next);
+  }
 );
+
+// Discord authorize proxy endpoint to avoid CORS issues
+router.get("/discord/authorize", (req, res) => {
+  const { client_id, redirect_uri, scope, state, response_type } = req.query;
+  
+  // Validate required parameters
+  if (!client_id || !redirect_uri || !scope || !state || !response_type) {
+    return res.status(400).json({
+      error: 'Missing required OAuth parameters',
+      required: ['client_id', 'redirect_uri', 'scope', 'state', 'response_type']
+    });
+  }
+  
+  // Validate client ID matches our Discord app
+  if (client_id !== process.env.DISCORD_CLIENT_ID) {
+    return res.status(400).json({ error: 'Invalid client_id' });
+  }
+  
+  // Validate redirect URI is allowed
+  const allowedRedirects = [
+    `https://${process.env.VERCEL_URL || 'fivesapi.vercel.app'}/auth/discord/callback`,
+    'http://localhost:8080/auth/discord/callback'
+  ];
+  
+  if (!allowedRedirects.includes(redirect_uri)) {
+    return res.status(400).json({ error: 'Invalid redirect_uri' });
+  }
+  
+  // Build Discord authorize URL
+  const discordUrl = new URL('https://discord.com/api/oauth2/authorize');
+  discordUrl.searchParams.set('client_id', client_id);
+  discordUrl.searchParams.set('redirect_uri', redirect_uri);
+  discordUrl.searchParams.set('scope', scope);
+  discordUrl.searchParams.set('state', state);
+  discordUrl.searchParams.set('response_type', response_type);
+  
+  console.log('[Discord] Proxying authorize request to:', discordUrl.toString());
+  
+  // Set CORS headers
+  const origin = req.headers.origin;
+  if (origin && (origin.includes('vercel.app') || origin.includes('localhost'))) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  }
+  
+  // Redirect to Discord
+  res.redirect(302, discordUrl.toString());
+});
 
 // Handle OPTIONS preflight for Discord callback
 router.options("/discord/callback", (req, res) => {
+  const origin = req.headers.origin;
+  if (origin && (origin.includes('vercel.app') || origin.includes('localhost'))) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Max-Age', '86400'); // 24 hours
+  }
+  res.status(200).end();
+});
+
+// Handle OPTIONS preflight for Discord authorize proxy
+router.options("/discord/authorize", (req, res) => {
   const origin = req.headers.origin;
   if (origin && (origin.includes('vercel.app') || origin.includes('localhost'))) {
     res.header('Access-Control-Allow-Origin', origin);

@@ -277,31 +277,40 @@ const io = new Server(server, {
   allowEIO4: true,                          // Support new protocol
   
   // Connection tuning for polling reliability across network types
-  pingInterval: 20000,                       // Send ping every 20s (more frequent for stability)
-  pingTimeout: 10000,                        // Wait 10s for pong before considering dead
-  connectTimeout: 45000,                     // 45s timeout for initial connection (mobile networks)
+  pingInterval: 25000,                       // Send ping every 25s (more stable for Vercel)
+  pingTimeout: 15000,                        // Wait 15s for pong before considering dead
+  connectTimeout: 60000,                     // 60s timeout for initial connection (mobile networks)
   
   // Polling upgrade behavior
-  upgrade: process.env.VERCEL !== '1',       // Don't try WebSocket upgrade on Vercel
+  upgrade: false,                            // DISABLE upgrade completely for stability
   upgradeTimeout: 8000,                      // Quick timeout if upgrade attempted
   
   // Polling-specific tuning - conservative to avoid 400 errors
-  httpCompression: process.env.VERCEL === '1'
-    ? { level: -1 }                          // Vercel: DISABLE compression (may cause issues)
-    : { level: 6, threshold: 1024 },         // Local: Full compression
+  httpCompression: false,                    // DISABLE compression completely (causes 400 errors)
   
   // Connection pool management
-  perMessageDeflate: process.env.VERCEL === '1'
-    ? false                                  // Vercel: No WebSocket compression
-    : { threshold: 1024 },                   // Local: Compress if > 1KB
+  perMessageDeflate: false,                  // DISABLE compression completely
     
-  // Add session management for stability
-  forceNew: true,
-  rememberUpgrade: false,
+  // Enhanced session management for stability
+  forceNew: false,                           // Don't force new connections unnecessarily
+  rememberUpgrade: false,                    // Don't remember upgrade attempts
   // Add retry configuration
-  retries: 3,
+  retries: 5,                                // More retries for unstable connections
   // Add timeout for requests
-  requestTimeout: 5000
+  requestTimeout: 10000,                     // Longer timeout for Vercel
+  
+  // Additional Vercel-specific optimizations
+  addTrailingSlash: false,                   // Avoid trailing slash issues
+  wsEngine: process.env.VERCEL === '1' ? null : 'ws', // Use default on Vercel
+  
+  // Transport-specific options
+  transportOptions: {
+    polling: {
+      maxHttpBufferSize: 1e6,
+      requestTimeout: 10000,
+      closeTimeout: 5000
+    }
+  }
 });
 
 // ============ Socket.io Error Handlers & HTTP 400 Suppression ============

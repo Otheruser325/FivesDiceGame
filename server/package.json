@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon --watch server --watch client --exec node index.js --delay 200",
-    "test-fixes": "node scripts/test-fixes.js"
+    "test-fixes": "node scripts/test-fixes.js",
+    "test-all-fixes": "node scripts/test-all-fixes.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.87.1",
