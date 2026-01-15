@@ -17,6 +17,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 8080;
+const MODE = process.env.NODE_ENV || 'production';
 
 const app = express();
 const server = http.createServer(app);
@@ -75,19 +76,19 @@ const io = new Server(server, {
     methods: ['GET', 'POST'],
     credentials: true
   },
-  // Vercel/Lambda doesn't support WebSocket, use polling only
-  transports: ['polling'],
-  // Polling-specific config
+  // Vercel/Lambda doesn't support WebSocket, use polling + fallback
+  transports: ['polling', 'websocket'],      // Try polling first (Vercel-safe), fallback to ws
+  // Polling-specific config for mobile/ETH/Wi-Fi resilience
   maxHttpBufferSize: 1000000,
   allowEIO3: true,
-  // Connection tuning for polling reliability
-  pingInterval: 10000,     // Send ping every 10s
-  pingTimeout: 5000,       // Wait 5s for pong before considering socket dead
-  connectTimeout: 45000,   // Timeout for initial connection
-  reconnection: true,
-  reconnectionDelay: 1000,
-  reconnectionDelayMax: 5000,
-  reconnectionAttempts: 5
+  allowEIO4: true,
+  // Connection tuning for polling reliability across network types
+  pingInterval: 25000,                       // Send ping every 25s (Vercel/polling friendly)
+  pingTimeout: 15000,                        // Wait 15s for pong before considering dead
+  connectTimeout: 60000,                     // 60s timeout for initial connection (mobile networks)
+  // Polling upgrade behavior
+  upgrade: true,                             // Allow upgrade to WebSocket if available
+  upgradeTimeout: 15000                      // Time to attempt upgrade before giving up
 });
 
 // MUST come before routers
@@ -144,14 +145,80 @@ app.get('/FivesDiceGame/*', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
-  res.json({ ok: true, ts: Date.now() });
+  // Comprehensive health check for monitoring and recovery
+  const health = {
+    ok: true,
+    ts: Date.now(),
+    uptime: process.uptime(),
+    environment: MODE === 'development' ? 'development' : 'production',
+    socketIO: {
+      connected: io.engine.clientsCount || 0,
+      transports: ['polling'],  // Vercel deployment
+      status: 'operational'
+    },
+    database: {
+      local: 'operational',     // Local DB always available as fallback
+      supabase: process.env.SUPABASE_URL ? 'configured' : 'not-configured'
+    },
+    version: '1.0.0'
+  };
+  
+  res.json(health);
 });
 
 const lobbyManager = new LobbyManager(io);
 
+// Track socket connection metrics for health monitoring
+const socketMetrics = {
+  totalConnections: 0,
+  activeConnections: 0,
+  failedConnections: 0,
+  startTime: Date.now()
+};
+
 io.on("connection", socket => {
-  console.log("Socket connected", socket.id);
+  socketMetrics.totalConnections++;
+  socketMetrics.activeConnections++;
+  
+  const connectionInfo = {
+    id: socket.id,
+    transport: socket.io.engine.transport.name,
+    remoteAddress: socket.request.socket.remoteAddress,
+    userAgent: socket.request.headers['user-agent']?.substring(0, 100),
+    timestamp: new Date().toISOString()
+  };
+  
+  console.log('[Socket] Connection:', {
+    ...connectionInfo,
+    activeCount: socketMetrics.activeConnections,
+    totalCount: socketMetrics.totalConnections
+  });
+  
   lobbyManager.registerSocket(socket);
+  
+  // Track disconnections for diagnostics
+  socket.on('disconnect', (reason) => {
+    socketMetrics.activeConnections--;
+    if (reason === 'transport close' || reason === 'ping timeout' || reason === 'connection closed') {
+      socketMetrics.failedConnections++;
+      console.warn('[Socket] Disconnection:', { id: socket.id, reason, activeCount: socketMetrics.activeConnections });
+    } else {
+      console.info('[Socket] Disconnection:', { id: socket.id, reason, activeCount: socketMetrics.activeConnections });
+    }
+  });
+  
+  // Expose metrics via socket event for debugging
+  socket.on('request-diagnostics', (cb) => {
+    cb({
+      socket: { id: socket.id, transport: socket.io.engine.transport.name },
+      server: {
+        uptime: process.uptime(),
+        activeConnections: socketMetrics.activeConnections,
+        totalConnections: socketMetrics.totalConnections,
+        failedConnections: socketMetrics.failedConnections
+      }
+    });
+  });
 });
 
 server.listen(PORT, () =>

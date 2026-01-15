@@ -1,12 +1,18 @@
 let OnlineSocket = null;
 let _serverUrl = null;
 let _probing = false;
+let _connectionRetries = 0;
+let _maintenanceMode = false;
 
 // Set to 'development' to connect to localhost, otherwise defaults to production server
 const MODE = 'production'; // Change to 'development' for localhost testing
 
 const DEFAULT_PORTS = [8080, 8081, 8082, 8083, 8084, 8085];
 const PRODUCTION_SERVER = 'https://fivesapi.vercel.app';
+const MAX_CONNECTION_RETRIES = 15;           // Allow more retries for network resilience
+const INITIAL_RECONNECT_DELAY = 300;          // 300ms initial delay
+const MAX_RECONNECT_DELAY = 8000;             // 8s max delay
+const CONNECTION_TIMEOUT = 15000;             // 15s timeout for initial connection
 
 function _norm(url) {
   return String(url).replace(/\/+$/, '');
@@ -52,10 +58,34 @@ export function getServerUrl() {
   return _initialServerCandidate();
 }
 
+/**
+ * Check if the socket is in maintenance mode (failed to connect after retries)
+ */
+export function isInMaintenanceMode() {
+  return _maintenanceMode;
+}
+
+/**
+ * Get current connection retry count
+ */
+export function getConnectionRetries() {
+  return _connectionRetries;
+}
+
+/**
+ * Manually reset connection state (useful for recovery attempts)
+ */
+export function resetConnectionState() {
+  _connectionRetries = 0;
+  _maintenanceMode = false;
+  console.info('[Socket] Connection state reset');
+}
+
 export function connectTo(url) {
   if (!url) return;
   const normalized = _norm(url);
   _serverUrl = normalized;
+  resetConnectionState();  // Reset state when changing servers
 
   // if a socket exists, reconnect to the requested url
   if (OnlineSocket) {
@@ -123,8 +153,12 @@ function _buildCandidates() {
 // Attach standard handlers for socket (so reconnections keep behavior)
 function _attachSocketHandlers(sock, server) {
   if (!sock) return;
+  
   sock.on('connect', async () => {
     console.info('[Socket] connected to', server, 'id=', sock.id);
+    _connectionRetries = 0;  // Reset retries on successful connection
+    _maintenanceMode = false; // Clear maintenance mode flag
+    
     // attempt auth fetch and inform socket of cached session
     try {
       const resp = await fetch(`${server.replace(/\/$/, '')}/auth/me`, { credentials: 'include' });
@@ -140,7 +174,15 @@ function _attachSocketHandlers(sock, server) {
   });
 
   sock.on('connect_error', (err) => {
-    console.warn('[Socket] connect_error', err && err.message ? err.message : String(err), '— attempting to reconnect');
+    console.warn('[Socket] connect_error:', err && err.message ? err.message : String(err));
+    _connectionRetries++;
+    console.info('[Socket] reconnect attempt', _connectionRetries, 'of', MAX_CONNECTION_RETRIES);
+    
+    // If we've exceeded retries and polling is active, trigger maintenance mode
+    if (_connectionRetries > MAX_CONNECTION_RETRIES && sock.io?.engine?.transport?.name === 'polling') {
+      console.error('[Socket] Connection timeout after', MAX_CONNECTION_RETRIES, 'retries — server may be down');
+      _maintenanceMode = true;
+    }
   });
 
   sock.on('reconnect_attempt', (n) => {
@@ -149,6 +191,10 @@ function _attachSocketHandlers(sock, server) {
 
   sock.on('disconnect', (reason) => {
     console.info('[Socket] disconnected:', reason);
+    // Don't reset maintenance mode on network blip if it's deliberate
+    if (reason === 'io server disconnect' || reason === 'io client namespace disconnect') {
+      _maintenanceMode = false;
+    }
   });
 }
 
@@ -230,21 +276,40 @@ export function getSocket() {
     console.info('[Socket] Connecting to Vercel (' + server + ') — using polling only');
   }
 
-  // create socket with optimized config for Vercel
+  // Calculate adaptive reconnection delays based on network conditions
+  // Start with shorter delays and gradually back off
+  const calculateDelay = (attempt) => {
+    return Math.min(
+      INITIAL_RECONNECT_DELAY * Math.pow(1.5, Math.min(attempt, 6)),
+      MAX_RECONNECT_DELAY
+    );
+  };
+
+  // create socket with optimized config for Vercel polling
   // eslint-disable-next-line no-undef
   OnlineSocket = io(server, {
     autoConnect: true,
-    // Vercel doesn't support WebSocket, use polling only
+    // Vercel doesn't support WebSocket, use polling with fallback
     transports: transports,
     withCredentials: true,
-    // Aggressive reconnection for better UX
     reconnection: true,
-    reconnectionDelay: 500,          // Start with 500ms
-    reconnectionDelayMax: 3000,      // Cap at 3s
-    reconnectionAttempts: 10,        // Try up to 10 times
-    // Ping/pong timing
-    pingInterval: 10000,             // Send ping every 10s
-    pingTimeout: 5000,               // Wait 5s for pong
+    reconnectionDelay: INITIAL_RECONNECT_DELAY,
+    reconnectionDelayMax: MAX_RECONNECT_DELAY,
+    reconnectionAttempts: MAX_CONNECTION_RETRIES,
+    // Polling-specific tuning for mobile/Ethernet/Wi-Fi resilience
+    upgrade: true,                           // Allow upgrade from polling to websocket
+    upgradeTimeout: 10000,                   // Time to attempt upgrade
+    rememberUpgrade: false,                  // Don't cache transport choice
+    // Ping/pong timing (critical for polling stability)
+    pingInterval: 20000,                     // Send ping every 20s (polling-friendly)
+    pingTimeout: 10000,                      // Wait 10s for pong
+    // HTTP polling specific config
+    path: '/socket.io/',
+    query: {},
+    randomizationFactor: 0.5,                // 50% randomization to prevent thundering herd
+    // Connection lifecycle
+    connectTimeout: CONNECTION_TIMEOUT,      // 15s timeout for initial connection
+    forceNew: false,                         // Reuse existing connection if available
   });
 
   // attach default handlers

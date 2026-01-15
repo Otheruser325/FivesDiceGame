@@ -86,15 +86,36 @@ export async function loadUsers() {
   if (supabase) {
     try {
       const { data, error } = await supabase.from('users').select('*');
-      if (error) throw error;
+      
+      // Check for common Supabase errors indicating missing/empty schema
+      if (error) {
+        if (error.code === 'PGRST116' || error.code === '42P01' || 
+            error.message?.includes('does not exist') ||
+            error.message?.includes('relation') ||
+            error.message?.includes('schema')) {
+          console.warn('[userStorage] Supabase table "users" does not exist or schema not initialized, falling back to local DB');
+        } else {
+          console.warn('[userStorage] Supabase loadUsers error:', error?.message || error);
+        }
+        throw error;
+      }
+      
+      // Handle empty result set (valid response, just no data)
+      if (!data || (Array.isArray(data) && data.length === 0)) {
+        console.info('[userStorage] Supabase returned no users (table empty or just initialized)');
+        return {};
+      }
+      
+      // Successfully loaded data from Supabase
       const map = {};
       (data || []).forEach(r => {
         const u = _rowToUser(r);
         if (u && u.id) map[u.id] = u;
       });
+      console.info('[userStorage] Loaded', Object.keys(map).length, 'users from Supabase');
       return map;
     } catch (err) {
-      console.warn('[userStorage] Supabase loadUsers failed, falling back to local file', err);
+      console.warn('[userStorage] Supabase loadUsers failed, falling back to local DB:', err?.message || err);
     }
   }
 
@@ -121,12 +142,26 @@ export async function saveUsers(users) {
   if (supabase) {
     try {
       const { data, error } = await supabase.from('users').upsert(rows, { onConflict: 'id' }).select();
-      if (error) throw error;
+      
+      // Check for schema/table errors
+      if (error) {
+        if (error.code === 'PGRST116' || error.code === '42P01' ||
+            error.message?.includes('does not exist') ||
+            error.message?.includes('relation') ||
+            error.message?.includes('schema')) {
+          console.warn('[userStorage] Supabase table "users" missing, saving', rows.length, 'users to local only');
+        } else {
+          console.warn('[userStorage] Supabase saveUsers error:', error?.message || error);
+        }
+        throw error;
+      }
+      
       const map = {};
       (data || []).forEach(r => { map[String(r.id)] = _rowToUser(r); });
+      console.info('[userStorage] Successfully saved', rows.length, 'users to Supabase');
       return map;
     } catch (err) {
-      console.warn('[userStorage] Supabase saveUsers failed, writing to local file', err);
+      console.warn('[userStorage] Supabase saveUsers failed, writing to local file:', err?.message || err);
       // fallthrough to local save
     }
   }
@@ -147,11 +182,24 @@ export async function loadUser(id) {
   if (supabase) {
     try {
       const { data, error } = await supabase.from('users').select('*').eq('id', id).limit(1);
-      if (error) throw error;
+      
+      // Check for schema/table errors
+      if (error) {
+        if (error.code === 'PGRST116' || error.code === '42P01' ||
+            error.message?.includes('does not exist') ||
+            error.message?.includes('relation') ||
+            error.message?.includes('schema')) {
+          console.warn('[userStorage] Supabase table "users" missing, falling back to local');
+        } else {
+          console.warn('[userStorage] Supabase loadUser error:', error?.message || error);
+        }
+        throw error;
+      }
+      
       if (!data || data.length === 0) return null;
       return _rowToUser(data[0]);
     } catch (err) {
-      console.warn('[userStorage] Supabase loadUser failed, trying local', err);
+      console.warn('[userStorage] Supabase loadUser failed, trying local:', err?.message || err);
     }
   }
 
@@ -169,11 +217,25 @@ export async function saveUser(user) {
   if (supabase) {
     try {
       const { data, error } = await supabase.from('users').upsert(row, { onConflict: 'id' }).select();
-      if (error) throw error;
+      
+      // Check for schema/table errors
+      if (error) {
+        if (error.code === 'PGRST116' || error.code === '42P01' ||
+            error.message?.includes('does not exist') ||
+            error.message?.includes('relation') ||
+            error.message?.includes('schema')) {
+          console.warn('[userStorage] Supabase table "users" missing, saving to local only');
+        } else {
+          console.warn('[userStorage] Supabase saveUser error:', error?.message || error);
+        }
+        throw error;
+      }
+      
       const saved = Array.isArray(data) && data[0] ? _rowToUser(data[0]) : _rowToUser(row);
+      console.info('[userStorage] Successfully saved user', user.id, 'to Supabase');
       return saved;
     } catch (err) {
-      console.warn('[userStorage] Supabase saveUser failed, writing to local', err);
+      console.warn('[userStorage] Supabase saveUser failed, writing to local:', err?.message || err);
       // fallthrough to local save
     }
   }

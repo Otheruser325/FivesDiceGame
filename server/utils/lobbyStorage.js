@@ -122,21 +122,44 @@ function _lobbyToRow(lobby) {
 /**
  * loadLobbies()
  * Returns an object map keyed by lobby code: { CODE: lobby, ... }
+ * Handles empty/missing Supabase schema tables gracefully
  */
 export async function loadLobbies() {
   // Try Supabase first
   if (supabase) {
     try {
       const { data, error } = await supabase.from('lobbies').select('*');
-      if (error) throw error;
+      
+      // Check for common Supabase errors indicating missing/empty schema
+      if (error) {
+        // Handle "table does not exist" or schema errors
+        if (error.code === 'PGRST116' || error.code === '42P01' || 
+            error.message?.includes('does not exist') ||
+            error.message?.includes('relation') ||
+            error.message?.includes('schema')) {
+          console.warn('[lobbyStorage] Supabase table "lobbies" does not exist or schema not initialized, falling back to local DB');
+        } else {
+          console.warn('[lobbyStorage] Supabase loadLobbies error:', error?.message || error);
+        }
+        throw error;
+      }
+      
+      // Handle empty result set (valid response, just no data)
+      if (!data || (Array.isArray(data) && data.length === 0)) {
+        console.info('[lobbyStorage] Supabase returned no lobbies (table empty or just initialized)');
+        return {};
+      }
+      
+      // Successfully loaded data from Supabase
       const map = {};
       (data || []).forEach(r => {
         const l = _rowToLobby(r);
         if (l && l.code) map[String(l.code).trim().toUpperCase()] = l;
       });
+      console.info('[lobbyStorage] Loaded', Object.keys(map).length, 'lobbies from Supabase');
       return map;
     } catch (err) {
-      console.warn('[lobbyStorage] Supabase loadLobbies failed, falling back to local file', err);
+      console.warn('[lobbyStorage] Supabase loadLobbies failed, falling back to local DB:', err?.message || err);
       // fall through to local
     }
   }
@@ -162,6 +185,7 @@ export async function loadLobbies() {
 /**
  * saveLobby(lobby)
  * Upserts a single lobby (expects lobby.code). Returns normalized lobby object.
+ * Handles Supabase schema errors gracefully.
  */
 export async function saveLobby(lobby) {
   if (!lobby || !lobby.code) throw new Error('saveLobby expects a lobby object with a code');
@@ -171,11 +195,25 @@ export async function saveLobby(lobby) {
   if (supabase) {
     try {
       const { data, error } = await supabase.from('lobbies').upsert(row, { onConflict: 'code' }).select();
-      if (error) throw error;
+      
+      // Check for schema/table errors
+      if (error) {
+        if (error.code === 'PGRST116' || error.code === '42P01' ||
+            error.message?.includes('does not exist') ||
+            error.message?.includes('relation') ||
+            error.message?.includes('schema')) {
+          console.warn('[lobbyStorage] Supabase table "lobbies" missing or not initialized, saving to local only');
+        } else {
+          console.warn('[lobbyStorage] Supabase saveLobby error:', error?.message || error);
+        }
+        throw error;
+      }
+      
       const retRow = Array.isArray(data) && data[0] ? data[0] : row;
+      console.info('[lobbyStorage] Successfully saved lobby', row.code, 'to Supabase');
       return _rowToLobby(retRow);
     } catch (err) {
-      console.warn('[lobbyStorage] Supabase saveLobby failed, saving to local file instead', err);
+      console.warn('[lobbyStorage] Supabase saveLobby failed, saving to local file instead:', err?.message || err);
       // fallthrough to local
     }
   }
@@ -207,6 +245,7 @@ export async function saveLobby(lobby) {
  * saveLobbies(lobbies)
  * Accepts object map { CODE: lobby } or array of lobby objects.
  * Returns a map of saved lobbies keyed by code.
+ * Handles Supabase schema errors gracefully.
  */
 export async function saveLobbies(lobbies) {
   // Normalize to array of rows
@@ -225,7 +264,20 @@ export async function saveLobbies(lobbies) {
     try {
       if (arr.length === 0) return {};
       const { data, error } = await supabase.from('lobbies').upsert(arr, { onConflict: 'code' }).select();
-      if (error) throw error;
+      
+      // Check for schema/table errors
+      if (error) {
+        if (error.code === 'PGRST116' || error.code === '42P01' ||
+            error.message?.includes('does not exist') ||
+            error.message?.includes('relation') ||
+            error.message?.includes('schema')) {
+          console.warn('[lobbyStorage] Supabase table "lobbies" missing, saving', arr.length, 'lobbies to local only');
+        } else {
+          console.warn('[lobbyStorage] Supabase saveLobbies error:', error?.message || error);
+        }
+        throw error;
+      }
+      
       const map = {};
       (data || []).forEach(r => {
         const l = _rowToLobby(r);
