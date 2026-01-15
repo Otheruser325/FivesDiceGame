@@ -2,7 +2,11 @@ let OnlineSocket = null;
 let _serverUrl = null;
 let _probing = false;
 
+// Set to 'development' to connect to localhost, otherwise defaults to production server
+const MODE = 'production'; // Change to 'development' for localhost testing
+
 const DEFAULT_PORTS = [8080, 8081, 8082, 8083, 8084, 8085];
+const PRODUCTION_SERVER = 'https://fivesapi.vercel.app';
 
 function _norm(url) {
   return String(url).replace(/\/+$/, '');
@@ -33,9 +37,14 @@ function _initialServerCandidate() {
     }
   } catch (e) { /* ignore */ }
 
-  // fallback to reasonable default (same protocol as page)
-  const proto = (typeof window !== 'undefined' && window.location && window.location.protocol === 'https:') ? 'https' : 'http';
-  _serverUrl = `${proto}://localhost:8080`;
+  // Default based on MODE: production connects to fivesapi.vercel.app, development to localhost
+  if (MODE === 'development') {
+    const proto = (typeof window !== 'undefined' && window.location && window.location.protocol === 'https:') ? 'https' : 'http';
+    _serverUrl = `${proto}://localhost:8080`;
+  } else {
+    // production: use vercel server
+    _serverUrl = PRODUCTION_SERVER;
+  }
   return _serverUrl;
 }
 
@@ -80,6 +89,12 @@ async function _probeOrigin(origin, timeoutMs = 900) {
 
 // Build list of candidate origins: hosts x ports
 function _buildCandidates() {
+  // In production mode, don't probe localhost candidates
+  if (MODE !== 'development') {
+    return [PRODUCTION_SERVER];
+  }
+
+  // Development mode: probe localhost candidates
   const proto = (typeof window !== 'undefined' && window.location && window.location.protocol === 'https:') ? 'https' : 'http';
   const hosts = new Set(['localhost', '127.0.0.1']);
   if (typeof window !== 'undefined' && window.location && window.location.hostname) {
