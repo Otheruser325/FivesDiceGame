@@ -30,33 +30,33 @@ export default class PreloadScene extends Phaser.Scene {
         });
 
         // Load all assets
-        this.load.audio('button', '/assets/audio/button.mp3');
-        this.load.audio('dice', '/assets/audio/dice.mp3');
-		this.load.audio('combo_pair', '/assets/audio/combo_pair.mp3');
-        this.load.audio('combo_triple', '/assets/audio/combo_triple.mp3');
-        this.load.audio('combo_fullHouse', '/assets/audio/combo_fullHouse.mp3');
-        this.load.audio('combo_fourOfAKind', '/assets/audio/combo_fourOfAKind.mp3');
-        this.load.audio('combo_fiveOfAKind', '/assets/audio/combo_fiveOfAKind.mp3');
-		this.load.audio('combo_straight', '/assets/audio/combo_straight.mp3');
-		this.load.audio('hero_time', '/assets/music/hero_time.mp3');
-        this.load.audio('energy', '/assets/music/energy.mp3');
-        this.load.audio('powerhouse', '/assets/music/powerhouse.mp3');
+        this.load.audio('button', 'assets/audio/button.mp3');
+        this.load.audio('dice', 'assets/audio/dice.mp3');
+		this.load.audio('combo_pair', 'assets/audio/combo_pair.mp3');
+        this.load.audio('combo_triple', 'assets/audio/combo_triple.mp3');
+        this.load.audio('combo_fullHouse', 'assets/audio/combo_fullHouse.mp3');
+        this.load.audio('combo_fourOfAKind', 'assets/audio/combo_fourOfAKind.mp3');
+        this.load.audio('combo_fiveOfAKind', 'assets/audio/combo_fiveOfAKind.mp3');
+		this.load.audio('combo_straight', 'assets/audio/combo_straight.mp3');
+		this.load.audio('hero_time', 'assets/music/hero_time.mp3');
+        this.load.audio('energy', 'assets/music/energy.mp3');
+        this.load.audio('powerhouse', 'assets/music/powerhouse.mp3');
 
-        this.load.json('changelog', '/config/changelog.json');
+        this.load.json('changelog', 'config/changelog.json');
 		
-		this.load.image('dice1', '/assets/dice/dice-six-faces-one.png');
-        this.load.image('dice2', '/assets/dice/dice-six-faces-two.png');
-        this.load.image('dice3', '/assets/dice/dice-six-faces-three.png');
-        this.load.image('dice4', '/assets/dice/dice-six-faces-four.png');
-        this.load.image('dice5', '/assets/dice/dice-six-faces-five.png');
-        this.load.image('dice6', '/assets/dice/dice-six-faces-six.png');
+		this.load.image('dice1', 'assets/dice/dice-six-faces-one.png');
+        this.load.image('dice2', 'assets/dice/dice-six-faces-two.png');
+        this.load.image('dice3', 'assets/dice/dice-six-faces-three.png');
+        this.load.image('dice4', 'assets/dice/dice-six-faces-four.png');
+        this.load.image('dice5', 'assets/dice/dice-six-faces-five.png');
+        this.load.image('dice6', 'assets/dice/dice-six-faces-six.png');
 		
-		this.load.image('settingsIcon', '/assets/ui/settings.png');
-        this.load.image('achievementIcon', '/assets/ui/achievement.png');
-        this.load.image('helpIcon', '/assets/ui/help.png');
-        this.load.image('changelogIcon', '/assets/ui/changelog.png');
-        this.load.image('playerIcon', '/assets/ui/player.png');
-        this.load.image('botIcon', '/assets/ui/robot.png');
+		this.load.image('settingsIcon', 'assets/ui/settings.png');
+        this.load.image('achievementIcon', 'assets/ui/achievement.png');
+        this.load.image('helpIcon', 'assets/ui/help.png');
+        this.load.image('changelogIcon', 'assets/ui/changelog.png');
+        this.load.image('playerIcon', 'assets/ui/player.png');
+        this.load.image('botIcon', 'assets/ui/robot.png');
     }
 
     create() {
