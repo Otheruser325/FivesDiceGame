@@ -194,9 +194,25 @@ const io = new Server(server, {
   }
 });
 
-// MUST come before routers
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
+// MUST come before routers - but skip socket.io requests
+// Socket.io handles its own request parsing, so don't apply body parser to it
+app.use((req, res, next) => {
+  // Skip body parser middleware for socket.io requests
+  // These requests have specific formats that socket.io handles
+  if (req.path.startsWith('/socket.io')) {
+    return next();
+  }
+  // Apply body parser to all other requests
+  express.json({ limit: '10mb' })(req, res, next);
+});
+
+app.use((req, res, next) => {
+  // Skip urlencoded parser for socket.io requests
+  if (req.path.startsWith('/socket.io')) {
+    return next();
+  }
+  express.urlencoded({ limit: '10mb', extended: true })(req, res, next);
+});
 
 // Use file-based session store to avoid MemoryStore memory leaks in production
 let sessionStore;
@@ -233,14 +249,34 @@ app.use(passport.session());
 
 app.use("/auth", authRouter);
 
-// Log all requests to Socket.io for debugging
+// Log all requests to Socket.io for debugging and error detection
 app.use('/socket.io/', (req, res, next) => {
-  console.debug('[Socket.io] Incoming request:', {
-    method: req.method,
-    path: req.path,
-    query: req.query,
-    transport: req.query.transport
-  });
+  const startTime = Date.now();
+  const original_end = res.end;
+  
+  // Intercept response to log status and errors
+  res.end = function(chunk, encoding) {
+    const duration = Date.now() - startTime;
+    const statusCode = res.statusCode;
+    const method = req.method;
+    const transport = req.query?.transport || 'unknown';
+    
+    // Log detailed errors - 400 errors are critical
+    if (statusCode === 400) {
+      console.error(`[Socket.io] ❌ ERROR 400 on ${method} ${req.path} (${transport}) after ${duration}ms`, {
+        query: req.query,
+        contentType: req.headers['content-type'],
+        contentLength: req.headers['content-length']
+      });
+    } else if (statusCode >= 500) {
+      console.error(`[Socket.io] ❌ ERROR ${statusCode} on ${method} ${req.path}`);
+    } else {
+      console.debug(`[Socket.io] ✓ ${statusCode} ${method} ${transport}`);
+    }
+    
+    original_end.call(this, chunk, encoding);
+  };
+  
   next();
 });
 
@@ -250,13 +286,20 @@ app.use((req, res, next) => {
   if (req.path === '/socket.io.js' || req.path === '/FivesDiceGame/socket.io.js') {
     const socketIOPath = path.join(__dirname, 'node_modules/socket.io/client-dist/socket.io.min.js');
     
-    // Debug: log the path being served
-    console.log('[Socket.io] Serving from:', socketIOPath);
+    // Set CORS headers for cross-origin script loading
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    
+    // Set cache headers for performance
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours
+    
+    console.log('[Socket.io] Serving socket.io.js from:', req.path);
     
     return res.type('application/javascript').sendFile(socketIOPath, (err) => {
       if (err) {
-        console.error('[Socket.io] Error serving file:', err.message);
-        res.status(500).send('Socket.io library not found: ' + err.message);
+        console.error('[Socket.io] Error serving socket.io.js:', err.message);
+        res.status(500).send('Socket.io library not found');
       }
     });
   }

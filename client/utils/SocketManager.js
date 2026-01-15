@@ -3,6 +3,8 @@ let _serverUrl = null;
 let _probing = false;
 let _connectionRetries = 0;
 let _maintenanceMode = false;
+let _lastConnectionId = null;  // Track connection ID to detect server resets
+let _serverResetDetected = false;
 
 // Set to 'development' to connect to localhost, otherwise defaults to production server
 const MODE = 'production'; // Change to 'development' for localhost testing
@@ -78,7 +80,30 @@ export function getConnectionRetries() {
 export function resetConnectionState() {
   _connectionRetries = 0;
   _maintenanceMode = false;
+  _serverResetDetected = false;
   console.info('[Socket] Connection state reset');
+}
+
+/**
+ * Check if server has reset (connection ID changed)
+ */
+export function didServerReset() {
+  return _serverResetDetected;
+}
+
+/**
+ * Reset the server reset flag (call after handling the reset)
+ */
+export function resetServerResetFlag() {
+  _serverResetDetected = false;
+  console.info('[Socket] Server reset flag cleared');
+}
+
+/**
+ * Get the last known socket connection ID
+ */
+export function getLastConnectionId() {
+  return _lastConnectionId;
 }
 
 export function connectTo(url) {
@@ -159,6 +184,17 @@ function _attachSocketHandlers(sock, server) {
     _connectionRetries = 0;  // Reset retries on successful connection
     _maintenanceMode = false; // Clear maintenance mode flag
     
+    // Detect if server has reset (different connection ID)
+    if (_lastConnectionId && _lastConnectionId !== sock.id) {
+      console.warn('[Socket] Server reset detected! Previous id:', _lastConnectionId, 'New id:', sock.id);
+      _serverResetDetected = true;
+      // Emit event so scenes can handle re-authentication
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('socket-server-reset', { detail: { oldId: _lastConnectionId, newId: sock.id } }));
+      }
+    }
+    _lastConnectionId = sock.id;
+    
     // attempt auth fetch and inform socket of cached session
     try {
       const resp = await fetch(`${server.replace(/\/$/, '')}/auth/me`, { credentials: 'include' });
@@ -178,10 +214,15 @@ function _attachSocketHandlers(sock, server) {
     _connectionRetries++;
     console.info('[Socket] reconnect attempt', _connectionRetries, 'of', MAX_CONNECTION_RETRIES);
     
-    // If we've exceeded retries, trigger maintenance mode (don't try to access socket.io internals)
-    if (_connectionRetries > MAX_CONNECTION_RETRIES) {
+    // If we've exceeded retries, trigger maintenance mode and stop reconnecting
+    if (_connectionRetries >= MAX_CONNECTION_RETRIES) {
       console.error('[Socket] Connection timeout after', MAX_CONNECTION_RETRIES, 'retries — server may be down');
       _maintenanceMode = true;
+      // Disable further reconnection attempts to prevent infinite loop
+      if (sock && sock.io && sock.io.opts) {
+        sock.io.opts.reconnection = false;
+        console.warn('[Socket] Reconnection disabled to prevent infinite loop');
+      }
     }
   });
 
