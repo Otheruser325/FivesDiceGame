@@ -271,15 +271,57 @@ export default class OnlineAccountScene extends Phaser.Scene {
     // Guest Login Labels + inputs
     this.add.text(640, 550, "Guest Username:", { fontSize: 20, color: "#aaaaaa" }).setOrigin(0.5);
     this.loginUserInput = this.add.dom(640, 580, "input", {
-      width: "200px", fontSize: "20px", padding: "4px", placeholder: "Guest username",
-      background: 'transparent', outline: 'none', color: '#fff'
+      type: "text",
+      placeholder: "Guest username",
+      style: `
+        width: 200px;
+        font-size: 20px;
+        padding: 6px;
+        background: rgba(0,0,0,0.5);
+        color: #ffffff;
+        border: 1px solid rgba(255,255,255,0.3);
+        border-radius: 6px;
+        outline: none;
+        font-family: Arial, sans-serif;
+      `
     });
+
+    // Add focus/blur events for login username input
+    if (this.loginUserInput.node) {
+      this.loginUserInput.node.addEventListener('focus', () => {
+        this.loginUserInput.node.style.border = '1px solid #66ff66';
+      });
+      this.loginUserInput.node.addEventListener('blur', () => {
+        this.loginUserInput.node.style.border = '1px solid rgba(255,255,255,0.3)';
+      });
+    }
 
     this.add.text(640, 620, "Guest Password:", { fontSize: 20, color: "#aaaaaa" }).setOrigin(0.5);
     this.loginPassInput = this.add.dom(640, 650, "input", {
-      width: "200px", fontSize: "20px", padding: "4px", type: "password", placeholder: "Password",
-      background: 'transparent', outline: 'none', color: '#fff'
+      type: "password",
+      placeholder: "Password",
+      style: `
+        width: 200px;
+        font-size: 20px;
+        padding: 6px;
+        background: rgba(0,0,0,0.5);
+        color: #ffffff;
+        border: 1px solid rgba(255,255,255,0.3);
+        border-radius: 6px;
+        outline: none;
+        font-family: Arial, sans-serif;
+      `
     });
+
+    // Add focus/blur events for login password input
+    if (this.loginPassInput.node) {
+      this.loginPassInput.node.addEventListener('focus', () => {
+        this.loginPassInput.node.style.border = '1px solid #66ff66';
+      });
+      this.loginPassInput.node.addEventListener('blur', () => {
+        this.loginPassInput.node.style.border = '1px solid rgba(255,255,255,0.3)';
+      });
+    }
 
     this.loginBtn = this.add.text(640, 680, 'Login as Guest', { fontSize: 20, color: '#66aaff' }).setOrigin(0.5).setInteractive();
     this.loginBtn.on('pointerdown', () => this.loginGuest());
