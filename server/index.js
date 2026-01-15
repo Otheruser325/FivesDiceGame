@@ -247,7 +247,10 @@ app.use(cors({
     }
     return cb(new Error('Not allowed by CORS'));
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Set-Cookie']
 }));
 
 const io = new Server(server, {
@@ -258,12 +261,12 @@ const io = new Server(server, {
       }
       return cb(null, false);
     },
-    methods: ['GET', 'POST'],
+    methods: ['GET', 'POST', 'OPTIONS'],
     credentials: true
   },
   // ⚠️ CRITICAL: Vercel/Lambda doesn't support WebSocket, polling only!
   // On Vercel, attempting WebSocket upgrade causes connection issues
-  transports: process.env.VERCEL === '1' 
+  transports: process.env.VERCEL === '1'
     ? ['polling']                    // Vercel: POLLING ONLY
     : ['polling', 'websocket'],      // Local: Try polling first, upgrade to WS
   
@@ -273,13 +276,13 @@ const io = new Server(server, {
   allowEIO4: true,                          // Support new protocol
   
   // Connection tuning for polling reliability across network types
-  pingInterval: 25000,                       // Send ping every 25s (Vercel/polling friendly)
-  pingTimeout: 15000,                        // Wait 15s for pong before considering dead
-  connectTimeout: 60000,                     // 60s timeout for initial connection (mobile networks)
+  pingInterval: 20000,                       // Send ping every 20s (more frequent for stability)
+  pingTimeout: 10000,                        // Wait 10s for pong before considering dead
+  connectTimeout: 45000,                     // 45s timeout for initial connection (mobile networks)
   
   // Polling upgrade behavior
   upgrade: process.env.VERCEL !== '1',       // Don't try WebSocket upgrade on Vercel
-  upgradeTimeout: 10000,                     // Quick timeout if upgrade attempted
+  upgradeTimeout: 8000,                      // Quick timeout if upgrade attempted
   
   // Polling-specific tuning - conservative to avoid 400 errors
   httpCompression: process.env.VERCEL === '1'
@@ -289,7 +292,15 @@ const io = new Server(server, {
   // Connection pool management
   perMessageDeflate: process.env.VERCEL === '1'
     ? false                                  // Vercel: No WebSocket compression
-    : { threshold: 1024 }                    // Local: Compress if > 1KB
+    : { threshold: 1024 },                   // Local: Compress if > 1KB
+    
+  // Add session management for stability
+  forceNew: true,
+  rememberUpgrade: false,
+  // Add retry configuration
+  retries: 3,
+  // Add timeout for requests
+  requestTimeout: 5000
 });
 
 // ============ Socket.io Error Handlers & HTTP 400 Suppression ============
@@ -398,10 +409,12 @@ const sessionConfig = {
   saveUninitialized: false,
   cookie: {
     secure: process.env.NODE_ENV === 'production',  // true on HTTPS (Vercel)
-    sameSite: 'none',                  // Required for cross-site requests
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',  // 'none' for cross-site in production
     httpOnly: true,                   // Prevent XSS access
-    maxAge: 24 * 60 * 60 * 1000      // 24 hours
-  }
+    maxAge: 24 * 60 * 60 * 1000,     // 24 hours
+    domain: process.env.NODE_ENV === 'production' ? '.vercel.app' : undefined  // For cross-subdomain cookies
+  },
+  name: 'fives.sid'  // Custom session name to avoid conflicts
 };
 
 if (sessionStore) {
@@ -507,14 +520,26 @@ app.use("/FivesDiceGame", express.static(path.join(__dirname, "../client")));
 // CRITICAL: Catch socket.io polling requests that bypass socket.io handler
 // This prevents 400 errors on HEAD/OPTIONS requests to /socket.io/
 app.options('/socket.io/*', (req, res) => {
-  res.header('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin;
+  if (isOriginAllowed(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else {
+    res.header('Access-Control-Allow-Origin', '*');
+  }
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, HEAD');
-  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'true');
   res.status(200).end();
 });
 
 app.head('/socket.io/*', (req, res) => {
-  res.header('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin;
+  if (isOriginAllowed(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else {
+    res.header('Access-Control-Allow-Origin', '*');
+  }
+  res.header('Access-Control-Allow-Credentials', 'true');
   res.status(200).end();
 });
 
@@ -613,15 +638,63 @@ io.on("connection", socket => {
   });
 });
 
-// Error handling middleware - prevent uncaught exceptions from crashing server
+// Enhanced error handling middleware - prevent uncaught exceptions from crashing server
 app.use((err, req, res, next) => {
+  const timestamp = new Date().toISOString();
+  const requestId = req.headers['x-request-id'] || Math.random().toString(36).substring(7);
+  
   if (req.path.startsWith('/socket.io')) {
-    console.error('[Socket.io] Middleware error:', err.message);
+    console.error(`[${timestamp}] [Socket.io] Middleware error [${requestId}]:`, {
+      message: err.message,
+      stack: err.stack,
+      path: req.path,
+      method: req.method
+    });
     return res.status(200).end(); // socket.io will handle retries
   }
   
-  console.error('[Express] Error:', err.message);
-  res.status(500).json({ error: 'Internal Server Error' });
+  console.error(`[${timestamp}] [Express] Error [${requestId}]:`, {
+    message: err.message,
+    stack: err.stack,
+    path: req.path,
+    method: req.method,
+    ip: req.ip,
+    userAgent: req.get('User-Agent')
+  });
+  
+  // Don't expose stack traces in production
+  const errorResponse = process.env.NODE_ENV === 'production'
+    ? { error: 'Internal Server Error', requestId }
+    : { error: err.message, stack: err.stack, requestId };
+    
+  res.status(500).json(errorResponse);
+});
+
+// Global error handlers for uncaught exceptions and rejections
+process.on('uncaughtException', (err) => {
+  console.error(`[${new Date().toISOString()}] [Uncaught Exception]:`, {
+    message: err.message,
+    stack: err.stack
+  });
+  // Don't exit immediately in production, log and continue
+  if (process.env.NODE_ENV === 'production') {
+    console.log('[Server] Continuing after uncaught exception...');
+  } else {
+    process.exit(1);
+  }
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error(`[${new Date().toISOString()}] [Unhandled Rejection]:`, {
+    reason: reason?.message || reason,
+    promise: promise.toString()
+  });
+  // Don't exit immediately in production, log and continue
+  if (process.env.NODE_ENV === 'production') {
+    console.log('[Server] Continuing after unhandled rejection...');
+  } else {
+    process.exit(1);
+  }
 });
 
 // 404 handler - but NOT for socket.io (it has its own)
@@ -635,3 +708,60 @@ app.use((req, res) => {
 server.listen(PORT, () =>
   console.log(`Server running on http://localhost:${PORT}`)
 );
+
+// Graceful shutdown handling
+const gracefulShutdown = (signal) => {
+  console.log(`\n[${new Date().toISOString()}] Received ${signal}, starting graceful shutdown...`);
+  
+  // Set a timeout for force shutdown
+  const forceShutdown = setTimeout(() => {
+    console.log('[Server] Force shutdown after timeout');
+    process.exit(1);
+  }, 10000); // 10 seconds
+  
+  try {
+    // Close socket.io server
+    if (io) {
+      console.log('[Server] Closing Socket.io connections...');
+      io.close(() => {
+        console.log('[Server] Socket.io connections closed');
+      });
+    }
+    
+    // Close HTTP server
+    server.close(() => {
+      console.log('[Server] HTTP server closed');
+      clearTimeout(forceShutdown);
+      
+      // Close database connections if any
+      console.log('[Server] Graceful shutdown completed');
+      process.exit(0);
+    });
+  } catch (error) {
+    console.error('[Server] Error during graceful shutdown:', error);
+    clearTimeout(forceShutdown);
+    process.exit(1);
+  }
+};
+
+// Handle shutdown signals
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Vercel serverless doesn't support SIGTERM/SIGINT, but we can handle the 'exit' event
+process.on('exit', (code) => {
+  console.log(`[Server] Process exiting with code ${code}`);
+});
+
+// Handle Vercel-specific timeout
+if (process.env.VERCEL === '1') {
+  console.log('[Server] Vercel environment detected - optimizing for serverless');
+  
+  // Set maximum execution time for Vercel (10 minutes)
+  const MAX_EXECUTION_TIME = 10 * 60 * 1000; // 10 minutes
+  
+  setTimeout(() => {
+    console.log('[Server] Vercel execution timeout reached, forcing shutdown');
+    process.exit(0);
+  }, MAX_EXECUTION_TIME);
+}

@@ -269,6 +269,13 @@ router.get(
   "/discord/callback",
   requireStrategy("discord", "Discord OAuth is not configured"),
   (req, res, next) => {
+    // Set CORS headers for the callback
+    const origin = req.headers.origin;
+    if (origin && (origin.includes('vercel.app') || origin.includes('localhost'))) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+    }
+    
     // Add custom error handler for Discord auth
     passport.authenticate("discord", (err, user, info) => {
       if (err) {
@@ -289,11 +296,18 @@ router.get(
           return res.redirect(`/?error=${errorMsg}`);
         }
         
-        // Success
-        if (req.query.state === "json") {
-          return res.json({ ok: true, user: publicUser(user) });
-        }
-        res.redirect("/FivesDiceGame");
+        // Save session before redirect to ensure cookie is set
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error('[Discord callback] Session save error:', saveErr?.message || saveErr);
+          }
+          
+          // Success
+          if (req.query.state === "json") {
+            return res.json({ ok: true, user: publicUser(user) });
+          }
+          res.redirect("/FivesDiceGame");
+        });
       });
     })(req, res, next);
   }

@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon --watch server --watch client --exec node index.js --delay 200"
+    "dev": "nodemon --watch server --watch client --exec node index.js --delay 200",
+    "test-fixes": "node scripts/test-fixes.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.87.1",
@@ -16,11 +17,13 @@
     "express-session": "^1.18.2",
     "fs-extra": "^11.3.2",
     "lowdb": "^5.0.4",
+    "node-fetch": "^3.3.2",
     "passport": "^0.6.0",
     "passport-discord": "^0.1.4",
     "passport-google-oauth20": "^2.0.0",
     "passport-oauth2": "^1.8.0",
     "socket.io": "^4.7.1",
+    "socket.io-client": "^4.8.3",
     "uuid": "^9.0.1",
     "uuidv4": "^6.2.13"
   },
