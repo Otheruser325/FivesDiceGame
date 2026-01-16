@@ -280,9 +280,9 @@ const io = new Server(server, {
   allowEIO4: true,                          // Support new protocol
   
   // Connection tuning for polling reliability across network types
-  pingInterval: 25000,                       // Send ping every 25s (more stable for Vercel)
-  pingTimeout: 15000,                        // Wait 15s for pong before considering dead
-  connectTimeout: 60000,                     // 60s timeout for initial connection (mobile networks)
+  pingInterval: 30000,                       // Send ping every 30s (more stable for Vercel)
+  pingTimeout: 20000,                        // Wait 20s for pong before considering dead
+  connectTimeout: 45000,                     // 45s timeout for initial connection (mobile networks)
   
   // Polling upgrade behavior
   upgrade: false,                            // DISABLE upgrade completely for stability
@@ -298,9 +298,9 @@ const io = new Server(server, {
   forceNew: false,                           // Don't force new connections unnecessarily
   rememberUpgrade: false,                    // Don't remember upgrade attempts
   // Add retry configuration
-  retries: 5,                                // More retries for unstable connections
+  retries: 3,                                // Reduce retries to prevent endless loops
   // Add timeout for requests
-  requestTimeout: 10000,                     // Longer timeout for Vercel
+  requestTimeout: 8000,                      // Shorter timeout to fail fast
   
   // Additional Vercel-specific optimizations
   addTrailingSlash: false,                   // Avoid trailing slash issues
@@ -310,8 +310,10 @@ const io = new Server(server, {
   transportOptions: {
     polling: {
       maxHttpBufferSize: 1e6,
-      requestTimeout: 10000,
-      closeTimeout: 5000
+      requestTimeout: 8000,
+      closeTimeout: 3000,
+      timestampParam: 't',
+      timestampRequests: true
     }
   }
 });
@@ -691,19 +693,42 @@ io.on("connection", socket => {
   socketMetrics.totalConnections++;
   socketMetrics.activeConnections++;
   
-  // Minimal logging to avoid crashes
+  // Enhanced connection logging with transport info
   console.log('[Socket] Connection:', {
     id: socket.id,
+    transport: socket.conn.transport.name,
     activeCount: socketMetrics.activeConnections,
     totalCount: socketMetrics.totalConnections
   });
   
+  // Handle transport changes (polling fallbacks)
+  socket.conn.on('upgrade', () => {
+    console.log('[Socket] Transport upgraded:', {
+      id: socket.id,
+      transport: socket.conn.transport.name
+    });
+  });
+  
+  // Handle connection errors gracefully
+  socket.conn.on('error', (err) => {
+    console.warn('[Socket] Connection error:', {
+      id: socket.id,
+      error: err.message,
+      transport: socket.conn.transport.name
+    });
+  });
+  
   lobbyManager.registerSocket(socket);
   
-  // Track disconnections
+  // Track disconnections with enhanced logging
   socket.on('disconnect', (reason) => {
     socketMetrics.activeConnections--;
-    console.info('[Socket] Disconnection:', { id: socket.id, reason, activeCount: socketMetrics.activeConnections });
+    console.info('[Socket] Disconnection:', {
+      id: socket.id,
+      reason,
+      transport: socket.conn.transport.name,
+      activeCount: socketMetrics.activeConnections
+    });
   });
   
   // Expose metrics via socket event for debugging
