@@ -9,6 +9,7 @@ import { createClient } from 'redis';
 import RedisStore from 'connect-redis';
 import { authMiddleware, authRouter } from './auth.js';
 import { lobbyManager } from './lobbyManager.js';
+import ws from 'ws';
 
 // Load environment variables
 dotenv.config();
@@ -39,7 +40,8 @@ const io = new Server(server, {
   upgrade: true, // Allow WebSocket upgrades
   rememberUpgrade: true, // Remember successful upgrades
   addTrailingSlash: false,
-  forceNew: false
+  forceNew: false,
+  wsEngine: ws // Explicitly set WebSocket engine
 });
 
 // Redis client for session storage (if available)

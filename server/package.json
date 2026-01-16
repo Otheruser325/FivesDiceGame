@@ -3,17 +3,18 @@
   "version": "1.0.0",
   "description": "Fives dice game server",
   "type": "module",
-  "main": "index-production.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node index-production.js",
+    "start": "node index.js",
     "dev": "nodemon --watch server --watch client --exec node index.js --delay 200",
-    "production": "node index-production.js",
+    "production": "node index.js",
     "migrate": "node scripts/apply-supabase-migration.js",
     "test-supabase": "node scripts/test-supabase-migration.js",
     "setup": "npm run migrate && npm run test-supabase",
     "health": "curl -f http://localhost:8080/health || exit 1",
     "test-fixes": "node scripts/test-fixes.js",
-    "test-all-fixes": "node scripts/test-all-fixes.js"
+    "test-all-fixes": "node scripts/test-all-fixes.js",
+    "test-websocket": "node scripts/test-websocket-fix.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.87.1",
@@ -35,7 +36,8 @@
     "socket.io": "^4.7.1",
     "socket.io-client": "^4.8.3",
     "uuid": "^9.0.1",
-    "uuidv4": "^6.2.13"
+    "uuidv4": "^6.2.13",
+    "ws": "^8.14.2"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
