@@ -277,52 +277,46 @@ router.get("/discord",
 
 // Discord authorize proxy endpoint to avoid CORS issues
 router.get("/discord/authorize", (req, res) => {
-  const { client_id, redirect_uri, scope, state, response_type } = req.query;
-  
-  // Validate required parameters
-  if (!client_id || !redirect_uri || !scope || !state || !response_type) {
-    return res.status(400).json({
-      error: 'Missing required OAuth parameters',
-      required: ['client_id', 'redirect_uri', 'scope', 'state', 'response_type']
-    });
+  try {
+    // Generate OAuth parameters dynamically
+    const client_id = process.env.DISCORD_CLIENT_ID;
+    const redirect_uri = process.env.NODE_ENV === 'production'
+      ? `https://${process.env.VERCEL_URL || 'fivesapi.vercel.app'}/auth/discord/callback`
+      : 'http://localhost:8080/auth/discord/callback';
+    const scope = 'identify';
+    const state = 'json'; // Use JSON response for client-side handling
+    const response_type = 'code';
+    
+    // Validate Discord configuration
+    if (!client_id) {
+      return res.status(500).json({ error: 'Discord OAuth not configured' });
+    }
+    
+    // Build Discord authorize URL
+    const discordUrl = new URL('https://discord.com/api/oauth2/authorize');
+    discordUrl.searchParams.set('client_id', client_id);
+    discordUrl.searchParams.set('redirect_uri', redirect_uri);
+    discordUrl.searchParams.set('scope', scope);
+    discordUrl.searchParams.set('state', state);
+    discordUrl.searchParams.set('response_type', response_type);
+    
+    console.log('[Discord] Authorize proxy redirecting to:', discordUrl.toString());
+    
+    // Set CORS headers
+    const origin = req.headers.origin;
+    if (origin && (origin.includes('vercel.app') || origin.includes('localhost'))) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    }
+    
+    // Redirect to Discord OAuth
+    res.redirect(302, discordUrl.toString());
+  } catch (error) {
+    console.error('[Discord] Authorize proxy error:', error?.message || error);
+    res.status(500).json({ error: 'Internal server error' });
   }
-  
-  // Validate client ID matches our Discord app
-  if (client_id !== process.env.DISCORD_CLIENT_ID) {
-    return res.status(400).json({ error: 'Invalid client_id' });
-  }
-  
-  // Validate redirect URI is allowed
-  const allowedRedirects = [
-    `https://${process.env.VERCEL_URL || 'fivesapi.vercel.app'}/auth/discord/callback`,
-    'http://localhost:8080/auth/discord/callback'
-  ];
-  
-  if (!allowedRedirects.includes(redirect_uri)) {
-    return res.status(400).json({ error: 'Invalid redirect_uri' });
-  }
-  
-  // Build Discord authorize URL
-  const discordUrl = new URL('https://discord.com/api/oauth2/authorize');
-  discordUrl.searchParams.set('client_id', client_id);
-  discordUrl.searchParams.set('redirect_uri', redirect_uri);
-  discordUrl.searchParams.set('scope', scope);
-  discordUrl.searchParams.set('state', state);
-  discordUrl.searchParams.set('response_type', response_type);
-  
-  console.log('[Discord] Proxying authorize request to:', discordUrl.toString());
-  
-  // Set CORS headers
-  const origin = req.headers.origin;
-  if (origin && (origin.includes('vercel.app') || origin.includes('localhost'))) {
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  }
-  
-  // Redirect to Discord
-  res.redirect(302, discordUrl.toString());
 });
 
 // Handle OPTIONS preflight for Discord callback
@@ -401,7 +395,7 @@ router.get(
         if (process.env.NODE_ENV === 'production') {
           req.session.cookie.sameSite = 'none';
           req.session.cookie.secure = true;
-          req.session.cookie.domain = '.vercel.app';
+          req.session.cookie.domain = undefined; // Remove domain restriction for cross-site
           req.session.cookie.partitioned = true;
           req.session.cookie.priority = 'high';
         }
@@ -441,7 +435,7 @@ router.get(
               httpOnly: false, // Allow JavaScript access
               secure: true,
               sameSite: 'none',
-              domain: '.vercel.app',
+              domain: undefined, // Remove domain restriction for cross-site
               partitioned: true
             });
             
@@ -451,7 +445,7 @@ router.get(
               httpOnly: false,
               secure: true,
               sameSite: 'none',
-              domain: '.vercel.app',
+              domain: undefined, // Remove domain restriction for cross-site
               partitioned: true
             });
           }

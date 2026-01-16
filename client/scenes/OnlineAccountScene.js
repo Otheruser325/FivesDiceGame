@@ -197,7 +197,8 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
         discordBtn.on('pointerdown', async () => {
           GlobalAudio.playButton(this);
-          await this.oauthLogin('/auth/discord?redirect=json');
+          // Use the new proxy endpoint to avoid CORS issues
+          await this.oauthLogin('/auth/discord/authorize');
         });
       } else {
         this.add.text(640, yPos, 'Discord OAuth (not configured)', {

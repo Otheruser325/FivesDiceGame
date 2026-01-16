@@ -423,7 +423,7 @@ const sessionConfig = {
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',  // 'none' for cross-site in production
     httpOnly: true,                   // Prevent XSS access
     maxAge: 24 * 60 * 60 * 1000,     // 24 hours
-    domain: process.env.NODE_ENV === 'production' ? '.vercel.app' : undefined,  // For cross-subdomain cookies
+    domain: process.env.NODE_ENV === 'production' ? undefined : undefined,  // Remove domain restriction for cross-site
     path: '/',                        // Ensure cookie is available for all paths
     // Additional cookie attributes for stability
     partitioned: process.env.NODE_ENV === 'production', // Partitioned cookies for cross-site
