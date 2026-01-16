@@ -1,10 +1,17 @@
 {
   "name": "fives-server",
   "version": "1.0.0",
+  "description": "Fives dice game server",
   "type": "module",
+  "main": "index-production.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "node index-production.js",
     "dev": "nodemon --watch server --watch client --exec node index.js --delay 200",
+    "production": "node index-production.js",
+    "migrate": "node scripts/apply-supabase-migration.js",
+    "test-supabase": "node scripts/test-supabase-migration.js",
+    "setup": "npm run migrate && npm run test-supabase",
+    "health": "curl -f http://localhost:8080/health || exit 1",
     "test-fixes": "node scripts/test-fixes.js",
     "test-all-fixes": "node scripts/test-all-fixes.js"
   },
@@ -12,6 +19,7 @@
     "@supabase/supabase-js": "^2.87.1",
     "bcrypt": "^5.1.0",
     "bcryptjs": "^3.0.3",
+    "connect-redis": "^7.1.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^4.22.1",
@@ -23,6 +31,7 @@
     "passport-discord": "^0.1.4",
     "passport-google-oauth20": "^2.0.0",
     "passport-oauth2": "^1.8.0",
+    "redis": "^4.6.12",
     "socket.io": "^4.7.1",
     "socket.io-client": "^4.8.3",
     "uuid": "^9.0.1",
@@ -31,5 +40,8 @@
   "devDependencies": {
     "concurrently": "^9.2.1",
     "nodemon": "^3.1.11"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
