@@ -8,8 +8,7 @@ import session from 'express-session';
 import { createClient } from 'redis';
 import RedisStore from 'connect-redis';
 import { authMiddleware, authRouter } from './auth.js';
-import { lobbyManager } from './lobbyManager.js';
-import ws from 'ws';
+import LobbyManager from './lobbyManager.js';
 
 // Load environment variables
 dotenv.config();
@@ -40,9 +39,11 @@ const io = new Server(server, {
   upgrade: true, // Allow WebSocket upgrades
   rememberUpgrade: true, // Remember successful upgrades
   addTrailingSlash: false,
-  forceNew: false,
-  wsEngine: ws // Explicitly set WebSocket engine
+  forceNew: false
 });
+
+// Initialize LobbyManager
+const lobbyManager = new LobbyManager(io);
 
 // Redis client for session storage (if available)
 let redisClient = null;
@@ -159,16 +160,16 @@ app.get('/health', (req, res) => {
 app.use('/auth', authRouter);
 
 // Socket.io connection handling
-io.on('connection', (socket) => {
+io.on('connection', async (socket) => {
   console.log(`[Socket] Connected: ${socket.id} from ${socket.handshake.address}`);
-  
-  // Initialize lobby manager with this socket
-  lobbyManager.initializeSocket(socket);
-  
+
+  // Register socket with lobby manager
+  await lobbyManager.registerSocket(socket);
+
   socket.on('error', (error) => {
     console.error(`[Socket] Error on ${socket.id}:`, error);
   });
-  
+
   socket.on('disconnect', (reason, details) => {
     console.log(`[Socket] Disconnected: ${socket.id} - ${reason}`);
     if (details) {
