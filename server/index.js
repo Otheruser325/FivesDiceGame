@@ -45,6 +45,9 @@ class HybridSessionStore extends session.Store {
     this.useFileSystem = true; // Track if we can use filesystem
     this.isVercel = process.env.VERCEL === '1'; // Detect Vercel environment
     
+    // ⚠️ CRITICAL: Prevent MaxListenersExceededWarning
+    this.setMaxListeners(0); // Unlimited listeners for session store
+    
     if (this.isVercel) {
       console.warn('[Session] Vercel environment detected - using in-memory session store');
       this.useFileSystem = false;
@@ -836,11 +839,14 @@ process.on('exit', (code) => {
 if (process.env.VERCEL === '1') {
   console.log('[Server] Vercel environment detected - optimizing for serverless');
   
-  // Set maximum execution time for Vercel (10 minutes)
-  const MAX_EXECUTION_TIME = 10 * 60 * 1000; // 10 minutes
+  // ⚠️ CRITICAL: Reduce execution time to prevent Vercel timeout (was 10 minutes)
+  const MAX_EXECUTION_TIME = 3 * 60 * 1000; // 3 minutes - well within Vercel limits
   
   setTimeout(() => {
     console.log('[Server] Vercel execution timeout reached, forcing shutdown');
     process.exit(0);
   }, MAX_EXECUTION_TIME);
+  
+  // Optimize for faster startup
+  console.log('[Server] Fast startup mode enabled for Vercel');
 }

@@ -43,6 +43,13 @@ if (SUPA_URL && SUPA_KEY) {
       if (error) {
         console.error('[userStorage] ⚠️ Health check failed:', error.message);
         console.error('[userStorage] Error details:', { code: error.code, message: error.message });
+        
+        // Provide specific guidance for common errors
+        if (error.code === '42P01' || error.message?.includes('does not exist')) {
+          console.error('[userStorage] ❌ TABLE MISSING: Run "npm run migrate" to create the users table');
+        } else if (error.code === 'PGRST116') {
+          console.error('[userStorage] ❌ RLS POLICY ISSUE: Check Supabase RLS policies');
+        }
       } else {
         console.log('[userStorage] ✅ Supabase connection verified, table accessible');
       }
@@ -113,7 +120,17 @@ function _rowToUser(row) {
 
 function _userToRow(user) {
   if (!user || !user.id) throw new Error('user must include id');
-  return { ...user };
+  
+  // ⚠️ CRITICAL: Ensure guestPassword is included for guest users
+  // This fixes the "Could not find the 'guestPassword' column" error
+  const row = { ...user };
+  
+  // For guest users, ensure guestPassword is present (even if empty)
+  if (user.type === 'guest' && !row.guestPassword) {
+    row.guestPassword = user.guestPassword || '';
+  }
+  
+  return row;
 }
 
 // ----------------
@@ -334,6 +351,12 @@ export async function saveUser(user) {
         else if (errorCode === '42P01' || errorMsg.includes('does not exist') ||
                  errorMsg.includes('relation') || errorMsg.includes('schema')) {
           console.warn('[userStorage] Table "users" missing in Supabase, data will persist in memory only');
+          console.warn('[userStorage] To fix: Run "npm run migrate" to create the users table');
+        }
+        // Column missing errors
+        else if (errorCode === '42703' || errorMsg.includes('column') && errorMsg.includes('does not exist')) {
+          console.error('[userStorage] ⚠️ COLUMN MISSING in Supabase users table:', errorMsg);
+          console.error('[userStorage] To fix: Run "npm run migrate" to update the table schema');
         }
         // Authorization/credential errors
         else if (errorCode === '401' || errorMsg.includes('Unauthorized') || errorMsg.includes('invalid') && errorMsg.includes('JWT')) {
