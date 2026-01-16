@@ -114,6 +114,9 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 const sessionMiddleware = await initializeSession();
 app.use(sessionMiddleware);
 
+// Initialize auth middleware (Passport)
+authMiddleware(app);
+
 // Share session with socket.io
 io.use((socket, next) => {
   sessionMiddleware(socket.request, {}, next);

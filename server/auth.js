@@ -478,3 +478,16 @@ router.get("/methods", (req, res) => {
   };
   res.json(methods);
 });
+
+// Auth middleware function to initialize Passport
+export function authMiddleware(app) {
+  app.use(passport.initialize());
+  app.use(passport.session());
+  console.log('[Auth] Passport middleware initialized');
+}
+
+// Export the router as authRouter for consistency
+export const authRouter = router;
+
+// Also export default router for backward compatibility
+export default router;
