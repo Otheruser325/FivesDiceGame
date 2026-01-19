@@ -22,8 +22,8 @@ const userMemoryCache = new Map();
 const isVercel = process.env.VERCEL === '1';
 
 // Supabase client (optional)
-const SUPA_URL = process.env.SUPABASE_URL || 'https://vuwlopjvwhhnqmdxwbmm.supabase.co';
-const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ1d2xvcGp2d2hobnFtZHh3Ym1tIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2ODUwMzY2OCwiZXhwIjoyMDg0MDc5NjY4fQ.M9KxNETxYitymWpoLuiKWUXtRRG9jDcrUPOvIQaziW8';
+const SUPA_URL = process.env.SUPABASE_URL;
+const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 let supabase = null;
 
 // ⚠️ CRITICAL: Log Supabase initialization status on startup

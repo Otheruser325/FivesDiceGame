@@ -1,29 +1,5 @@
 {
   "users": {
-    "f4c756d9-1af8-4679-b6a5-13432fff134c": {
-      "id": "f4c756d9-1af8-4679-b6a5-13432fff134c",
-      "name": "Guest8430",
-      "type": "guest",
-      "guestpassword": "$2b$10$RIjJw2vWK2IR31JwM007.OY2fHehgDwgYWfQy9/9C1e8O70dB0f2C"
-    },
-    "7f06a5f2-e024-4a14-9477-92ab2ebff5ee": {
-      "id": "7f06a5f2-e024-4a14-9477-92ab2ebff5ee",
-      "name": "Guest1386",
-      "type": "guest",
-      "guestpassword": "$2b$10$P4mRtY3bJppgxa/oAw5i6.M9oOJDuWyYt3Qp4RMrpDQVVf67iWtFS"
-    },
-    "bd76376b-885e-4cfb-861e-35f54b5d9b09": {
-      "id": "bd76376b-885e-4cfb-861e-35f54b5d9b09",
-      "name": "Guest7091",
-      "type": "guest",
-      "guestpassword": "$2b$10$A9aopdmYshz18tlBjlTD2.Y1Sa27d3jm9o5K0OaFUPO3nY9lJpZDK"
-    },
-    "1cdfb713-f072-4bf3-9bec-fdd0b16c53a7": {
-      "id": "1cdfb713-f072-4bf3-9bec-fdd0b16c53a7",
-      "name": "Guest4526",
-      "type": "guest",
-      "guestpassword": "$2b$10$6H6HbcZmPckOXokh1jxg6uMUsWMu36Ni/DP2S69E9.17kGNFYx04u"
-    },
     "5795de62-b9b7-4506-8132-30b6db9af5e3": {
       "id": "5795de62-b9b7-4506-8132-30b6db9af5e3",
       "name": "Guest9536",

@@ -10,7 +10,7 @@ const CONFIG = {
   // ENVIRONMENT & DEPLOYMENT
   // ==========================================
   
-  environment: 'development',  // 'development' | 'production'
+  environment: 'production',  // 'development' | 'production'
   
   // Server endpoints
   servers: {

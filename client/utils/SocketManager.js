@@ -3,12 +3,12 @@ let _serverUrl = null;
 let _probing = false;
 let _connectionRetries = 0;
 let _maintenanceMode = false;
-let _lastConnectionId = null;  // Track connection ID to detect server resets
+let _lastConnectionId = null;
 let _serverResetDetected = false;
-let isAuthenticated = false; // Track authentication status
+let isAuthenticated = false;
 
 // Set to 'development' to connect to localhost, otherwise defaults to production server
-const MODE = 'development'; // Change to 'production' for production deployment
+const MODE = 'production'; // Change to 'production' for production deployment
 
 const DEFAULT_PORTS = [8080, 8081, 8082, 8083, 8084, 8085];
 
