@@ -10,7 +10,7 @@ class AlertManager {
    * Show a modal alert
    * @param {Phaser.Scene} scene
    * @param {string} message
-   * @param {'warning'|'error'|'success'|'checking'} type
+   * @param {'warning'|'error'|'success'|'info'} type
    */
   show(scene, message, type = 'warning') {
     if (!scene || !scene.add) return;
@@ -88,8 +88,8 @@ class AlertManager {
         return { title: 'ERROR', color: 0xff4444, hex: '#ff4444' };
       case 'success':
         return { title: 'SUCCESS', color: 0x66ff66, hex: '#66ff66' };
-      case 'checking':
-        return { title: 'CHECKING', color: 0x66aaff, hex: '#66aaff' };
+      case 'info':
+        return { title: 'INFO', color: 0x66aaff, hex: '#66aaff' };
       case 'warning':
       default:
         return { title: 'WARNING', color: 0xffff66, hex: '#ffff66' };

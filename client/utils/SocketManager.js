@@ -5,12 +5,19 @@ let _connectionRetries = 0;
 let _maintenanceMode = false;
 let _lastConnectionId = null;  // Track connection ID to detect server resets
 let _serverResetDetected = false;
+let isAuthenticated = false; // Track authentication status
 
 // Set to 'development' to connect to localhost, otherwise defaults to production server
-const MODE = 'production'; // Change to 'development' for localhost testing
+const MODE = 'development'; // Change to 'production' for production deployment
 
 const DEFAULT_PORTS = [8080, 8081, 8082, 8083, 8084, 8085];
-const PRODUCTION_SERVER = 'https://fivesapi.vercel.app';
+
+// Production server URLs - supports both Vercel deployment and custom domain
+const PRODUCTION_SERVERS = [
+  'https://api.fivesdicegame.com',     // Primary: Custom domain API
+  'https://fivesapi.vercel.app'        // Fallback: Vercel deployment
+];
+
 const MAX_CONNECTION_RETRIES = 15;           // Allow more retries for network resilience
 const INITIAL_RECONNECT_DELAY = 300;          // 300ms initial delay
 const MAX_RECONNECT_DELAY = 8000;             // 8s max delay
@@ -45,13 +52,13 @@ function _initialServerCandidate() {
     }
   } catch (e) { /* ignore */ }
 
-  // Default based on MODE: production connects to fivesapi.vercel.app, development to localhost
+  // Default based on MODE: production connects to api.fivesdicegame.com, development to localhost
   if (MODE === 'development') {
     const proto = (typeof window !== 'undefined' && window.location && window.location.protocol === 'https:') ? 'https' : 'http';
     _serverUrl = `${proto}://localhost:8080`;
   } else {
-    // production: use vercel server
-    _serverUrl = PRODUCTION_SERVER;
+    // production: use custom domain API server (with Vercel fallback)
+    _serverUrl = PRODUCTION_SERVERS[0];
   }
   return _serverUrl;
 }
@@ -184,13 +191,21 @@ function _attachSocketHandlers(sock, server) {
     _connectionRetries = 0;  // Reset retries on successful connection
     _maintenanceMode = false; // Clear maintenance mode flag
     
-    // Detect if server has reset (different connection ID)
+    // ✅ FIX: Only treat as reset if we've been connected long enough
+    // Normal reconnects always get new socket IDs - that's not a server reset!
+    // Only warn if this is the FIRST connection or if we were stable for a while
     if (_lastConnectionId && _lastConnectionId !== sock.id) {
-      console.warn('[Socket] Server reset detected! Previous id:', _lastConnectionId, 'New id:', sock.id);
-      _serverResetDetected = true;
-      // Emit event so scenes can handle re-authentication
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('socket-server-reset', { detail: { oldId: _lastConnectionId, newId: sock.id } }));
+      // Check if we had a stable connection before this disconnect
+      const wasConnectedLong = _connectionRetries < 2;  // Only flag if few retries
+      if (wasConnectedLong && _serverResetDetected === false) {
+        console.warn('[Socket] ⚠️ Server reset detected! Previous id:', _lastConnectionId, 'New id:', sock.id);
+        _serverResetDetected = true;
+        // Emit event so scenes can handle re-authentication
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('socket-server-reset', { detail: { oldId: _lastConnectionId, newId: sock.id } }));
+        }
+      } else {
+        console.debug('[Socket] New connection ID (normal after reconnect):', _lastConnectionId, '→', sock.id);
       }
     }
     _lastConnectionId = sock.id;
@@ -261,6 +276,8 @@ function _attachSocketHandlers(sock, server) {
 
   sock.on('disconnect', (reason) => {
     console.info('[Socket] disconnected:', reason);
+    // Reset authentication state on disconnect
+    resetAuthStatus();
     // Don't reset maintenance mode on network blip if it's deliberate
     if (reason === 'io server disconnect' || reason === 'io client namespace disconnect') {
       _maintenanceMode = false;
@@ -280,6 +297,24 @@ async function _backgroundProbeAndReconnect() {
     const current = _initialServerCandidate();
     for (const c of candidates) {
       if (!c || c === current) continue;
+      
+      // ✅ FIX: Don't switch between localhost and 127.0.0.1 (same server!)
+      // Normalize to compare properly
+      const currentNorm = _norm(current);
+      const candidateNorm = _norm(c);
+      
+      // Check if they point to the same host (ignore localhost vs 127.0.0.1 difference)
+      const currentHost = new URL(currentNorm).hostname;
+      const candidateHost = new URL(candidateNorm).hostname;
+      const sameHost = (currentHost === candidateHost) || 
+                       (currentHost === 'localhost' && candidateHost === '127.0.0.1') ||
+                       (currentHost === '127.0.0.1' && candidateHost === 'localhost');
+      
+      if (sameHost) {
+        console.debug('[SocketManager] Skipping', c, '(same host as current)');
+        continue;  // ✅ Don't switch to same host with different IP
+      }
+      
       const ok = await _probeOrigin(c, 850);
       if (ok) {
         console.info('[SocketManager] discovered server at', c, '— switching');
@@ -430,4 +465,55 @@ export function forceNewConnection() {
     // Create new socket instance
     getSocket();
   }
+}
+
+/**
+ * Emit the 'auth-user' event to authenticate the socket.
+ * Ensures the event is emitted only once per connected session.
+ * @param {Object} user - The user object containing id, name, type, etc.
+ * @param {Boolean} force - Force re-authentication even if already authenticated
+ */
+export function emitAuthUser(user, force = false) {
+    try {
+        if (!user || !user.id) {
+            console.warn('[SocketManager] Invalid user data, cannot emit auth-user');
+            return;
+        }
+
+        const socket = getSocket && typeof getSocket === 'function' ? getSocket() : null;
+        if (socket && socket.emit) {
+            // Check if socket has auth data set by server
+            const socketAuthenticated = socket.data?.user?.id ? true : false;
+            
+            if (isAuthenticated && socketAuthenticated && !force) {
+                console.info('[SocketManager] Socket already authenticated, skipping auth-user emission');
+                return;
+            }
+
+            // Ensure user object has required fields (use name fallback to username if needed)
+            const userWithSocket = {
+                id: user.id,
+                name: user.name || user.username || `Guest${String(user.id).substring(0, 6)}`,
+                type: user.type || 'guest',
+                email: user.email || null,
+                profile: user.profile || null,
+                created_at: user.created_at || null,
+                updated_at: user.updated_at || null,
+                socketId: socket.id || null // Include current socket ID
+            };
+
+            console.log('[SocketManager] Emitting auth-user to socket:', userWithSocket, { force, socketAuth: socketAuthenticated });
+            socket.emit('auth-user', userWithSocket);
+            isAuthenticated = true; // Mark as authenticated
+        }
+    } catch (e) {
+        console.error('[SocketManager] Failed to emit auth-user:', e);
+    }
+}
+
+/**
+ * Reset authentication status (e.g., on socket disconnect).
+ */
+export function resetAuthStatus() {
+    isAuthenticated = false;
 }

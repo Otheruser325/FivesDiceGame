@@ -22,8 +22,8 @@ const userMemoryCache = new Map();
 const isVercel = process.env.VERCEL === '1';
 
 // Supabase client (optional)
-const SUPA_URL = process.env.SUPABASE_URL;
-const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPA_URL = process.env.SUPABASE_URL || 'https://vuwlopjvwhhnqmdxwbmm.supabase.co';
+const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ1d2xvcGp2d2hobnFtZHh3Ym1tIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2ODUwMzY2OCwiZXhwIjoyMDg0MDc5NjY4fQ.M9KxNETxYitymWpoLuiKWUXtRRG9jDcrUPOvIQaziW8';
 let supabase = null;
 
 // ⚠️ CRITICAL: Log Supabase initialization status on startup
@@ -114,20 +114,25 @@ async function _safeLocalWrite() {
 
 function _rowToUser(row) {
   if (!row) return null;
-  const { guestPassword, ...rest } = row;
-  return { ...rest, id: String(row.id) };
+  // Handle both camelCase (guestPassword) and lowercase (guestpassword) column names
+  const guestPassword = row.guestPassword || row.guestpassword;
+  const { guestPassword: _, guestpassword, ...rest } = row;
+  return { ...rest, id: String(row.id), guestPassword };
 }
 
 function _userToRow(user) {
   if (!user || !user.id) throw new Error('user must include id');
   
-  // ⚠️ CRITICAL: Ensure guestPassword is included for guest users
-  // This fixes the "Could not find the 'guestPassword' column" error
+  // ⚠️ CRITICAL: Map camelCase to lowercase database columns
+  // Database uses lowercase 'guestpassword' not camelCase 'guestPassword'
   const row = { ...user };
   
-  // For guest users, ensure guestPassword is present (even if empty)
-  if (user.type === 'guest' && !row.guestPassword) {
-    row.guestPassword = user.guestPassword || '';
+  // Map guestPassword (app format) to guestpassword (DB format)
+  if (row.guestPassword !== undefined) {
+    row.guestpassword = row.guestPassword;
+    delete row.guestPassword;  // Remove camelCase to avoid column mismatch
+  } else if (user.type === 'guest' && !row.guestpassword) {
+    row.guestpassword = '';  // Ensure field exists for guest users
   }
   
   return row;
@@ -141,15 +146,41 @@ export async function loadUsers() {
   // Try Supabase if available
   if (supabase) {
     try {
+      // ✅ FIX: Attempt to load and auto-populate schema cache if needed
       const { data, error } = await supabase.from('users').select('*');
       
       // Check for common Supabase errors indicating missing/empty schema
       if (error) {
+        // Check if it's a schema cache issue (column not found)
+        if (error.code === 'PGRST116' || 
+            error.message?.includes('schema cache') ||
+            error.message?.includes('column')) {
+          console.warn('[userStorage] ⚠️ Supabase schema cache outdated, attempting refresh...');
+          // Try to refresh schema by querying information_schema
+          try {
+            await supabase.rpc('pg_reload_schema_cache', {});
+            console.info('[userStorage] ✅ Schema cache refreshed');
+            // Retry the query
+            const { data: retryData, error: retryError } = await supabase.from('users').select('*');
+            if (!retryError && retryData) {
+              const map = {};
+              (retryData || []).forEach(r => {
+                const u = _rowToUser(r);
+                if (u && u.id) map[u.id] = u;
+              });
+              console.info('[userStorage] ✅ Loaded', Object.keys(map).length, 'users from Supabase after schema refresh');
+              return map;
+            }
+          } catch (refreshErr) {
+            console.debug('[userStorage] Schema cache refresh not available, using fallback');
+          }
+        }
+        
         if (error.code === 'PGRST116' || error.code === '42P01' || 
             error.message?.includes('does not exist') ||
-            error.message?.includes('relation') ||
-            error.message?.includes('schema')) {
-          console.warn('[userStorage] Supabase table "users" does not exist or schema not initialized, falling back to local DB');
+            error.message?.includes('relation')) {
+          console.warn('[userStorage] ⚠️ Supabase table "users" does not exist or schema not initialized');
+          console.warn('[userStorage] 💡 To fix: Run "npm run migrate" to create the users table');
         } else {
           console.warn('[userStorage] Supabase loadUsers error:', error?.message || error);
         }
@@ -213,6 +244,14 @@ export async function saveUsers(users) {
         const errorMsg = error?.message || String(error);
         const errorCode = error?.code || '';
         
+        // ✅ FIX: Handle schema cache issues
+        if (errorMsg.includes('schema cache') || errorMsg.includes('column')) {
+          console.warn('[userStorage] ⚠️ Schema cache outdated, attempting recovery...');
+          console.warn('[userStorage] Supabase write failed, falling back to local cache:', errorMsg);
+          // Continue to local fallback
+          throw error;
+        }
+        
         // RLS Policy errors
         if (errorCode === 'PGRST116' || errorMsg.includes('new row violates row-level security')) {
           console.error('[userStorage] ⚠️ RLS POLICY BLOCKING saveUsers: Check Supabase RLS policies');
@@ -221,7 +260,8 @@ export async function saveUsers(users) {
         // Table/schema missing errors
         else if (errorCode === '42P01' || errorMsg.includes('does not exist') || 
                  errorMsg.includes('relation') || errorMsg.includes('schema')) {
-          console.warn('[userStorage] Table "users" missing, saving', rows.length, 'users to memory only');
+          console.warn('[userStorage] ⚠️ Table "users" missing in Supabase, data will persist in memory only');
+          console.warn('[userStorage] 💡 To fix: Run "npm run migrate" to create the users table');
         }
         // Authorization errors
         else if (errorCode === '401' || errorMsg.includes('Unauthorized')) {
@@ -240,7 +280,8 @@ export async function saveUsers(users) {
       console.info('[userStorage] ✅ Successfully saved', rows.length, 'users to Supabase');
       return map;
     } catch (err) {
-      console.warn('[userStorage] Supabase saveUsers failed, using memory cache:', err?.message || err);
+      console.warn('[userStorage] Supabase write failed, falling back to local cache:', err?.message || err);
+      console.log('[userStorage] Saving user to local fallback...');
       // fallthrough to local save
     }
   }

@@ -18,6 +18,8 @@ class ErrorManager {
         window.addEventListener('error', (event) => {
             console.error('[ErrorManager] Uncaught error:', event.error);
             this.logError(event.error || event.message);
+            // Prevent the error from crashing the app
+            event.preventDefault();
         });
 
         // Handle unhandled promise rejections
@@ -27,6 +29,8 @@ class ErrorManager {
                 ? event.reason.message 
                 : String(event.reason);
             this.logError(new Error(`Unhandled Promise: ${message}`));
+            // Prevent the error from crashing the app
+            event.preventDefault();
         });
     }
 
@@ -39,7 +43,7 @@ class ErrorManager {
     }
 
     /**
-     * Log an error and display it as a Phaser popup
+     * Log an error and display it as a Phaser popup if scene is active
      * @param {Error|string} error
      */
     logError(error) {
@@ -50,12 +54,18 @@ class ErrorManager {
             this.errors.push({ message: errorMessage, type: errorType, timestamp: Date.now() });
             console.error(`[ErrorManager] ${errorType.toUpperCase()}: ${errorMessage}`);
             
-            if (this._scene && this._scene.isActive && this._scene.isActive()) {
-                this.displayError(this._scene, errorMessage, errorType);
+            // Only try to display if scene is properly set and active
+            if (this._scene && typeof this._scene.isActive === 'function' && this._scene.isActive?.()) {
+                try {
+                    this.displayError(this._scene, errorMessage, errorType);
+                } catch (displayErr) {
+                    console.warn('[ErrorManager] Failed to display error popup:', displayErr?.message);
+                    // Error is still logged to console, so we're good
+                }
             }
-        } catch (e) {
-            // Failsafe: if logging itself fails, log to console only
-            console.error('[ErrorManager] Failed to log error:', e);
+        } catch (err) {
+            // Last resort: just log to console if anything fails
+            console.error('[ErrorManager] Error in logError itself:', err);
         }
     }
 
@@ -80,16 +90,28 @@ class ErrorManager {
      */
     displayError(scene, message, errorType = 'error') {
         try {
-            if (!scene || !scene.add || !scene.cameras) return;
+            // Validate scene and required methods
+            if (!scene || typeof scene.add !== 'object' || !scene.add.rectangle || !scene.cameras) {
+                console.warn('[ErrorManager] Scene invalid or missing required methods');
+                return;
+            }
 
             this.hide();
             this._scene = scene;
 
             const cam = scene.cameras.main;
-            if (!cam) return;
+            if (!cam) {
+                console.warn('[ErrorManager] No main camera available');
+                return;
+            }
 
             const cx = cam.centerX;
             const cy = cam.centerY;
+
+            if (typeof cx !== 'number' || typeof cy !== 'number') {
+                console.warn('[ErrorManager] Camera center coordinates invalid');
+                return;
+            }
 
             const config = this.getErrorConfig(errorType);
 
@@ -114,7 +136,7 @@ class ErrorManager {
             const titleText = scene.add.text(cx, cy - height / 2 + 26, config.title, {
                 fontSize: 24,
                 color: config.hex
-        }).setOrigin(0.5);
+            }).setOrigin(0.5);
 
             // Message
             const bodyText = scene.add.text(cx, cy - 10, displayMessage, {
@@ -130,8 +152,17 @@ class ErrorManager {
                 color: '#ff6666'
             })
             .setOrigin(0.5)
-            .setInteractive({ useHandCursor: true })
-            .on('pointerdown', () => this.fadeOut());
+            .setInteractive({ useHandCursor: true });
+
+            // Handle close button click safely
+            closeBtn.on('pointerdown', () => {
+                try {
+                    this.fadeOut();
+                } catch (closeErr) {
+                    console.warn('[ErrorManager] Error during fadeOut:', closeErr);
+                    this.hide();
+                }
+            });
 
             const container = scene.add.container(0, 0, [
                 blocker,
@@ -143,16 +174,51 @@ class ErrorManager {
 
             container.setDepth(10000);
             this._container = container;
-            this._escHandler = (event) => {
-                event.stopPropagation();
-                this.fadeOut();
-            };
 
-            scene.input.keyboard.on('keydown-ESC', this._escHandler);
-            scene.events.once('shutdown', () => this.hide());
-            scene.events.once('destroy', () => this.hide());
+            // Setup keyboard handler safely
+            try {
+                this._escHandler = (event) => {
+                    try {
+                        event.stopPropagation();
+                        this.fadeOut();
+                    } catch (escErr) {
+                        console.warn('[ErrorManager] Error during ESC handler:', escErr);
+                        this.hide();
+                    }
+                };
+
+                if (scene.input && scene.input.keyboard) {
+                    scene.input.keyboard.on('keydown-ESC', this._escHandler);
+                }
+            } catch (keyErr) {
+                console.warn('[ErrorManager] Failed to setup keyboard handler:', keyErr);
+            }
+
+            // Setup cleanup handlers safely
+            try {
+                if (scene.events) {
+                    scene.events.once('shutdown', () => {
+                        try {
+                            this.hide();
+                        } catch (shutdownErr) {
+                            console.warn('[ErrorManager] Error during scene shutdown:', shutdownErr);
+                        }
+                    });
+                    
+                    scene.events.once('destroy', () => {
+                        try {
+                            this.hide();
+                        } catch (destroyErr) {
+                            console.warn('[ErrorManager] Error during scene destroy:', destroyErr);
+                        }
+                    });
+                }
+            } catch (eventErr) {
+                console.warn('[ErrorManager] Failed to setup scene event handlers:', eventErr);
+            }
         } catch (e) {
             console.error('[ErrorManager] displayError failed:', e);
+            // Continue gracefully - error is at least logged to console
         }
     }
 
@@ -187,19 +253,30 @@ class ErrorManager {
                 return;
             }
 
-            if (this._scene.tweens) {
+            if (this._scene.tweens && typeof this._scene.tweens.add === 'function') {
                 this._scene.tweens.add({
                     targets: this._container,
                     alpha: 0,
                     duration: 250,
-                    onComplete: () => this.hide()
+                    onComplete: () => {
+                        try {
+                            this.hide();
+                        } catch (completeErr) {
+                            console.warn('[ErrorManager] Error during tween complete:', completeErr);
+                            this.hide();
+                        }
+                    }
                 });
             } else {
                 this.hide();
             }
         } catch (e) {
-            console.error('[ErrorManager] fadeOut failed:', e);
-            this.hide();
+            console.warn('[ErrorManager] fadeOut failed:', e);
+            try {
+                this.hide();
+            } catch (hideErr) {
+                console.warn('[ErrorManager] Also failed to hide during fadeOut error:', hideErr);
+            }
         }
     }
 
@@ -208,21 +285,38 @@ class ErrorManager {
      */
     hide() {
         try {
-            if (this._scene && this._scene.input && this._scene.input.keyboard && this._escHandler) {
-                this._scene.input.keyboard.off('keydown-ESC', this._escHandler);
-                this._escHandler = null;
+            // Safely remove keyboard handler
+            try {
+                if (this._scene && this._scene.input && typeof this._scene.input.keyboard === 'object' && this._escHandler) {
+                    if (typeof this._scene.input.keyboard.off === 'function') {
+                        this._scene.input.keyboard.off('keydown-ESC', this._escHandler);
+                    }
+                    this._escHandler = null;
+                }
+            } catch (keyboardErr) {
+                console.warn('[ErrorManager] Error removing keyboard handler:', keyboardErr);
             }
 
-            if (this._container) {
-                this._container.destroy(true);
+            // Safely destroy container
+            try {
+                if (this._container) {
+                    if (typeof this._container.destroy === 'function') {
+                        this._container.destroy(true);
+                    }
+                    this._container = null;
+                }
+            } catch (containerErr) {
+                console.warn('[ErrorManager] Error destroying container:', containerErr);
                 this._container = null;
             }
 
             this._scene = null;
         } catch (e) {
-            console.error('[ErrorManager] hide failed:', e);
+            console.warn('[ErrorManager] hide failed:', e);
+            // Force cleanup on error
             this._container = null;
             this._scene = null;
+            this._escHandler = null;
         }
     }
 

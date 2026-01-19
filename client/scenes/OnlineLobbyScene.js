@@ -1,4 +1,5 @@
 import { getSocket } from '../utils/SocketManager.js';
+import GlobalAlerts from '../utils/AlertManager.js';
 import GlobalAudio from '../utils/AudioManager.js';
 import ErrorHandler from '../utils/ErrorManager.js';
 
@@ -8,6 +9,7 @@ export default class OnlineLobbyScene extends Phaser.Scene {
         this.players = [];
         this.host = false;
         this.rulesPanel = null;
+        this.teamPanel = null;
     }
 
     init(data) {
@@ -56,6 +58,11 @@ export default class OnlineLobbyScene extends Phaser.Scene {
             .setOrigin(0.5).setInteractive();
         leaveBtn.on("pointerdown", () => {
             GlobalAudio.playButton(this);
+            
+            // ✅ FIX: Ensure socket handlers are removed BEFORE leaving
+            // This prevents race condition where leaving quickly causes handlers to fire on old scene
+            this.shutdown();
+            
             getSocket().emit("leave-lobby", this.code);
             this.scene.start("OnlineMenuScene");
         });
@@ -87,11 +94,29 @@ export default class OnlineLobbyScene extends Phaser.Scene {
         // HOST START BUTTON
         this.startBtn = this.add.text(600, 700, "Start Game", { fontSize: 36, color: "#888888" })
             .setOrigin(0.5).setInteractive().setVisible(false);
+        
+        // "Starting game..." status text (orange, hidden by default)
+        this.startingGameText = this.add.text(600, 750, "Starting game...", { 
+            fontSize: 28, 
+            color: "#ffaa44",
+            fontStyle: "italic"
+        }).setOrigin(0.5).setVisible(false);
+        
         this.startBtn.on("pointerdown", () => {
-            if (!this.host || !this.players || this.players.length < 2) return;
+            if (!this.host) return;
+            
+            if (!this.players || this.players.length < 2) {
+              GlobalAlerts.show(this, 'At least 2 players are required to start a game.', 'info');
+              return;
+            }
+            
             const allReady = this.players.every(p => p.ready);
             if (allReady) {
                 GlobalAudio.playButton(this);
+                
+                // Show "Starting game..." feedback to all players
+                this.startingGameText.setVisible(true);
+                this.startBtn.disableInteractive();
                 
                 const socket = getSocket();
                 
@@ -141,13 +166,17 @@ export default class OnlineLobbyScene extends Phaser.Scene {
         // console.log('LOBBY DATA RECEIVED', data);
 
         // Normalize players array (ensure id/name/ready)
+        // ✅ CRITICAL FIX: Filter out players marked with left:true to prevent stale player slots
         const rawPlayers = Array.isArray(data.players) ? data.players : [];
-        this.players = rawPlayers.map(p => ({
-            id: p.id,
-            name: this._sanitizePlayerName(p.name || p.id, p.id),
-            ready: !!p.ready,
-            connected: p.connected !== false
-        }));
+        this.players = rawPlayers
+            .filter(p => !p.left)  // Filter out players who have left
+            .map((p, i) => ({
+                id: p.id,
+                name: this._sanitizePlayerName(p.name || p.id, p.id),
+                ready: !!p.ready,
+                connected: p.connected !== false,
+                team: p.team || (i % 2 === 0 ? 'blue' : 'red')  // Default team assignment
+            }));
 
         // Accept several possible host fields from server
         // server may send hostSocketId, hostUserId, host, or none (in which case fallback to players[0])
@@ -176,6 +205,7 @@ export default class OnlineLobbyScene extends Phaser.Scene {
         this.config = data.config || {};
         this.refreshList();
         this.refreshRulesPanel();
+        this.refreshTeamPanel();
     }
 
     refreshList() {
@@ -207,7 +237,8 @@ export default class OnlineLobbyScene extends Phaser.Scene {
             const isSelf = p.id === myId;
             const isHost = p.id === hostUserId;
             const star = isHost ? "⭐ " : (isSelf ? "🔹 " : "");
-            return `${star}${p.name} — ${p.ready ? "READY" : "NOT READY"}`;
+            const teamIndicator = this.config.teamsEnabled ? ` [${p.team?.toUpperCase() || 'NONE'}]` : '';
+            return `${star}${p.name}${teamIndicator} — ${p.ready ? "READY" : "NOT READY"}`;
         });
 
         // Add waiting slots for unfilled positions
@@ -268,12 +299,74 @@ export default class OnlineLobbyScene extends Phaser.Scene {
         this.rulesTexts.teams.text = `Teams: ${this.config.teamsEnabled ? "ON" : "OFF"}`;
     }
 
+    refreshTeamPanel() {
+        // Remove old team panel if it exists
+        if (this.teamPanel) {
+            this.teamPanel.destroy();
+            this.teamPanel = null;
+        }
+
+        // Only show team panel if teams are enabled
+        if (!this.config.teamsEnabled || !this.players || this.players.length === 0) {
+            return;
+        }
+
+        // Create team assignment UI in bottom-left area
+        const myUserId = getSocket().data?.user?.id || getSocket().userId || null;
+        const isHost = this.host;
+
+        this.teamPanel = this.add.container(200, 400);
+        const panelBg = this.add.rectangle(0, 0, 350, Math.min(200, this.players.length * 40), 0x000000, 0.7).setOrigin(0, 0);
+        this.teamPanel.add(panelBg);
+
+        const titleText = this.add.text(10, 5, "Team Assignment:", { fontSize: 18, color: "#ffaa44" }).setOrigin(0, 0);
+        this.teamPanel.add(titleText);
+
+        let yOffset = 35;
+        this.players.slice(0, 4).forEach((p, i) => {  // Show max 4 players
+            const playerName = p.name.substring(0, 10);
+            const teamColor = p.team === 'blue' ? '#66aaff' : '#ff6666';
+            const teamText = p.team.toUpperCase();
+
+            const nameText = this.add.text(15, yOffset, `${playerName}:`, { fontSize: 14 }).setOrigin(0, 0);
+            this.teamPanel.add(nameText);
+
+            const teamBtn = this.add.text(150, yOffset, teamText, {
+                fontSize: 14,
+                color: teamColor,
+                backgroundColor: '#222222',
+                padding: { x: 6, y: 2 }
+            }).setOrigin(0, 0);
+
+            if (isHost) {
+                teamBtn.setInteractive();
+                teamBtn.on('pointerdown', () => {
+                    // Toggle team for this player
+                    p.team = p.team === 'blue' ? 'red' : 'blue';
+                    this.refreshTeamPanel();
+                    // Emit team change to server if needed
+                    getSocket().emit('team-changed', { code: this.code, playerId: p.id, team: p.team });
+                });
+            }
+
+            this.teamPanel.add(teamBtn);
+            yOffset += 40;
+        });
+    }
+
     shutdown() {
         // remove event listeners
         const socket = getSocket();
         socket.off("lobby-data");
         socket.off("lobby-updated");
         socket.off("game-starting");
+        socket.off("team-changed");
+        
+        // Cleanup UI elements
+        if (this.teamPanel) {
+            this.teamPanel.destroy();
+            this.teamPanel = null;
+        }
     }
 
     destroy() {

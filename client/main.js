@@ -13,6 +13,7 @@ import OnlineConfigScene from './scenes/OnlineConfigScene.js';
 import OnlineLobbyScene from './scenes/OnlineLobbyScene.js';
 import OnlineGameScene from './scenes/OnlineGameScene.js';
 import OnlinePostGameScene from './scenes/OnlinePostGameScene.js';
+import LeaderboardScene from './scenes/LeaderboardScene.js';
 
 const config = {
     type: Phaser.AUTO,
@@ -39,6 +40,7 @@ const config = {
         OnlineLobbyScene,
         OnlineGameScene,
         OnlinePostGameScene,
+        LeaderboardScene,
     ]
 };
 

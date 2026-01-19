@@ -1,4 +1,4 @@
-import { getSocket, getServerUrl } from '../utils/SocketManager.js';
+import { getSocket, getServerUrl, emitAuthUser } from '../utils/SocketManager.js';
 import GlobalAudio from '../utils/AudioManager.js';
 import ErrorHandler from '../utils/ErrorManager.js';
 
@@ -88,11 +88,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
             // Inform socket of authenticated identity (authoritative server user)
             try {
-              const socket = getSocket && typeof getSocket === 'function' ? getSocket() : null;
-              if (socket && socket.emit) {
-                socket.emit('auth-user', this.user);
-                socket.userId = this.user.id;
-              }
+              emitAuthUser(this.user);
             } catch (e) {
               console.warn('Socket auth emit failed', e);
             }
@@ -132,11 +128,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
     this.user = null;
     // also notify socket that we're unauthenticated
     try {
-      const socket = getSocket && typeof getSocket === 'function' ? getSocket() : null;
-      if (socket && socket.emit) {
-        socket.emit('auth-user', null);
-        socket.userId = null;
-      }
+      emitAuthUser(null);
     } catch (e) {}
   }
 
@@ -390,11 +382,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
         // Inform socket
         try {
-          const socket = getSocket && typeof getSocket === 'function' ? getSocket() : null;
-          if (socket && socket.emit) {
-            socket.emit('auth-user', j.user);
-            socket.userId = j.user.id;
-          }
+          emitAuthUser(j.user);
         } catch (e) { /* ignore */ }
 
         alert(`Logged in as ${j.user.name}`);
@@ -439,13 +427,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
         localStorage.setItem('fives_guest_created_at', String(Date.now())); // prevent immediate re-creation
 
         // Inform socket immediately
-        try {
-          const socket = getSocket && typeof getSocket === 'function' ? getSocket() : null;
-          if (socket && socket.emit) {
-            socket.emit('auth-user', j.user);
-            socket.userId = j.user.id;
-          }
-        } catch (e) { /* ignore */ }
+        emitAuthUser(j.user);
 
         alert(`Guest created!\nUsername: ${j.user.name}\nPassword: ${password}`);
         this.game.events.emit('auth-updated');
@@ -485,13 +467,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
         localStorage.setItem('fives_user', JSON.stringify(j.user));
 
         // Inform socket
-        try {
-          const socket = getSocket && typeof getSocket === 'function' ? getSocket() : null;
-          if (socket && socket.emit) {
-            socket.emit('auth-user', j.user);
-            socket.userId = j.user.id;
-          }
-        } catch (e) { /* ignore */ }
+        emitAuthUser(j.user);
 
         alert(`Welcome, ${j.user.name}`);
         this.game.events.emit('auth-updated');
@@ -545,13 +521,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
       localStorage.removeItem('fives_user');
 
       // Inform socket that we're unauthenticated
-      try {
-        const socket = getSocket && typeof getSocket === 'function' ? getSocket() : null;
-        if (socket && socket.emit) {
-          socket.emit('auth-user', null);
-          socket.userId = null;
-        }
-      } catch (e) {}
+      emitAuthUser(null);
 
       alert('Signed out');
       this.game.events.emit('auth-updated');

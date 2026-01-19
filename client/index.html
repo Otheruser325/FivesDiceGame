@@ -18,9 +18,16 @@
       // Determine server URL and load socket.io from there
       (function() {
         // Try multiple paths to load socket.io
-        const paths = [
+        // In development, localhost is first; in production, use fallback servers
+        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const paths = isLocalhost ? [
           '/socket.io/socket.io.min.js',
           '/socket.io.js',
+          'http://localhost:8080/socket.io/socket.io.min.js',
+          'http://localhost:8080/socket.io.js'
+        ] : [
+          'https://api.fivesdicegame.com/socket.io/socket.io.min.js',
+          'https://api.fivesdicegame.com/socket.io.js',
           'https://fivesapi.vercel.app/socket.io/socket.io.min.js',
           'https://fivesapi.vercel.app/socket.io.js'
         ];

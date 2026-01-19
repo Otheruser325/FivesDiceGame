@@ -1,8 +1,9 @@
-import { getSocket } from '../utils/SocketManager.js';
+import { getSocket, emitAuthUser } from '../utils/SocketManager.js';
 import GlobalAudio from '../utils/AudioManager.js';
 import { animateDiceRoll } from '../utils/AnimationManager.js';
 import { checkCombo, showComboText, playComboFX } from '../utils/ComboManager.js';
 import ErrorHandler from '../utils/ErrorManager.js';
+import SyncManager from '../utils/SyncManager.js';
 
 export default class OnlineGameScene extends Phaser.Scene {
   constructor() {
@@ -124,6 +125,25 @@ export default class OnlineGameScene extends Phaser.Scene {
     this.addBackButton();
     this.installSocketHandlers();
 
+    // ✅ Setup visibility change handler to sync when page returns from background
+    SyncManager.setupVisibilityHandler(() => {
+      console.log('[OnlineGameScene] Page became visible - syncing game state');
+      try {
+        SyncManager.fullSync({
+          roomCode: this.roomCode,
+          onSuccess: (results) => {
+            console.log('[OnlineGameScene] Sync completed:', results);
+            // Game state will update via socket handlers
+          },
+          onError: (err) => {
+            console.warn('[OnlineGameScene] Sync error:', err);
+          }
+        });
+      } catch (err) {
+        console.warn('[OnlineGameScene] Failed to sync on visibility change:', err);
+      }
+    });
+
     try {
       const s = getSocket();
       if (s && !s.data?.user) {
@@ -131,7 +151,12 @@ export default class OnlineGameScene extends Phaser.Scene {
         if (raw) {
           const cached = JSON.parse(raw);
           if (cached && cached.id) {
-            s.emit('auth-user', { id: cached.id, name: cached.name, type: cached.type, avatar: cached.avatar || null });
+            emitAuthUser({
+              id: cached.id,
+              name: cached.name,
+              type: cached.type,
+              avatar: cached.avatar || null
+            });
             s.userId = cached.id;
           }
         }
@@ -197,6 +222,42 @@ export default class OnlineGameScene extends Phaser.Scene {
     }
   }
 
+  // ✅ NEW: Load OAuth avatar from URL and display in-game (128x128)
+  loadAndSetAvatarFromURL(imageObj, avatarUrl) {
+    if (!imageObj || !avatarUrl) {
+      imageObj.setTexture('playerIcon');
+      return;
+    }
+
+    try {
+      // Simple approach: create a texture from the URL using fetch
+      const textureKey = `avatar_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Create a small image element and use it as a texture
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        try {
+          // Add loaded image as a texture to Phaser
+          this.textures.addImage(textureKey, img);
+          imageObj.setTexture(textureKey);
+          imageObj.setDisplaySize(80, 80);
+        } catch (err) {
+          console.warn('[OnlineGameScene] Failed to create texture from avatar:', err);
+          imageObj.setTexture('playerIcon');
+        }
+      };
+      img.onerror = () => {
+        console.warn('[OnlineGameScene] Failed to load avatar image:', avatarUrl);
+        imageObj.setTexture('playerIcon');
+      };
+      img.src = avatarUrl;
+    } catch (err) {
+      console.warn('[OnlineGameScene] Error loading avatar:', err);
+      imageObj.setTexture('playerIcon');
+    }
+  }
+
   updatePlayerBar() {
     const total = Math.max(this.playerSlots.length || 1, this.gameConfig.players || 1);
     const spacing = 200;
@@ -221,7 +282,16 @@ export default class OnlineGameScene extends Phaser.Scene {
       }
 
       if (this.playerSlots[idx]) {
-        slot.icon.setTexture(this.playerSlots[idx].avatar || 'playerIcon');
+        // ✅ FIX: Handle OAuth avatars (URLs) vs texture keys
+        const avatarValue = this.playerSlots[idx].avatar;
+        if (avatarValue && (avatarValue.startsWith('http://') || avatarValue.startsWith('https://'))) {
+          // OAuth avatar URL - try to load dynamically
+          this.loadAndSetAvatarFromURL(slot.icon, avatarValue);
+        } else {
+          // Texture key or default
+          slot.icon.setTexture(avatarValue || 'playerIcon');
+        }
+        
         slot.icon.setVisible(true);
         slot.tag.setText(this.playerSlots[idx].name || `P${idx + 1}`);
         slot.tag.setVisible(true);
@@ -301,6 +371,22 @@ export default class OnlineGameScene extends Phaser.Scene {
     // legacy / alternative names
     s.on('game-over', this._handlers.gameFinished); // support either event name
 
+    // ✅ FIX: Handle visibility changes to sync UI when tab comes back into focus
+    this._handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.log('[OnlineGameScene] Tab hidden - pausing visual updates');
+      } else {
+        console.log('[OnlineGameScene] Tab visible - syncing game state');
+        // Request fresh game state to ensure UI is synchronized
+        if (getSocket() && this.roomCode) {
+          getSocket().emit('request-game-state', { code: this.roomCode });
+        }
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this._handleVisibilityChange);
+    }
+
     // ensure cleanup on scene stop
     this.events.once('shutdown', () => this.shutdown());
     this.events.once('destroy', () => this.shutdown());
@@ -336,6 +422,10 @@ export default class OnlineGameScene extends Phaser.Scene {
     // clear previous client timer
     this.clearTurnTimer();
 
+    // ✅ FIX: Check if this is a NEW turn BEFORE updating currentPlayerIndex
+    const previousPlayerIndex = this.currentPlayerIndex;
+    const isNewTurn = previousPlayerIndex !== playerIndex;
+
     // update current player + round
     this.currentPlayerIndex = playerIndex;
     this.currentRound = round;
@@ -348,9 +438,18 @@ export default class OnlineGameScene extends Phaser.Scene {
 
     // enable local controls only if this is our turn
     if (this.localPlayerIndex === playerIndex) {
-      this._hasRolledThisTurn = false;
+      // Only reset hasRolledThisTurn on a NEW turn, not on state syncs
+      if (isNewTurn || this._hasRolledThisTurn === undefined) {
+        this._hasRolledThisTurn = false;
+      }
+      
       this.info.setText(`🎲 Your turn`);
-      this.rollBtn.setText('Roll Dice').setStyle({ color: '#66ff66' }).setInteractive();
+      // Don't re-enable roll button if we've already rolled this turn (sync doesn't reset state)
+      if (!this._hasRolledThisTurn) {
+        this.rollBtn.setText('Roll Dice').setStyle({ color: '#66ff66' }).setInteractive();
+      } else {
+        this.rollBtn.setText('Rolled').setStyle({ color: '#ffaa44' }).disableInteractive();
+      }
       this.endTurnBtn.disableInteractive();
       this.endTurnBtn.setStyle({ color: '#888888' });
       this.startTurnTimer(timeLimitSeconds, payload?.turnExpiresAt || null);
@@ -465,9 +564,6 @@ export default class OnlineGameScene extends Phaser.Scene {
       this.endTurnBtn.disableInteractive();
       this.endTurnBtn.setStyle({ color: '#888888' });
     }
-
-    // clear the client timer (server confirmed outcome)
-    this.clearTurnTimer();
   }
 
   // called when server sends 'turn-result'
@@ -505,12 +601,16 @@ export default class OnlineGameScene extends Phaser.Scene {
   applyGameState(payload = {}) {
     const players = Array.isArray(payload.players) ? payload.players : [];
 
-    // build display playerSlots (id, name, avatar, connected)
+    // build display playerSlots (id, name, avatar/playerIcon, type, connected)
+    // ✅ Support both OAuth avatars and guest playerIcons
     this.playerSlots = players.map(p => ({
       id: p.id,
       name: p.name,
-      avatar: p.avatar || 'playerIcon',
-      connected: p.connected !== false
+      avatar: p.avatar || null,        // OAuth avatar (Discord/Google)
+      playerIcon: p.playerIcon || null, // Guest avatar
+      type: p.type || 'guest',
+      connected: p.connected !== false,
+      score: p.score || 0  // Include score in playerSlots for easier access
     }));
 
     // local index detection (server may provide)
@@ -707,14 +807,30 @@ export default class OnlineGameScene extends Phaser.Scene {
         try {
           this.exitLocked = false;
           
+          // Ensure scores is a valid array (fallback to 0s if needed)
+          let finalScores = scores;
+          if (!Array.isArray(finalScores) || finalScores.length === 0) {
+            const playerCount = (this.playerSlots && this.playerSlots.length) || 0;
+            finalScores = Array(playerCount).fill(0);
+            console.warn('[OnlineGameScene] Scores were empty, using zeros fallback');
+          }
+          
+          // Ensure combos is valid
+          let finalCombos = combos;
+          if (!Array.isArray(finalCombos) || finalCombos.length === 0) {
+            const playerCount = (this.playerSlots && this.playerSlots.length) || 0;
+            finalCombos = this.makeDefaultComboStats(playerCount);
+            console.warn('[OnlineGameScene] Combos were empty, using defaults fallback');
+          }
+          
           // Extract team data from playerSlots
           const teamsArray = (this.playerSlots || []).map((p, i) => p?.team || (i % 2 === 0 ? 'blue' : 'red'));
           
           this.registry.set('onlinePostGame', {
             players: (this.playerSlots && this.playerSlots.length) || 0,
             names: (this.playerSlots && this.playerSlots.map(p => p?.name || 'Player')) || [],
-            scores: scores,
-            combos: combos,
+            scores: finalScores,
+            combos: finalCombos,
             teamsEnabled: (this.gameConfig && this.gameConfig.teamsEnabled) || false,
             teams: teamsArray
           });
@@ -853,7 +969,10 @@ export default class OnlineGameScene extends Phaser.Scene {
       this.turnTimer.remove();
       this.turnTimer = null;
     }
-    this.timerText.setText('');
+    // Safety check: ensure timerText exists and is valid before calling setText
+    if (this.timerText && this.timerText.active && this.timerText.data) {
+      this.timerText.setText('');
+    }
   }
 
   addBackButton() {
@@ -889,6 +1008,13 @@ export default class OnlineGameScene extends Phaser.Scene {
   // -----------------------
   shutdown() {
     this._sceneReady = false;
+    
+    // ✅ FIX: Remove visibility change listener
+    if (this._handleVisibilityChange && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this._handleVisibilityChange);
+      this._handleVisibilityChange = null;
+    }
+    
     const s = getSocket();
     if (s && this._handlers) {
       // remove only the handlers we added

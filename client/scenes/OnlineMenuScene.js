@@ -1,4 +1,5 @@
-import { getSocket, getServerUrl, probeHealth, connectTo } from '../utils/SocketManager.js';
+import { getSocket, getServerUrl, probeHealth, connectTo, emitAuthUser } from '../utils/SocketManager.js';
+import GlobalAlerts from '../utils/AlertManager.js';
 import GlobalAudio from '../utils/AudioManager.js';
 import ErrorHandler from '../utils/ErrorManager.js';
 
@@ -16,7 +17,7 @@ export default class OnlineMenuScene extends Phaser.Scene {
 
     async create() {
         ErrorHandler.setScene(this);
-        const backBtn = this.add.text(600, 360, '← Back', {
+        const backBtn = this.add.text(600, 450, '← Back', {
             fontSize: 28,
             color: '#66aaff'
         }).setOrigin(0.5).setInteractive();
@@ -106,6 +107,28 @@ export default class OnlineMenuScene extends Phaser.Scene {
 
         // Socket is ready, establish connection to ensure session is current
         connectTo(server);
+        
+        // Wait for socket to actually connect before trying to refresh auth
+        const socketToUse = getSocket();
+        if (socketToUse && !socketToUse.connected) {
+            console.log('[OnlineMenuScene] Waiting for socket to connect before loading auth...');
+            await new Promise((resolve) => {
+                const onConnect = () => {
+                    console.log('[OnlineMenuScene] Socket connected, loading auth...');
+                    socketToUse.off('connect', onConnect);
+                    socketToUse.off('disconnect', onDisconnect);
+                    resolve();
+                };
+                const onDisconnect = () => {
+                    console.warn('[OnlineMenuScene] Socket disconnected while waiting for auth');
+                    socketToUse.off('connect', onConnect);
+                    socketToUse.off('disconnect', onDisconnect);
+                    resolve(); // continue anyway
+                };
+                socketToUse.once('connect', onConnect);
+                socketToUse.once('disconnect', onDisconnect);
+            });
+        }
 
         // server appears available — load cached/remote auth
         await this.refreshAuth();
@@ -224,46 +247,220 @@ export default class OnlineMenuScene extends Phaser.Scene {
             this.scene.start('OnlineConfigScene');
         });
 
+        // ✅ NEW: Leaderboard button (moved down to avoid lobby interference)
+        const leaderboardBtn = this.add.text(600, 400, '🏆 Leaderboard', {
+            fontSize: 28,
+            color: '#ffff00'
+        })
+        .setOrigin(0.5).setInteractive();
+        leaderboardBtn.on('pointerdown', () => {
+            GlobalAudio.playButton(this);
+            this.scene.start('LeaderboardScene');
+        });
+
         // Join Lobby button
         const joinBtn = this.add.text(600, 310, 'Join Lobby', {
                 fontSize: 28,
                 color: '#33aaff'
             })
             .setOrigin(0.5).setInteractive();
+        
+        // State for join button to prevent multiple simultaneous requests
+        let joiningLobby = false;
+        let joinTimeout = null;
+
+        const resetJoinButton = () => {
+            joiningLobby = false;
+            if (joinTimeout) {
+                clearTimeout(joinTimeout);
+                joinTimeout = null;
+            }
+            joinBtn.setText('Join Lobby');
+            joinBtn.setFill('#33aaff');
+            joinBtn.setAlpha(1.0);
+            joinBtn.setInteractive();
+        };
+
         joinBtn.on('pointerdown', () => {
             GlobalAudio.playButton(this);
+            
+            // Guard against multiple simultaneous requests
+            if (joiningLobby) {
+                console.warn('[OnlineMenuScene] Join already in progress, ignoring request');
+                return;
+            }
+
+            // ✅ CRITICAL: Check socket connection status first
+            const socket = getSocket();
+            if (!socket || !socket.connected) {
+                console.error('[OnlineMenuScene] Socket not connected, cannot join lobby');
+                GlobalAlerts.show(this, 'Connection lost. Please reconnect and try again.', 'error');
+                return;
+            }
+
             if (!this.joinInput) return;
             const code = (this.joinInput.node.value || "").trim().toUpperCase();
-            if (code) {
-                try { 
-                    let myId = null;
-                    try { myId = getSocket().data?.user?.id || getSocket().userId || null; } catch (e) { myId = null; }
-                    if (!myId) {
-                      try {
-                        const raw = localStorage.getItem('fives_user');
-                        if (raw) {
-                          const cached = JSON.parse(raw);
-                          if (cached && cached.id) myId = cached.id;
-                        }
-                      } catch (e) {}
-                   }
-                   socket.emit('join-lobby', code, myId);
-                } catch (e) { 
-                  console.warn('emit failed', e); 
-                }
+            
+            // Validate code format (should be 4-6 characters, alphanumeric)
+            if (!code || code.length < 4 || code.length > 6 || !/^[A-Z0-9]+$/.test(code)) {
+                console.warn('[OnlineMenuScene] Invalid code format:', code);
+                GlobalAlerts.show(this, 'Please enter a valid lobby code (4-6 characters, letters and numbers only).', 'warning');
+                return;
+            }
+
+            joiningLobby = true;
+            joinBtn.setText('Joining Lobby...');
+            joinBtn.setFill('#ffaa00');
+            joinBtn.setAlpha(0.7);
+            joinBtn.disableInteractive();
+
+            try { 
+                let myId = null;
+                try { myId = socket.data?.user?.id || socket.userId || null; } catch (e) { myId = null; }
+                if (!myId) {
+                  try {
+                    const raw = localStorage.getItem('fives_user');
+                    if (raw) {
+                      const cached = JSON.parse(raw);
+                      if (cached && cached.id) myId = cached.id;
+                    }
+                  } catch (e) {}
+               }
+                
+               if (!myId) {
+                   console.error('[OnlineMenuScene] Could not get user ID, cannot join lobby');
+                   GlobalAlerts.show(this, 'Authentication error: Could not get your user ID. Please refresh and try again.', 'error');
+                   resetJoinButton();
+                   return;
+               }
+
+               const performJoin = () => {
+                 console.log('[OnlineMenuScene] Joining lobby:', code);
+                 socket.emit('join-lobby', code, myId);
+               };
+               
+               // Check if socket is already authenticated
+               if (socket.data?.user?.id) {
+                 console.log('[OnlineMenuScene] Socket already authenticated, joining immediately');
+                 performJoin();
+               } else {
+                 let authWaitTimeout = null;
+                 const onAuthSuccess = () => {
+                   console.log('[OnlineMenuScene] Auth-success received, now joining lobby');
+                   if (authWaitTimeout) clearTimeout(authWaitTimeout);
+                   socket.off('auth-success', onAuthSuccess);
+                   performJoin();
+                 };
+                 
+                 socket.once('auth-success', onAuthSuccess);
+                 
+                 // Timeout in case auth-success never fires (fallback to join anyway with userId param)
+                 authWaitTimeout = setTimeout(() => {
+                   console.warn('[OnlineMenuScene] Auth-success timeout, joining anyway with fallback');
+                   socket.off('auth-success', onAuthSuccess);
+                   performJoin();
+                 }, 2000);
+               }
+               
+               // Set timeout as fallback (in case events don't fire)
+               joinTimeout = setTimeout(() => {
+                   console.warn('[OnlineMenuScene] Join response timeout, resetting button state');
+                   socket.off('join-success', handleJoinSuccess);
+                   socket.off('join-failed', handleJoinFailed);
+                   GlobalAlerts.show(this, 'Join request timed out. Please try again.', 'warning');
+                   resetJoinButton();
+               }, 5000);
+            } catch (e) { 
+                console.warn('[OnlineMenuScene] emit failed', e);
+                GlobalAlerts.show(this, 'Failed to send join request. Please try again.', 'warning');
+                resetJoinButton();
             }
         });
 
-        // socket handlers for one-time join events
+        //         // socket handlers for join events with proper cleanup
+        const handleJoinSuccess = (data) => {
+            console.log('[OnlineMenuScene] Join successful:', data);
+            // Clear timeout immediately
+            if (joinTimeout) {
+                clearTimeout(joinTimeout);
+                joinTimeout = null;
+            }
+            // Remove listener
+            socket.off('join-failed', handleJoinFailed);
+            
+            // ✅ CRITICAL FIX: Ensure socket.data exists first
+            if (!socket.data) {
+                socket.data = {};
+            }
+            
+            // ✅ CRITICAL FIX: Ensure socket user data is populated from join response
+            // Server sends currentUser which was populated after join
+            if (data.currentUser && data.currentUser.id) {
+                socket.data.user = {
+                    id: data.currentUser.id,
+                    name: data.currentUser.name
+                };
+                socket.userId = data.currentUser.id;
+                console.log('[OnlineMenuScene] ✅ Set socket.data.user from join response:', data.currentUser.name);
+            } else if ((!socket.data.user || !socket.data.user.id) && data.players && data.players.length > 0) {
+                // Fallback: Extract from players list if currentUser not provided
+                try {
+                    let myId = null;
+                    try { myId = socket.data?.user?.id || socket.userId || null; } catch (e) { myId = null; }
+                    if (!myId) {
+                        try {
+                            const raw = localStorage.getItem('fives_user');
+                            if (raw) {
+                                const cached = JSON.parse(raw);
+                                if (cached && cached.id) myId = cached.id;
+                            }
+                        } catch (e) {}
+                    }
+                    
+                    if (myId) {
+                        // Find the current player in the response
+                        const myPlayer = data.players.find(p => String(p.id) === String(myId));
+                        if (myPlayer) {
+                            // Populate socket.data.user with player info from lobby
+                            if (!socket.data.user) {
+                                socket.data.user = {};
+                            }
+                            socket.data.user.id = myPlayer.id;
+                            socket.data.user.name = myPlayer.name;
+                            socket.userId = myPlayer.id;
+                            console.log('[OnlineMenuScene] ✅ Populated socket.data.user from players list:', myPlayer.name);
+                        }
+                    }
+                } catch (e) {
+                    console.warn('[OnlineMenuScene] Failed to populate socket user data:', e);
+                }
+            }
+            
+            this.scene.start('OnlineLobbyScene', { code: data.code });
+        };
+
+        const handleJoinFailed = (error) => {
+            console.error('[OnlineMenuScene] Join failed:', error);
+            // Clear timeout immediately
+            if (joinTimeout) {
+                clearTimeout(joinTimeout);
+                joinTimeout = null;
+            }
+            // Remove listener
+            socket.off('join-success', handleJoinSuccess);
+            GlobalAlerts.show(this, 'Failed to join lobby (wrong code or full). Please try again.', 'error');
+            resetJoinButton();
+        };
+
         try {
-            socket.once('join-success', data => this.scene.start('OnlineLobbyScene', { code: data.code }));
-            socket.once('join-failed', () => alert('Failed to join lobby (wrong code or full).'));
+            socket.once('join-success', handleJoinSuccess);
+            socket.once('join-failed', handleJoinFailed);
         } catch (e) {
-            console.warn('Socket once failed', e);
+            console.warn('[OnlineMenuScene] Socket once failed', e);
         }
 
         // Track elements for easy clearing
-        this.lobbyUIElements.push(createBtn, joinBtn);
+        this.lobbyUIElements.push(createBtn, leaderboardBtn, joinBtn);
     }
 
     clearLobbyUI() {
@@ -276,7 +473,6 @@ export default class OnlineMenuScene extends Phaser.Scene {
     }
 
     async refreshAuth() {
-        // Prefer server session, but fall back to localStorage cached user.
         const socketLibAvailable = (typeof io === 'function');
         if (socketLibAvailable) {
             try {
@@ -285,13 +481,17 @@ export default class OnlineMenuScene extends Phaser.Scene {
                 const data = await resp.json();
                 if (data?.ok && data.user) {
                     this.user = data.user;
-                    // Emit auth-user to socket immediately so it's ready for lobby operations
-                    this._emitAuthToSocket(this.user);
+                    delete this.user.socketId;
+                    emitAuthUser(this.user);
+                    const socket = getSocket();
+                    if (socket && this.user && this.user.id) {
+                        socket.userId = this.user.id;
+                        console.log('[OnlineMenuScene] Set socket.userId from server auth:', socket.userId);
+                    }
                     return;
                 }
             } catch (err) {
                 console.warn('Auth check failed (server):', err);
-                // fall through to localStorage fallback
             }
         }
 
@@ -300,8 +500,13 @@ export default class OnlineMenuScene extends Phaser.Scene {
             const raw = localStorage.getItem('fives_user');
             if (raw) {
                 this.user = JSON.parse(raw);
-                // Emit auth-user to socket immediately
-                this._emitAuthToSocket(this.user);
+                delete this.user.socketId;
+                emitAuthUser(this.user);
+                const socket = getSocket();
+                if (socket && this.user && this.user.id) {
+                    socket.userId = this.user.id;
+                    console.log('[OnlineMenuScene] Set socket.userId from cached auth:', socket.userId);
+                }
                 return;
             }
         } catch (err) {
@@ -309,7 +514,6 @@ export default class OnlineMenuScene extends Phaser.Scene {
             localStorage.removeItem('fives_user');
         }
 
-        // no user
         this.user = null;
     }
 
@@ -318,8 +522,12 @@ export default class OnlineMenuScene extends Phaser.Scene {
             if (!user || !user.id) return;
             const socket = getSocket && typeof getSocket === 'function' ? getSocket() : null;
             if (socket && socket.emit) {
-                console.log('[OnlineMenuScene] Emitting auth-user to socket:', user.name);
-                socket.emit('auth-user', user);
+                const userWithSocket = {
+                    ...user,
+                    socketId: socket.id || null
+                };
+                console.log('[OnlineMenuScene] Emitting auth-user to socket:', user.name, 'socketId:', socket.id);
+                socket.emit('auth-user', userWithSocket);
                 socket.userId = user.id;
             }
         } catch (e) {

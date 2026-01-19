@@ -4,10 +4,20 @@ import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import OAuth2Strategy from "passport-oauth2";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
+import geoip from "geoip-lite";
 import { loadUsers, saveUsers, loadUser, saveUser } from "./utils/userStorage.js";
 
 export const router = express.Router();
 router.use(express.json());
+
+// Helper to get country code from IP
+function getCountryFromIP(ip) {
+  if (!ip || ip === '::1' || ip === '127.0.0.1' || ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
+    return null; // Local or private IP, no country
+  }
+  const geo = geoip.lookup(ip);
+  return geo ? geo.country : null;
+}
 
 // PASSPORT SESSION
 passport.serializeUser((user, done) => done(null, user.id));
@@ -41,7 +51,7 @@ function requireStrategy(strategyName, fallbackMsg) {
 // SAFE HELPER
 function publicUser(u) {
   if (!u) return null;
-  const { guestPassword, ...safe } = u;
+  const { guestpassword, guestPassword, ...safe } = u;
   return safe;
 }
 
@@ -173,7 +183,7 @@ router.post("/guest/register", async (req, res) => {
     const name = "Guest" + Math.floor(Math.random() * 9999);
 
     // Build the user object
-    const user = { id, name, type: "guest", guestPassword: hashed };
+    const user = { id, name, type: "guest", guestpassword: hashed, country: getCountryFromIP(req.ip || req.socket.remoteAddress) };
 
     // Save (this will try Supabase then fallback to local)
     let saved;
@@ -213,8 +223,21 @@ router.post("/guest/login", async (req, res) => {
 
     if (!user) return res.json({ ok: false, error: "Guest not found" });
 
-    const match = await bcrypt.compare(password, user.guestPassword);
+    // ✅ Handle both guestPassword (app format) and guestpassword (DB format)
+    const storedPassword = user.guestPassword || user.guestpassword;
+    if (!storedPassword) {
+      console.warn(`[auth] Guest ${username} has no password stored - cannot login`);
+      return res.json({ ok: false, error: "Guest account corrupted - no password" });
+    }
+
+    const match = await bcrypt.compare(password, storedPassword);
     if (!match) return res.json({ ok: false, error: "Wrong password" });
+
+    // Update country if not set
+    if (!user.country) {
+      user.country = getCountryFromIP(req.ip || req.socket.remoteAddress);
+      await saveUser(user);
+    }
 
     req.login(user, (err) => {
       if (err) return res.json({ ok: false, error: err.message });
@@ -251,7 +274,12 @@ router.get(
   "/google/callback",
   requireStrategy("google", "Google OAuth is not configured"),
   passport.authenticate("google", { failureRedirect: "/" }),
-  (req, res) => {
+  async (req, res) => {
+    // Update country if not set
+    if (req.user && !req.user.country) {
+      req.user.country = getCountryFromIP(req.ip || req.socket.remoteAddress);
+      await saveUser(req.user);
+    }
     if (req.query.state === "json") return res.json({ ok: true, user: publicUser(req.user) });
     res.redirect("/FivesDiceGame");
   }
@@ -378,13 +406,19 @@ router.get(
         return res.redirect('/?error=Discord%20login%20failed');
       }
       
-      req.login(user, (loginErr) => {
+      req.login(user, async (loginErr) => {
         if (loginErr) {
           console.error('[Discord callback] Login error:', loginErr?.message || loginErr);
           const errorMsg = encodeURIComponent(`Login failed: ${loginErr?.message || 'Unknown error'}`);
           return res.redirect(`/?error=${errorMsg}`);
         }
-        
+
+        // Update country if not set
+        if (!user.country) {
+          user.country = getCountryFromIP(req.ip || req.socket.remoteAddress);
+          await saveUser(user);
+        }
+
         // Enhanced session configuration for cross-site authentication
         req.session.authenticated = true;
         req.session.provider = 'discord';

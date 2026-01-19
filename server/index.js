@@ -9,6 +9,7 @@ import { createClient } from 'redis';
 import RedisStore from 'connect-redis';
 import { authMiddleware, authRouter } from './auth.js';
 import LobbyManager from './lobbyManager.js';
+import LeaderboardManager from './utils/leaderboardManager.js';
 
 // Load environment variables
 dotenv.config();
@@ -19,20 +20,47 @@ const __dirname = dirname(__filename);
 const app = express();
 const server = createServer(app);
 
+// Helper function to get allowed origins for CORS and Socket.io
+function getAllowedOrigins() {
+  // If environment variable is set, use it
+  if (process.env.CLIENT_ORIGINS) {
+    return process.env.CLIENT_ORIGINS.split(',').map(o => o.trim());
+  }
+
+  // Default origins based on environment
+  if (process.env.NODE_ENV === 'production') {
+    return [
+      'https://play.fivesdicegame.com',    // Main game domain
+      'https://fivesdicegame.com',          // Base domain
+      'https://www.fivesdicegame.com',      // WWW variant
+      'https://fivesapi.vercel.app',        // Vercel fallback
+      'https://fivesdicegame.vercel.app',  // Alternative Vercel domain
+      'https://fivesweb.vercel.app'  // Another alternative Vercel domain
+    ];
+  }
+
+  // Development origins
+  return [
+    'http://localhost:8080',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'https://localhost:8080',
+    'http://127.0.0.1:8080',
+    'http://127.0.0.1:3000'
+  ];
+}
+
 // Production-ready socket.io configuration
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_ORIGINS ? process.env.CLIENT_ORIGINS.split(',') : [
-      'http://localhost:8080',
-      'https://localhost:8080'
-    ],
+    origin: getAllowedOrigins(),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
   },
-  transports: ['polling', 'websocket'], // Enable WebSocket for production
-  pingTimeout: 60000, // 60 seconds
-  pingInterval: 25000, // 25 seconds
-  connectTimeout: 45000, // 45 seconds
+  transports: ['websocket', 'polling'], // Prioritize WebSocket, fallback to polling
+  pingTimeout: 90000, // 90 seconds (increased for network jitter tolerance)
+  pingInterval: 30000, // 30 seconds between pings
+  connectTimeout: 60000, // 60 seconds to establish connection
   maxHttpBufferSize: 1e8, // 100 MB
   allowEIO3: true, // Support older clients
   compression: true, // Enable compression for production
@@ -50,6 +78,12 @@ let redisClient = null;
 let sessionStore = null;
 
 async function initializeRedis() {
+  // Skip Redis in development unless explicitly configured
+  if (process.env.NODE_ENV === 'development' && !process.env.REDIS_URL) {
+    console.log('[Session] Development mode: skipping Redis (not needed)');
+    return false;
+  }
+
   if (process.env.REDIS_URL) {
     try {
       redisClient = createClient({ 
@@ -76,6 +110,12 @@ async function initializeRedis() {
       return false;
     }
   }
+  
+  // No REDIS_URL in production - show warning but continue with memory store
+  if (process.env.NODE_ENV === 'production') {
+    console.warn('[Redis] No REDIS_URL configured in production - using memory store (not scalable)');
+  }
+  
   return false;
 }
 
@@ -126,12 +166,13 @@ io.use((socket, next) => {
 // CORS middleware
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  const allowedOrigins = process.env.CLIENT_ORIGINS ? 
-    process.env.CLIENT_ORIGINS.split(',') : 
-    ['http://localhost:8080', 'https://localhost:8080'];
+  const allowedOrigins = getAllowedOrigins();
   
   if (allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
+  } else if (process.env.NODE_ENV !== 'production') {
+    // In development, allow any origin
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
   }
   
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -159,22 +200,147 @@ app.get('/health', (req, res) => {
 // Auth routes
 app.use('/auth', authRouter);
 
-// Socket.io connection handling
+// Leaderboard endpoint
+app.get('/leaderboard', async (req, res) => {
+    try {
+        const sortBy = req.query.sortBy || 'total';
+
+        if (!['total', 'highest', 'combos', 'wins', 'best'].includes(sortBy)) {
+            return res.status(400).json({ error: 'Invalid sort option' });
+        }
+
+        console.log(`[Leaderboard HTTP] Fetching top players (sortBy=${sortBy})`);
+        const topPlayers = await LeaderboardManager.getTopPlayers(100, sortBy);
+
+        if (!topPlayers || !Array.isArray(topPlayers)) {
+            console.warn('[Leaderboard HTTP] No data returned from getTopPlayers');
+            return res.status(500).json({ error: 'No leaderboard data available' });
+        }
+
+        console.log(`[Leaderboard HTTP] Retrieved ${topPlayers.length} players`);
+
+        // Get requesting player's rank if authenticated via session
+        let playerRank = null;
+        const userId = req.session?.user?.id;
+        if (userId) {
+            try {
+                playerRank = await LeaderboardManager.getPlayerRank(userId, sortBy);
+                console.log(`[Leaderboard HTTP] Player ${userId} rank: ${JSON.stringify(playerRank)}`);
+            } catch (rankErr) {
+                console.warn(`[Leaderboard HTTP] Failed to get player rank: ${rankErr.message}`);
+                // Don't fail entirely, just skip player rank
+            }
+        }
+
+        res.json({
+            topPlayers,
+            playerRank,
+            sortBy
+        });
+    } catch (err) {
+        console.error('[Leaderboard HTTP] Failed to get leaderboard:', err.message || err);
+        res.status(500).json({ error: `Failed to load leaderboard: ${err.message}` });
+    }
+});
+
+// Development: Serve client files for local testing
+if (process.env.NODE_ENV !== 'production') {
+  // Serve static files from client directory
+  app.use(express.static(join(__dirname, '../client')));
+  
+  // SPA fallback: serve index.html for all non-API routes
+  app.get('/', (req, res) => {
+    res.sendFile(join(__dirname, '../client/index.html'));
+  });
+  
+  // Fallback for client routes (play, lobby, etc.)
+  app.get(/^\/(?!auth|health|api).*$/, (req, res) => {
+    res.sendFile(join(__dirname, '../client/index.html'));
+  });
+  
+  console.log('[Dev] Client files served from', join(__dirname, '../client'));
+}
+
+// ✅ Socket.io connection handling with enhanced stability & diagnostics
 io.on('connection', async (socket) => {
+  // Initialize connection metadata
+  socket.data = socket.data || {};
+  socket.data.connected = true;
+  socket.data.connectedAt = Date.now();
+  socket.data.lastHeartbeat = Date.now();
+  
   console.log(`[Socket] Connected: ${socket.id} from ${socket.handshake.address}`);
 
   // Register socket with lobby manager
   await lobbyManager.registerSocket(socket);
 
-  socket.on('error', (error) => {
-    console.error(`[Socket] Error on ${socket.id}:`, error);
+  // ✅ Enhanced heartbeat detection
+  socket.on('ping', () => {
+    socket.data.lastHeartbeat = Date.now();
+    socket.emit('pong', { timestamp: Date.now() });
   });
 
-  socket.on('disconnect', (reason, details) => {
-    console.log(`[Socket] Disconnected: ${socket.id} - ${reason}`);
-    if (details) {
-      console.log(`[Socket] Disconnect details:`, details);
+  // ✅ NEW: Leaderboard handler with enhanced error handling
+  socket.on('get-leaderboard', async (options) => {
+    try {
+      const sortBy = options?.sortBy || 'total';
+      
+      if (!sortBy || !['total', 'highest', 'combos', 'wins', 'best'].includes(sortBy)) {
+        console.warn(`[Leaderboard] Invalid sort option: ${sortBy}`);
+        return socket.emit('leaderboard-error', 'Invalid sort option');
+      }
+      
+      console.log(`[Leaderboard] Fetching top players (sortBy=${sortBy})`);
+      const topPlayers = await LeaderboardManager.getTopPlayers(100, sortBy);
+      
+      if (!topPlayers || !Array.isArray(topPlayers)) {
+        console.warn('[Leaderboard] No data returned from getTopPlayers');
+        return socket.emit('leaderboard-error', 'No leaderboard data available');
+      }
+      
+      console.log(`[Leaderboard] Retrieved ${topPlayers.length} players`);
+      
+      // Get requesting player's rank if authenticated
+      let playerRank = null;
+      const userId = socket.data?.user?.id || socket.userId;
+      if (userId) {
+        try {
+          playerRank = await LeaderboardManager.getPlayerRank(userId, sortBy);
+          console.log(`[Leaderboard] Player ${userId} rank: ${JSON.stringify(playerRank)}`);
+        } catch (rankErr) {
+          console.warn(`[Leaderboard] Failed to get player rank: ${rankErr.message}`);
+          // Don't fail entirely, just skip player rank
+        }
+      }
+
+      socket.emit('leaderboard-data', {
+        topPlayers,
+        playerRank,
+        sortBy
+      });
+    } catch (err) {
+      console.error('[Leaderboard] Failed to get leaderboard:', err.message || err);
+      console.error('[Leaderboard] Stack:', err.stack);
+      socket.emit('leaderboard-error', `Failed to load leaderboard: ${err.message}`);
     }
+  });
+
+  socket.on('error', (error) => {
+    console.error(`[Socket] Error on ${socket.id}: ${error.message || error}`);
+  });
+
+  socket.on('disconnect', (reason) => {
+    socket.data.connected = false;
+    const connectionDuration = Date.now() - (socket.data.connectedAt || Date.now());
+    const timeSinceHeartbeat = Date.now() - socket.data.lastHeartbeat;
+    
+    console.log(
+      `[Socket] Disconnected: ${socket.id} ` +
+      `(reason: ${reason}, ` +
+      `duration: ${connectionDuration}ms, ` +
+      `inactive for: ${timeSinceHeartbeat}ms, ` +
+      `user: ${socket.data.user?.name || 'none'})`
+    );
   });
 });
 
