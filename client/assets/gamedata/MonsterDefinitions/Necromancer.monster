@@ -1,0 +1,25 @@
+{
+    "TypeName": "Necromancer",
+	"FullName": "Necromancer",
+	"Rarity": "Epic",
+	"Health": 30,
+    "Damage": 10,
+    "Range": 2,
+	"Speed": 1,
+	"Ammo": 1,
+	"ReloadDelay": 2,
+    "TargetingMode": "First",
+    "ProjectileSprite": "hex",
+	"DisplaySprite": "necromancer",
+	"SpecialEffects": [
+	  {
+	    "Type": "SummonUnit",
+		"UnitType": "Skeleton",
+		"SpawnDirection": "Plus",
+		"SpawnCount": 4,
+		"Cooldown": 2
+	  }
+	],
+    "StatusEffects": [],
+	"IsProto": true
+}

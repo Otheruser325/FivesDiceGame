@@ -1,21 +1,12 @@
 {
-  "title": "Fives — Changelog",
+  "title": "Protodice — Changelog",
   "entries": [
     {
-      "version": "1.1.0",
-      "date": "18/01/2026",
-      "tags": ["Release"],
+      "version": "0.5.0",
+      "date": "05/02/2026",
+      "tags": ["Pre-Release"],
       "changes": [
-        "Added Teams rule: players can form teams and share scores and work together to win.",
-        "Online functionality improvements and bug fixes."
-      ]
-    },
-    {
-      "version": "1.0.0",
-      "date": "13/12/2025",
-      "tags": ["Release"],
-      "changes": [
-        "Fives Release!"
+        "Alpha release on Protodice! Let us know what you think about our new game!"
       ]
     }
   ]

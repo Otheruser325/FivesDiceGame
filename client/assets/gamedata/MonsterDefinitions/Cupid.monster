@@ -1,0 +1,23 @@
+{
+    "TypeName": "Cupid",
+	"FullName": "Cupid",
+	"Rarity": "Legendary",
+	"Health": 30,
+    "Damage": 4,
+    "Range": 4,
+	"Speed": 1,
+	"Ammo": 1,
+	"ReloadDelay": 1,
+    "TargetingMode": "First",
+    "ProjectileSprite": "love_arrow",
+	"DisplaySprite": "cupid",
+	"SpecialEffects": [],
+    "StatusEffects": [
+        {
+            "Type": "Charm",
+            "Duration": 3,
+            "CanReapply": true
+        }
+    ],
+	"IsProto": true
+}

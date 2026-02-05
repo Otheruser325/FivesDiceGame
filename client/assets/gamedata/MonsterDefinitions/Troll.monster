@@ -1,0 +1,17 @@
+{
+    "TypeName": "Troll",
+	"FullName": "Troll",
+	"Rarity": "Common",
+	"Health": 45,
+    "Damage": 11,
+    "Range": 1,
+	"Speed": 1,
+	"Ammo": 1,
+	"ReloadDelay": 2,
+    "TargetingMode": "First",
+    "ProjectileSprite": "null",
+	"DisplaySprite": "troll",
+	"SpecialEffects": [],
+    "StatusEffects": [],
+	"IsProto": false
+}

@@ -1,0 +1,16 @@
+{
+    "TypeName": "Ballista",
+	"FullName": "Ballista",
+	"Rarity": "Uncommon",
+	"Health": 30,
+    "Damage": 35,
+    "Range": 7,
+	"Ammo": 1,
+	"ReloadDelay": 3,
+    "TargetingMode": "Strong",
+    "ProjectileSprite": "big_arrow",
+	"DisplaySprite": "ballista",
+	"SpecialEffects": [],
+    "StatusEffects": [],
+	"IsProto": false
+}

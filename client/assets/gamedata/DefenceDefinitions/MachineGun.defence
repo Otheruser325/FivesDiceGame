@@ -1,0 +1,22 @@
+{
+    "TypeName": "MachineGun",
+	"FullName": "Machine Gun",
+	"Rarity": "Common",
+	"Health": 30,
+    "Damage": 8,
+    "Range": 3,
+	"Ammo": 2,
+	"ReloadDelay": 1,
+    "TargetingMode": "First",
+    "ProjectileSprite": "bullet",
+	"DisplaySprite": "machinegun",
+	"SpecialEffects": [
+	  {
+	    "Type": "Accuracy",
+		"MinValue": 0.33,
+		"MaxValue": 0.99
+	  }
+	],
+    "StatusEffects": [],
+	"IsProto": false
+}

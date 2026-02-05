@@ -1,0 +1,25 @@
+{
+    "TypeName": "PoisonWard",
+	"FullName": "Poison Ward",
+	"Rarity": "Epic",
+	"Health": 55,
+    "Damage": 8,
+    "Range": 3,
+	"Speed": 1.5,
+	"Ammo": 1,
+	"ReloadDelay": 1,
+    "TargetingMode": "First",
+    "ProjectileSprite": "null",
+	"DisplaySprite": "poisonward",
+	"SpecialEffects": [],
+    "StatusEffects": [
+        {
+            "Type": "Poison",
+            "Value": 3,
+            "Duration": 3,
+            "CanReapply": true,
+            "MaxReapplies": 3
+        }
+    ],
+	"IsProto": true
+}

@@ -1,0 +1,24 @@
+{
+    "TypeName": "FireImp",
+	"FullName": "Fire Imp",
+	"Rarity": "Common",
+	"Health": 35,
+    "Damage": 12,
+    "Range": 1,
+	"Speed": 1,
+	"Ammo": 1,
+	"ReloadDelay": 2,
+    "TargetingMode": "First",
+    "ProjectileSprite": "null",
+	"DisplaySprite": "fireimp",
+	"SpecialEffects": [],
+    "StatusEffects": [
+        {
+            "Type": "Fire",
+            "Value": 6,
+            "Duration": 2,
+            "CanReapply": true
+        }
+    ],
+	"IsProto": false
+}

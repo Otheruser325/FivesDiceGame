@@ -1,0 +1,514 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<LocData>
+  <Language>
+    <IDS>
+      <T id="UI_SETTINGS" l="0">AJUSTES</T>
+      <T id="UI_ACHIEVEMENTS" l="0">LOGROS</T>
+      <T id="UI_HELP" l="0">AYUDA</T>
+      <T id="UI_CHANGELOG" l="0">REGISTRO</T>
+      <T id="UI_PLAY" l="0">JUGAR</T>
+      <T id="UI_MUSIC_ON" l="0">MUSICA: ON</T>
+      <T id="UI_MUSIC_OFF" l="0">MUSICA: OFF</T>
+      <T id="UI_HOW_WANT_PLAY" l="0">&#191;C&#243;mo quieres jugar?</T>
+      <T id="UI_LOCAL_PLAY" l="0">Juego local</T>
+      <T id="UI_ONLINE_PLAY" l="0">Juego en linea</T>
+      <T id="UI_BACK" l="0">&lt;- ATR&#193;S</T>
+      <T id="UI_CLOSE" l="0">Cerrar</T>
+
+      <T id="SETTINGS_TITLE" l="0">AJUSTES</T>
+      <T id="SET_SOUND_ON" l="0">Efectos de sonido: ON</T>
+      <T id="SET_SOUND_OFF" l="0">Efectos de sonido: OFF</T>
+      <T id="SET_MUSIC_ON" l="0">Musica: ON</T>
+      <T id="SET_MUSIC_OFF" l="0">Musica: OFF</T>
+      <T id="SET_VISUAL_ON" l="0">Efectos visuales: ON</T>
+      <T id="SET_VISUAL_OFF" l="0">Efectos visuales: OFF</T>
+      <T id="SET_LANGUAGE" l="0">Idioma: {0}</T>
+      <T id="SET_JUKEBOX" l="0">Rockola</T>
+      <T id="SET_MUSIC_TRACKS" l="0">Pistas de musica</T>
+      <T id="SET_SHUFFLE_ON" l="0">Pista aleatoria: ON</T>
+      <T id="SET_SHUFFLE_OFF" l="0">Pista aleatoria: OFF</T>
+      <T id="TRACK_DICE_LEAGUE" l="0">Liga de dados</T>
+      <T id="TRACK_BASILISK_THEME" l="0">Tema Basilisk</T>
+      <T id="TRACK_POWERHOUSE" l="0">Central</T>
+
+      <T id="LOCAL_MENU_TITLE" l="0">Men&#250; de juego local</T>
+      <T id="LOCAL_MENU_MY_LOADOUTS" l="0">Mis equipamientos</T>
+      <T id="LOCAL_MENU_CREATE_LOBBY" l="0">Crear sala local</T>
+      <T id="LOCAL_MENU_CHALLENGES" l="0">Desaf&#237;os</T>
+
+      <T id="HELP_TITLE" l="0">Ayuda</T>
+      <T id="HELP_SUBTITLE" l="0">C&#243;mo jugar a Protodice</T>
+      <T id="HELP_SECTION_ABILITIES" l="0">Habilidades</T>
+      <T id="HELP_SECTION_CLASSES" l="0">Clases</T>
+      <T id="HELP_SECTION_GAMEPLAY" l="0">Juego</T>
+      <T id="HELP_SECTION_WINCON" l="0">Victoria</T>
+      <T id="HELP_TEXT_ABILITIES" l="0">Las habilidades se dividen en efectos especiales y efectos de estado.
+
+Efectos especiales: &#225;rea de efecto, perforaci&#243;n de armadura, rayo l&#225;ser,
+disparo m&#250;ltiple, invocar unidad, bloquear todas las v&#237;as y m&#225;s.
+
+Efectos de estado: fuego, veneno, lento, aturdimiento, encanto, &#225;cido,
+indetectable y otros debilitamientos poderosos.
+
+Rasgos como Punto ciego, Objetivo trasero y V&#237;as adyacentes
+cambian c&#243;mo una unidad cumple su rol.</T>
+      <T id="HELP_TEXT_GAMEPLAY" l="0">Protodice es un juego estrat&#233;gico de defensa de torres con dados.
+
+- Turnos: un lado juega Defensa, el otro Monstruos.
+- Lanza los dados para invocar unidades de tu equipamiento.
+- Las defensas protegen la izquierda; los monstruos atacan desde la derecha.
+- Las unidades atacan autom&#225;ticamente seg&#250;n sus estad&#237;sticas en cada oleada.
+
+Sistema de dados:
+- 1-5: invoca la ranura correspondiente.
+- 6: vuelve a tirar para una unidad Prototipo.</T>
+      <T id="HELP_TEXT_WINCON" l="0">La Defensa gana sobreviviendo a todas las oleadas.
+Los Monstruos ganan al romper hasta el extremo izquierdo.
+
+Sobrevive, mant&#233;n la l&#237;nea y administra tu econom&#237;a para resistir.
+O abruma los carriles para romper las defensas.</T>
+      <T id="HELP_WEAKNESS" l="0">Debil</T>
+      <T id="HELP_DEFENCE_CLASSES" l="0">Clases de Defensa</T>
+      <T id="HELP_MONSTER_CLASSES" l="0">Clases de Monstruos</T>
+
+      <T id="CHANGELOG_TITLE" l="0">Registro de cambios</T>
+
+      <T id="ERROR_SYNTAX" l="0">Error de sintaxis</T>
+      <T id="ERROR_TYPE" l="0">Error de tipo</T>
+      <T id="ERROR_REFERENCE" l="0">Error de referencia</T>
+      <T id="ERROR_RANGE" l="0">Error de rango</T>
+      <T id="ERROR_GENERIC" l="0">Error</T>
+      <T id="ERROR_RECOVER" l="0">Intentar reparar</T>
+      <T id="ERROR_DETAILS" l="0">Mostrar detalles</T>
+      <T id="ERROR_RELOAD" l="0">Recargar pagina</T>
+      <T id="ERROR_NO_DETAILS" l="0">Sin mas detalles</T>
+
+      <T id="ALERT_ERROR" l="0">ERROR</T>
+      <T id="ALERT_SUCCESS" l="0">EXITO</T>
+      <T id="ALERT_INFO" l="0">INFO</T>
+      <T id="ALERT_WARNING" l="0">ADVERTENCIA</T>
+
+      <T id="GAME_CHALLENGE_BONUS" l="0"> (+{0} desafio)</T>
+      <T id="GAME_VICTORY_TOKENS" l="0">&#161;Victoria! Ganaste {0} fichas{1}.</T>
+      <T id="GAME_DEFEAT_TOKENS" l="0">&#161;Derrota! Ganaste {0} fichas{1}.</T>
+
+      <T id="ONLINE_TITLE" l="0">Modo en linea</T>
+      <T id="ONLINE_SERVER_UNAVAILABLE_TITLE" l="0">Servidor no disponible</T>
+      <T id="ONLINE_SERVER_UNAVAILABLE_BODY1" l="0">El modo en linea no esta disponible.</T>
+      <T id="ONLINE_SERVER_UNAVAILABLE_BODY2" l="0">Intentalo mas tarde.</T>
+      <T id="ONLINE_CONNECTION_SLOW_TITLE" l="0">Conexion lenta</T>
+      <T id="ONLINE_CONNECTION_SLOW_BODY1" l="0">El servidor responde pero la conexion es lenta.</T>
+      <T id="ONLINE_CONNECTION_SLOW_BODY2" l="0">Puede ser un problema temporal. Intenta de nuevo.</T>
+      <T id="ONLINE_CONNECTION_FAILED_TITLE" l="0">Conexion fallida</T>
+      <T id="ONLINE_CONNECTION_FAILED_BODY1" l="0">No se pudo contactar con el servidor.</T>
+      <T id="ONLINE_CONNECTION_FAILED_BODY2" l="0">Comprueba tu conexion e intentalo de nuevo.</T>
+      <T id="ONLINE_NOT_SIGNED_IN" l="0">No has iniciado sesion</T>
+      <T id="ONLINE_SIGN_IN_PROMPT" l="0">Inicia sesion para jugar en linea</T>
+      <T id="ONLINE_CREATE_LOBBY" l="0">Crear sala</T>
+      <T id="ONLINE_LEADERBOARD" l="0">Clasificacion</T>
+      <T id="ONLINE_JOIN_LOBBY" l="0">Unirse a sala</T>
+      <T id="ONLINE_CONNECTION_LOST" l="0">Conexion perdida. Reconecta e intenta de nuevo.</T>
+      <T id="ONLINE_INVALID_CODE" l="0">Introduce un codigo valido (4-6 caracteres alfanumericos).</T>
+      <T id="ONLINE_JOINING_LOBBY" l="0">Uniendose a la sala...</T>
+      <T id="ONLINE_AUTH_ERROR" l="0">Error de autenticacion: no se pudo obtener tu ID.</T>
+      <T id="ONLINE_JOIN_TIMEOUT" l="0">La solicitud expiro. Intentalo de nuevo.</T>
+      <T id="ONLINE_JOIN_FAILED_SEND" l="0">No se pudo enviar la solicitud. Intentalo de nuevo.</T>
+      <T id="ONLINE_JOIN_FAILED" l="0">No se pudo unir (codigo incorrecto o lleno).</T>
+
+      <T id="CHALLENGES_TITLE" l="0">DESAFIOS</T>
+      <T id="OPP_GOBLIN_HORDE" l="0">Horda de goblins</T>
+      <T id="OPP_SIEGE_CHOIR" l="0">Coro de asedio</T>
+      <T id="OPP_SPECTRAL_SWARM" l="0">Enjambre espectral</T>
+      <T id="OPP_BRUISER_PACK" l="0">Manada de brutos</T>
+      <T id="OPP_IRON_WALL" l="0">Muro de hierro</T>
+      <T id="OPP_STORM_BATTERY" l="0">Bateria de tormenta</T>
+      <T id="OPP_CONTROL_GRID" l="0">Red de control</T>
+      <T id="OPP_DEFAULT" l="0">Oponente</T>
+      <T id="DIFFICULTY_EASY" l="0">Facil</T>
+      <T id="DIFFICULTY_MEDIUM" l="0">Medio</T>
+      <T id="DIFFICULTY_HARD" l="0">Dificil</T>
+      <T id="DIFFICULTY_NIGHTMARE" l="0">Pesadilla</T>
+      <T id="CHALLENGE_DAILY_TITLE" l="0">Desaf&#237;o diario</T>
+      <T id="CHALLENGE_DAILY_DESC" l="0">Desaf&#237;o JcE diario para {0}.{1}</T>
+      <T id="CHALLENGE_PRESET" l="0">Equipamiento predefinido: {0}.</T>
+      <T id="CHALLENGE_DEUCIFER_TITLE" l="0">Foso de Deucifer</T>
+      <T id="CHALLENGE_DEUCIFER_DESC" l="0">Pesadilla de 50 olas contra Deucifer.</T>
+      <T id="CHALLENGE_PLAYER" l="0">Jugador</T>
+      <T id="CHALLENGE_DEUCIFER_NAME" l="0">Deucifer</T>
+      <T id="CHALLENGE_COMPLETE" l="0">COMPLETADO</T>
+      <T id="CHALLENGE_FAILED" l="0">FALLADO</T>
+      <T id="CHALLENGE_NOT_READY" l="0">NO LISTO</T>
+      <T id="CHALLENGE_REWARD" l="0"> Recompensa: +{0} fichas.</T>
+      <T id="CHALLENGE_GENERIC" l="0">Desaf&#237;o</T>
+      <T id="CHALLENGE_COMING_SOON" l="0">Proximamente...</T>
+      <T id="CHALLENGE_COMING_SOON_DESC" l="0">Mas desafios en futuras actualizaciones.</T>
+
+      <T id="LANG_ENGLISH" l="0">Ingles</T>
+      <T id="LANG_FRENCH" l="0">Frances</T>
+      <T id="LANG_SPANISH" l="0">Espa&#241;ol</T>
+      <T id="LANG_ITALIAN" l="0">Italiano</T>
+      <T id="LANG_PORTUGUESE" l="0">Portugues</T>
+      <T id="LANG_WELSH" l="0">Gales</T>
+          <T id="PRELOAD_LOADING" l="0">Cargando...</T>
+      <T id="UI_YES" l="0">S&#237;</T>
+      <T id="UI_NO" l="0">No</T>
+      <T id="UI_NA" l="0">N/D</T>
+      <T id="UI_CLOSE_SHORT" l="0">X</T>
+      <T id="GENERIC_PLAYER" l="0">Jugador</T>
+      <T id="GENERIC_PLAYER_1" l="0">Jugador 1</T>
+      <T id="GENERIC_PLAYER_2" l="0">Jugador 2</T>
+      <T id="GENERIC_UNIT" l="0">Unidad</T>
+      <T id="GENERIC_UNKNOWN" l="0">Desconocido</T>
+      <T id="ACH_TITLE" l="0">LOGROS</T>
+      <T id="ACH_FIRSTPLAY_TITLE" l="0">Soy nuevo en esto</T>
+      <T id="ACH_FIRSTPLAY_DESC" l="0">Juega Protodice por primera vez.</T>
+      <T id="ACH_WAVES_100_TITLE" l="0">Warm-Up Oleadas</T>
+      <T id="ACH_WAVES_100_DESC" l="0">Progresar 100 olas en total.</T>
+      <T id="ACH_WAVES_500_TITLE" l="0">Curtido en batalla</T>
+      <T id="ACH_WAVES_500_DESC" l="0">Progresar 500 olas en total.</T>
+      <T id="ACH_WAVES_2500_TITLE" l="0">Guerra sin fin</T>
+      <T id="ACH_WAVES_2500_DESC" l="0">Progresar 2.500 olas en total.</T>
+      <T id="ACH_TIME_1H_TITLE" l="0">Solo una m&#225;s</T>
+      <T id="ACH_TIME_1H_DESC" l="0">Juega Protodice durante 1 hora en total.</T>
+      <T id="ACH_TIME_12H_TITLE" l="0">Todo o nada</T>
+      <T id="ACH_TIME_12H_DESC" l="0">Juega Protodice durante 12 horas en total.</T>
+      <T id="ACH_WINS_1_TITLE" l="0">First Victoria</T>
+      <T id="ACH_WINS_1_DESC" l="0">Gana tu primera partida.</T>
+      <T id="ACH_WINS_10_TITLE" l="0">Comandante veterano</T>
+      <T id="ACH_WINS_10_DESC" l="0">Gana 10 partidas.</T>
+      <T id="ACH_DEFEAT_ENEMIES_TITLE" l="0">Enemigo ca&#237;do</T>
+      <T id="ACH_DEFEAT_ENEMIES_DESC" l="0">Derrota 250 enemies (monsters as defender / defences as attacker).</T>
+      <T id="ACH_AUGMENTED_TITLE" l="0">Aumentado</T>
+      <T id="ACH_AUGMENTED_DESC" l="0">Comprar an Epic unit in the shop.</T>
+      <T id="ACH_DARKEST_HOUR_TITLE" l="0">En nuestra hora m&#225;s oscura...</T>
+      <T id="ACH_DARKEST_HOUR_DESC" l="0">Comprar a Legendary unit in the shop.</T>
+      <T id="ACH_HELLSCAPE_TITLE" l="0">Infierno</T>
+      <T id="ACH_HELLSCAPE_DESC" l="0">Derrota Deucifer in Deucifer's Pit.</T>
+      <T id="ACH_STUN_WAVE_TITLE" l="0">&#191;Qui&#233;n est&#225; aturdido ahora?</T>
+      <T id="ACH_STUN_WAVE_DESC" l="0">Aturdir or freeze 5 enemies in one wave.</T>
+      <T id="ACH_BADGE_COMPLETE" l="0">COMPLETADO</T>
+      <T id="ACH_BADGE_LOCKED" l="0">BLOQUEADO</T>
+      <T id="ACH_STATS_UNLOCKED" l="0">DESBLOQUEADOS: {0} / {1}</T>
+      <T id="ACH_TIME_FORMAT" l="0">{0}h {1}m</T>
+      <T id="ACH_STATS_LINE1" l="0">PARTIDAS: {0}     VICTORIAS: {1}    OLAS: {2}</T>
+      <T id="ACH_STATS_LINE2" l="0">TIEMPO JUGADO: {0}    MONSTRUOS: {1}    DEFENSAS: {2}</T>
+      <T id="CONFIG_TITLE" l="0">Configuraci&#243;n de juego</T>
+      <T id="CONFIG_PLAYERS" l="0">Jugadores:</T>
+      <T id="CONFIG_PLAYER_SHORT" l="0">P{0}</T>
+      <T id="CONFIG_PROMPT_PLAYER_NAME" l="0">Enter name for Jugador {0}:</T>
+      <T id="CONFIG_AI" l="0">Computadora</T>
+      <T id="CONFIG_HUMAN" l="0">Humano</T>
+      <T id="CONFIG_HOW_MANY_WAVES" l="0">&#191;Cu&#225;ntas oleadas?</T>
+      <T id="CONFIG_WAVES_LABEL" l="0">{0} olas</T>
+      <T id="CONFIG_ADDITIONAL_RULES" l="0">Reglas adicionales:</T>
+      <T id="CONFIG_SWITCH_SIDES" l="0">Cambiar bandos: {0}</T>
+      <T id="SIDE_MONSTERS" l="0">Monstruos</T>
+      <T id="SIDE_DEFENCES" l="0">Defensas</T>
+      <T id="CONFIG_HOW_MANY_DICE" l="0">&#191;Cu&#225;ntos dados?</T>
+      <T id="CONFIG_DICE_1" l="0">1 dado</T>
+      <T id="CONFIG_DICE_2" l="0">2 dados</T>
+      <T id="CONFIG_BOARD_SIZE" l="0">Tama&#241;o del tablero</T>
+      <T id="CONFIG_ROWS" l="0">Filas: {0}</T>
+      <T id="CONFIG_COLS" l="0">Columnas: {0}</T>
+      <T id="CONFIG_START_GAME" l="0">Comenzar</T>
+      <T id="CHALLENGE_DESC_FALLBACK" l="0">Descripci&#243;n de desaf&#237;o</T>
+      <T id="CHALLENGE_REWARD_LINE" l="0">Recompensa: +{0} Fichas</T>
+      <T id="CHALLENGE_SIDES_LINE" l="0">T&#250;: {0} | Rival: {1} ({2})</T>
+      <T id="CHALLENGE_DICE" l="0">Dados: {0}</T>
+      <T id="CHALLENGE_BOARD" l="0">Tablero: {0} x {1}</T>
+      <T id="CHALLENGE_PLAYERS" l="0">Jugadores: {0}</T>
+      <T id="CHALLENGE_WAVES" l="0">Oleadas: {0}</T>
+      <T id="CHALLENGE_TEAMS_ENABLED" l="0">Equipos: activados</T>
+      <T id="CHALLENGE_PLAYERS_LABEL" l="0">Jugadores:</T>
+      <T id="CHALLENGE_AI_LABEL" l="0">IA {0}</T>
+      <T id="CHALLENGE_HUMAN_LABEL" l="0">Humano</T>
+      <T id="CHALLENGE_START" l="0">INICIAR DESAF&#205;O</T>
+      <T id="TEAM_BLUE" l="0">AZUL</T>
+      <T id="TEAM_RED" l="0">ROJO</T>
+      <T id="POSTGAME_TITLE" l="0">Partida local - Resultados</T>
+      <T id="POSTGAME_PUN_VICTORY_1" l="0">&#161;Dado-fant&#225;stico!</T>
+      <T id="POSTGAME_PUN_VICTORY_2" l="0">&#161;Ganador, ganador!</T>
+      <T id="POSTGAME_PUN_VICTORY_3" l="0">&#161;Rodando en victoria!</T>
+      <T id="POSTGAME_PUN_DEFEAT_1" l="0">&#161;Suerte en el pr&#243;ximo lanzamiento!</T>
+      <T id="POSTGAME_PUN_DEFEAT_2" l="0">&#161;Reza a RNGesus!</T>
+      <T id="POSTGAME_PUN_DEFEAT_3" l="0">&#161;Derrota con dados!</T>
+      <T id="POSTGAME_PUN_DRAW_1" l="0">&#161;Es un empate!</T>
+      <T id="POSTGAME_PUN_DRAW_2" l="0">&#161;Empate desastroso de dados!</T>
+      <T id="POSTGAME_PUN_DRAW_3" l="0">&#161;Lanzamientos equilibrados!</T>
+      <T id="POSTGAME_NONE" l="0">Ninguno</T>
+      <T id="POSTGAME_MVP_LINE" l="0">{0} MVP: {1} ({2} da&#241;o)</T>
+      <T id="POSTGAME_SUMMARY" l="0">Oleadas: {0}/{1}    Fichas: {2}</T>
+      <T id="POSTGAME_RESULT_VICTORY" l="0">Victoria!</T>
+      <T id="POSTGAME_RESULT_DEFEAT" l="0">Derrota!</T>
+      <T id="POSTGAME_RESULT_DRAW" l="0">Empate!</T>
+      <T id="ROLE_DEFENCE" l="0">Defensa</T>
+      <T id="ROLE_MONSTER" l="0">Monstruo</T>
+      <T id="ROLE_UNKNOWN" l="0">Desconocido</T>
+      <T id="POSTGAME_ROLE" l="0">Rol: {0}</T>
+      <T id="POSTGAME_SCORE" l="0">Puntuaci&#243;n: {0}</T>
+      <T id="POSTGAME_DEFEATED" l="0">Derrotado</T>
+      <T id="POSTGAME_MONSTERS_DEFEATED" l="0">Monstruos Defeated</T>
+      <T id="POSTGAME_DEFENCES_DESTROYED" l="0">Defensas Destroyed</T>
+      <T id="POSTGAME_EXTRA_LINE" l="0">{0}: {1}</T>
+      <T id="POSTGAME_RETURN" l="0">Volver al men&#250;</T>
+      <T id="POSTGAME_EXIT_CONFIRM" l="0">&#191;Volver al men&#250;?</T>
+      <T id="LOADOUT_TITLE" l="0">Equipamientos</T>
+      <T id="LOADOUT_TOKENS" l="0">Fichas: {0}</T>
+      <T id="LOADOUT_DEFENCES" l="0">Defensas</T>
+      <T id="LOADOUT_MONSTERS" l="0">Monstruos</T>
+      <T id="LOADOUT_NORMAL" l="0">Normal</T>
+      <T id="LOADOUT_PROTO" l="0">Proto</T>
+      <T id="LOADOUT_YOUR" l="0">Tu equipamiento</T>
+      <T id="LOADOUT_SLOT" l="0">{0}.</T>
+      <T id="LOADOUT_AVAILABLE" l="0">Unidades disponibles</T>
+      <T id="LOADOUT_SHOP" l="0">Tienda</T>
+      <T id="LOADOUT_DEV" l="0">DEV</T>
+      <T id="LOADOUT_CLASS" l="0">Clase</T>
+      <T id="LOADOUT_PLACEMENT" l="0">Posici&#243;n</T>
+      <T id="LOADOUT_OWNED" l="0">&#10003; Pose&#237;do</T>
+      <T id="LOADOUT_LOCKED" l="0">Bloqueado</T>
+      <T id="LOADOUT_STATUS_EFFECTS" l="0">Efectos de estado:</T>
+      <T id="LOADOUT_SPECIAL_EFFECTS" l="0">Efectos especiales:</T>
+      <T id="LOADOUT_ABILITIES" l="0">Habilidades:</T>
+      <T id="LOADOUT_ADD" l="0">A&#241;adir</T>
+      <T id="LOADOUT_COST" l="0">Costo: {0} fichas</T>
+      <T id="LOADOUT_BUY_SHOP" l="0">Comprar in Shop</T>
+      <T id="LOADOUT_UNKNOWN_EFFECT" l="0">Efecto desconocido</T>
+      <T id="LOADOUT_FULL" l="0">&#161;Equipamiento lleno! Quita una unidad primero.</T>
+      <T id="LOADOUT_ALREADY" l="0">&#161;Unidad ya en el equipamiento!</T>
+      <T id="LOADOUT_ADDED" l="0">&#161;Unidad a&#241;adida al equipamiento!</T>
+      <T id="LOADOUT_EMPTY_SLOT" l="0">Ranura vac&#237;a</T>
+      <T id="STAT_HP" l="0">PS</T>
+      <T id="STAT_DMG" l="0">DA&#209;O</T>
+      <T id="STAT_AMMO" l="0">Munici&#243;n</T>
+      <T id="STAT_RANGE" l="0">Alcance</T>
+      <T id="STAT_RELOAD" l="0">Recarga</T>
+      <T id="RARITY_COMMON" l="0">Com&#250;n</T>
+      <T id="RARITY_UNCOMMON" l="0">Poco com&#250;n</T>
+      <T id="RARITY_RARE" l="0">Raro</T>
+      <T id="RARITY_EPIC" l="0">&#201;pico</T>
+      <T id="RARITY_LEGENDARY" l="0">Legendario</T>
+      <T id="CLASS_DAMAGE_DEALER" l="0">Causante de da&#241;o</T>
+      <T id="CLASS_SUPPORT" l="0">Apoyo</T>
+      <T id="CLASS_CONTROL" l="0">Control</T>
+      <T id="CLASS_UTILITY" l="0">Utilidad</T>
+      <T id="CLASS_SUMMONER" l="0">Invocador</T>
+      <T id="CLASS_TANK" l="0">Tanque</T>
+      <T id="CLASS_BRUISER" l="0">Bruto</T>
+      <T id="CLASS_SKIRMISHER" l="0">Hostigador</T>
+      <T id="CLASS_SWARM" l="0">Enjambre</T>
+      <T id="CLASS_GENERALIST" l="0">Generalista</T>
+      <T id="PLACEMENT_BACKLINE" l="0">Retaguardia</T>
+      <T id="PLACEMENT_MIDLINE" l="0">L&#237;nea media</T>
+      <T id="PLACEMENT_FRONTLINE" l="0">Primera l&#237;nea</T>
+      <T id="SHOP_TITLE" l="0">Tienda de unidades</T>
+      <T id="SHOP_OWNED" l="0">&#10003; Pose&#237;do</T>
+      <T id="SHOP_BUY" l="0">Comprar</T>
+      <T id="SHOP_ALREADY_OWNED" l="0">{0} ya est&#225; en posesi&#243;n.</T>
+      <T id="SHOP_NOT_ENOUGH" l="0">No hay suficientes fichas (se requieren {0}).</T>
+      <T id="SHOP_PURCHASED" l="0">&#161;Comprado {0}!</T>
+      <T id="DEV_MENU_TITLE" l="0">MEN&#218; DEV</T>
+      <T id="DEV_ADD_TOKENS" l="0">+10,000 Fichas</T>
+      <T id="DEV_UNLOCK_ALL" l="0">Desbloquear TODAS las unidades</T>
+      <T id="DEV_UNLOCK_BY_KEY" l="0">Desbloquear por clave...</T>
+      <T id="DEV_PROMPT_UNIT_KEY" l="0">Introduce la clave de unidad (p. ej. ForceField, Golem):</T>
+      <T id="DEV_LOG_LOADOUTS" l="0">Registro Equipamientos</T>
+      <T id="DEV_UNKNOWN_UNIT" l="0">Unidad desconocida: {0}</T>
+      <T id="GAME_WAVE_TURN" l="0">Oleada {0}/{1} - {2}'s turno</T>
+      <T id="HISTORY_WAVE_STARTED" l="0">Oleada {0} started</T>
+      <T id="HISTORY_TURN" l="0">{0}'s turno ({1})</T>
+      <T id="GAME_ROLL_DICE" l="0">Lanzar dados</T>
+      <T id="GAME_END_TURN" l="0">Terminar turno</T>
+      <T id="GAME_REROLL_PROTO" l="0">Repetir Proto ({0})</T>
+      <T id="GAME_DEPLOY_FIRST" l="0">&#161;Despliega todas las unidades primero!</T>
+      <T id="GAME_ROLL_FIRST" l="0">&#161;Lanza los dados primero!</T>
+      <T id="GAME_INVALID_PLACEMENT" l="0">Colocacion invalida!</T>
+      <T id="GAME_HOLDING_MAX" l="0">Tienes el m&#225;ximo de unidades: coloca algunas primero.</T>
+      <T id="GAME_AI_LABEL" l="0">IA</T>
+      <T id="GAME_AI_THINKING" l="0">{0} est&#225; pensando...</T>
+      <T id="GAME_HISTORY_LOG" l="0">Historial</T>
+      <T id="GAME_LOG_BUTTON" l="0">Registro</T>
+      <T id="GAME_EXIT_CONFIRM" l="0">&#191;Seguro que quieres volver al men&#250;?</T>
+      <T id="GAME_PLAYER_LEFT" l="0">{0} (se fue)</T>
+      <T id="HISTORY_PLAYED_UNIT" l="0">{0} jug&#243; {1} (fila {2}, col {3})</T>
+      <T id="HISTORY_REROLL_PROTO" l="0">{0} repiti&#243; proto: {1}</T>
+      <T id="HISTORY_ROLLED" l="0">{0} lanz&#243;: {1}</T>
+      <T id="HISTORY_UNIT_DEFEATED" l="0">{0} fue derrotado</T>
+      <T id="HISTORY_UNIT_REMOVED" l="0">{0} fue retirado</T>
+      <T id="TOOLTIP_TURN" l="0">turno</T>
+      <T id="TOOLTIP_TURNS" l="0">turnos</T>
+      <T id="TOOLTIP_LIFESPAN_LINE" l="0">Vida util: {0} {1}</T>
+      <T id="TOOLTIP_LIFESPAN_VALUE" l="0">Vida util: {0}</T>
+      <T id="TOOLTIP_HP" l="0">PS: {0} / {1}</T>
+      <T id="TOOLTIP_CANT_ATTACK" l="0">No puede atacar</T>
+      <T id="TOOLTIP_DAMAGE" l="0">Da&#241;o: {0}</T>
+      <T id="TOOLTIP_MULTIPLIER" l="0">x{0}</T>
+      <T id="TOOLTIP_AMMO" l="0">Munici&#243;n: {0} / {1}</T>
+      <T id="TOOLTIP_AMMO_SINGLE" l="0">Munici&#243;n: {0}</T>
+      <T id="TOOLTIP_RANGE" l="0">Alcance: {0}</T>
+      <T id="TOOLTIP_RELOADING" l="0">Recargando ({0} turnos)</T>
+      <T id="TOOLTIP_READY" l="0">Listo</T>
+      <T id="TOOLTIP_RELOAD" l="0">Recarga: {0}</T>
+      <T id="TOOLTIP_TRAIT" l="0">Rasgo: {0}</T>
+      <T id="TRAIT_CAN_DETECT" l="0">Puede detectar indetectables</T>
+      <T id="TRAIT_STARTS_NO_AMMO" l="0">Empieza sin munici&#243;n</T>
+      <T id="TRAIT_REMOVE_OUT_OF_AMMO" l="0">Se elimina al quedarse sin munici&#243;n</T>
+      <T id="TRAIT_CAN_BE_TRAMPLED" l="0">Puede ser pisoteado (no objetivo)</T>
+      <T id="TRAIT_INNATE_UNDETECTABLE" l="0">Indetectable innato</T>
+      <T id="TOOLTIP_CENTER_ATTACKER" l="0">centro=atacante</T>
+      <T id="TOOLTIP_CENTER_TARGET" l="0">centro=objetivo</T>
+      <T id="TOOLTIP_SPLASH" l="0">salpic. x{0}</T>
+      <T id="TOOLTIP_EST_SPLASH" l="0">salpic. est {0}</T>
+      <T id="TOOLTIP_FILTER_MONSTERS" l="0">Monstruos: {0}</T>
+      <T id="TOOLTIP_FILTER_DEFENCES" l="0">Defensas: {0}</T>
+      <T id="TOOLTIP_FILTER_STATUS" l="0">Tiene estado: {0}</T>
+      <T id="TOOLTIP_FILTER_INCLUDE" l="0">Incluir({0})</T>
+      <T id="TOOLTIP_FILTER_EXCLUDE" l="0">Excluir({0})</T>
+      <T id="TOOLTIP_AOE" l="0">&#193;rea: {0}</T>
+      <T id="TOOLTIP_ENTIRE_ROW" l="0">fila completa</T>
+      <T id="TOOLTIP_TRAVELS_WHOLE_ROW" l="0"> ({0})</T>
+      <T id="TOOLTIP_TRAVELS_WHOLE_ROW_SHORT" l="0">recorre toda la fila</T>
+      <T id="TOOLTIP_EXT" l="0">ext={0}</T>
+      <T id="TOOLTIP_LASER_BEAM" l="0">Rayo l&#225;ser: {0}</T>
+      <T id="TOOLTIP_ACCURACY" l="0">Precisi&#243;n: min {0} / m&#225;x {1} (prom {2})</T>
+      <T id="TOOLTIP_ARMOR" l="0">Armadura: {0} (reducci&#243;n de da&#241;o: {1})</T>
+      <T id="TOOLTIP_ARMOR_PIERCING" l="0">Perforaci&#243;n de armadura</T>
+      <T id="TOOLTIP_LIFESTEAL" l="0">Robo de vida: {0}x</T>
+      <T id="TOOLTIP_BLOCK_ALL_LANES" l="0">Bloquear todas las filas: escudo {0} (actual {1})</T>
+      <T id="TOOLTIP_DAMAGE_BOOSTER" l="0">Potenciador de da&#241;o: x{0} - &#225;rea {1}</T>
+      <T id="TOOLTIP_SUMMON" l="0">Invoca: {0} x{1} - enfriamiento {2} {3}</T>
+      <T id="TOOLTIP_ONLY_WHEN_MET" l="0"> (solo si se cumple)</T>
+      <T id="TOOLTIP_FIRST" l="0">Primero</T>
+      <T id="TOOLTIP_SPREAD_TARGETING" l="0">Ciblado disperso: &#237;ndiceMunici&#243;n {0} - modo {1} - minEnemigos {2}{3}</T>
+      <T id="TOOLTIP_MULTIFIRE" l="0">Multi Fuego: {0} disparos - retraso {1}s</T>
+      <T id="TOOLTIP_REVIVE" l="0">Revivir: probabilidad {0} - m&#225;x {1} - Salud x{2} - Da&#241;o x{3}</T>
+      <T id="TOOLTIP_DEATH_DAMAGE" l="0">Da&#241;o {0}</T>
+      <T id="TOOLTIP_DEATH_HEAL" l="0">Curar {0}</T>
+      <T id="TOOLTIP_RADIUS" l="0">Radio {0}</T>
+      <T id="TOOLTIP_STATUSES" l="0">Estados: {0}</T>
+      <T id="TOOLTIP_DEATH_EFFECT_NONE" l="0">Efecto de muerte: (ninguno)</T>
+      <T id="TOOLTIP_DEATH_EFFECT" l="0">Efecto de muerte: {0}</T>
+      <T id="TOOLTIP_DAMAGE_VALUE" l="0">Da&#241;o {0}</T>
+      <T id="TOOLTIP_DURATION" l="0">Duraci&#243;n {0}</T>
+      <T id="TOOLTIP_SPRITE" l="0">Sprite {0}</T>
+      <T id="TOOLTIP_CREATE_PUDDLE" l="0">Crear charco: {0}{1}</T>
+      <T id="TOOLTIP_RANGE_SHORT" l="0">alcance {0}</T>
+      <T id="TOOLTIP_MULT_SHORT" l="0">x{0}</T>
+      <T id="TOOLTIP_MODE" l="0">modo {0}</T>
+      <T id="TOOLTIP_NO_AMMO_COST" l="0">sin coste de munici&#243;n</T>
+      <T id="TOOLTIP_HEAL_ALLIES" l="0">Curar Allies: {0}</T>
+      <T id="TOOLTIP_SPECIAL_EFFECTS_NONE" l="0">Efectos especiales: ninguno</T>
+      <T id="STATUS_FIRE" l="0">Fuego: {0} dmg/turno ({1} turnos)</T>
+      <T id="STATUS_POISON" l="0">Veneno: {0} dmg/turno ({1} turnos)</T>
+      <T id="STATUS_PURGE" l="0">Purge: Inmune to status effects ({0} turnos)</T>
+      <T id="STATUS_ACID" l="0">Acid: x{0} ({1} turnos)</T>
+      <T id="STATUS_SLOW_BASE" l="0">Lento: +{0} reload</T>
+      <T id="STATUS_SLOW_SPEED" l="0">, {0}% velocidad</T>
+      <T id="STATUS_DURATION" l="0"> ({0} turnos)</T>
+      <T id="STATUS_STUN" l="0">Aturdir: {0} turnos</T>
+      <T id="STATUS_FROZEN" l="0">Congelado: {0} turnos</T>
+      <T id="STATUS_CHARM" l="0">Hechizado: attacks allies ({0} turnos)</T>
+      <T id="STATUS_UNDETECTABLE_PERM" l="0">Indetectable: no puede ser objetivo (permanente)</T>
+      <T id="STATUS_UNDETECTABLE" l="0">Undetectable: cannot be targeted ({0} turnos)</T>
+      <T id="STATUS_GENERIC" l="0">{0}: {1}</T>
+      <T id="STATUS_FIRE_DESC" l="0">Fuego: {0} dmg/turno{1}{2}{3}</T>
+      <T id="STATUS_POISON_DESC" l="0">Veneno: {0} dmg/turno{1}{2}{3}</T>
+      <T id="STATUS_SLOW_DESC" l="0">Lento{0}{1}{2}{3}{4}</T>
+      <T id="STATUS_STUN_DESC" l="0">Aturdir: Prevents action{0}{1}{2}</T>
+      <T id="STATUS_FROZEN_DESC" l="0">Congelado: Prevents action{0}{1}{2}</T>
+      <T id="STATUS_ACID_DESC" l="0">&#193;cido{0}{1}{2}{3}</T>
+      <T id="STATUS_PURGE_DESC" l="0">Purga: elimina todos los efectos de estado{0}{1}</T>
+      <T id="STATUS_CHARM_DESC" l="0">Encanto: ataca a aliados{0}{1}{2}</T>
+      <T id="STATUS_UNDETECTABLE_DESC" l="0">Undetectable: No puede ser objetivo{0}{1}{2}</T>
+      <T id="STATUS_GENERIC_DESC" l="0">- {0}{1}{2}{3}{4}</T>
+      <T id="FILTER_INCLUDE_MONSTERS" l="0">Include Monstruos</T>
+      <T id="FILTER_INCLUDE_DEFENCES" l="0">Include Defensas</T>
+      <T id="FILTER_REQUIRE_STATUS" l="0">Requiere estado</T>
+      <T id="FILTER_EXCLUDE_MONSTERS" l="0">Exclude Monstruos</T>
+      <T id="FILTER_EXCLUDE_DEFENCES" l="0">Exclude Defensas</T>
+      <T id="FILTER_EXCLUDE_STATUS" l="0">Excluir estado</T>
+      <T id="FILTER_LABEL" l="0">Filtro</T>
+      <T id="EFFECT_AOE_DESC" l="0">&#193;rea de efecto: {0}{1}{2}{3}{4}</T>
+      <T id="EFFECT_LASER_DESC" l="0">Rayo l&#225;ser{0}{1}{2}</T>
+      <T id="EFFECT_MULTIFIRE_DESC" l="0">Multi-Fuego: {0} shots{1}</T>
+      <T id="EFFECT_SPREAD_DESC" l="0">Apuntado disperso{0}{1}{2}{3}</T>
+      <T id="EFFECT_SUMMON_DESC" l="0">Invocar: {0}x {1}{2}{3}{4}</T>
+      <T id="EFFECT_PUDDLE_DESC" l="0">Crear charco: {0}{1}{2}{3}{4}{5}</T>
+      <T id="EFFECT_DEATH_DESC" l="0">Efecto de muerte: {0}{1}{2}{3}{4}</T>
+      <T id="EFFECT_LIFESTEAL_DESC" l="0">Robo de vida{0}</T>
+      <T id="EFFECT_ARMOR_DESC" l="0">Armadura{0}{1}</T>
+      <T id="EFFECT_PIERCE_DESC" l="0">Perforaci&#243;n de armadura{0}</T>
+      <T id="EFFECT_REVIVE_DESC" l="0">Revivir{0}{1}{2}{3}</T>
+      <T id="EFFECT_HEAL_DESC" l="0">Curar Allies{0}{1}{2}{3}{4}</T>
+      <T id="EFFECT_BOOST_DESC" l="0">Potenciador de da&#241;o: {0}{1}</T>
+      <T id="EFFECT_ACCURACY_DESC" l="0">Precisi&#243;n{0}</T>
+      <T id="EFFECT_BLOCK_DESC" l="0">Bloquear todas las filas{0}{1}</T>
+      <T id="EFFECT_GENERIC_DESC" l="0">- {0}</T>
+      <T id="ABILITY_ADJACENT" l="0">Puede apuntar a carriles adyacentes</T>
+      <T id="ABILITY_BACK" l="0">Puede apuntar detras</T>
+      <T id="ABILITY_BLIND" l="0">Punto ciego</T>
+      <T id="ABILITY_TEMP" l="0">Temporal</T>
+      <T id="ABILITY_TURNS" l="0">turnos</T>
+      <T id="ABILITY_TARGETING" l="0">Apuntado</T>
+      <T id="ABILITY_SPEED" l="0">Velocidad</T>
+      <T id="ABILITY_TILE" l="0">casilla</T>
+      <T id="ABILITY_TURN" l="0">turno</T>
+      <T id="ABILITY_NO_ATTACK" l="0">No puede atacar</T>
+      <T id="ABILITY_DETECT" l="0">Puede detectar unidades invisibles</T>
+      <T id="ABILITY_UNDETECTABLE" l="0">Indetectable innato</T>
+      <T id="ABILITY_NO_AMMO" l="0">Empieza sin munici&#243;n</T>
+      <T id="ABILITY_REMOVE_NO_AMMO" l="0">Se elimina al quedarse sin munici&#243;n</T>
+      <T id="ABILITY_TRAMPLED" l="0">Puede ser pisoteado (no objetivo)</T>
+      <T id="DIFFICULTY_BABY" l="0">Beb&#233;</T>
+      <T id="UNIT_AcidShooter" l="0">Tirador &#225;cido</T>
+      <T id="UNIT_Archer" l="0">Arquero</T>
+      <T id="UNIT_Ballista" l="0">Balista</T>
+      <T id="UNIT_Barricade" l="0">Barricada</T>
+      <T id="UNIT_Bat" l="0">Murci&#233;lago</T>
+      <T id="UNIT_Bomber" l="0">Bombardero</T>
+      <T id="UNIT_BoomCannon" l="0">Canon Explosivo</T>
+      <T id="UNIT_Cannon" l="0">Canon</T>
+      <T id="UNIT_Catapult" l="0">Catapulta</T>
+      <T id="UNIT_CryoFan" l="0">Ventilador Crio</T>
+      <T id="UNIT_Cupid" l="0">Cupido</T>
+      <T id="UNIT_DamageAmplifier" l="0">Amplificador de Dano</T>
+      <T id="UNIT_Demon" l="0">Demonio</T>
+      <T id="UNIT_DestroyTower" l="0">Torre Destructora</T>
+      <T id="UNIT_ElectroMage" l="0">Mago Electro</T>
+      <T id="UNIT_FireImp" l="0">Duende de Fuego</T>
+      <T id="UNIT_Flamethrower" l="0">Lanzallamas</T>
+      <T id="UNIT_ForceField" l="0">Campo de Fuerza</T>
+      <T id="UNIT_Ghost" l="0">Fantasma</T>
+      <T id="UNIT_Goblin" l="0">Duende</T>
+      <T id="UNIT_Golem" l="0">Golem</T>
+      <T id="UNIT_Harpy" l="0">Harpyia</T>
+      <T id="UNIT_IceLizard" l="0">Lagarto de Hielo</T>
+      <T id="UNIT_Knight" l="0">Caballero</T>
+      <T id="UNIT_Landmine" l="0">Mina</T>
+      <T id="UNIT_LazorBeam" l="0">Rayo Lazor</T>
+      <T id="UNIT_MachineGun" l="0">Ametralladora</T>
+      <T id="UNIT_Mech" l="0">Mecha</T>
+      <T id="UNIT_MicroSentry" l="0">Micro Centinela</T>
+      <T id="UNIT_Microwavr" l="0">Microondas</T>
+      <T id="UNIT_Mortar" l="0">Mortero</T>
+      <T id="UNIT_Multishot" l="0">Multidisparo</T>
+      <T id="UNIT_Necromancer" l="0">Nigromante</T>
+      <T id="UNIT_Orc" l="0">Orco</T>
+      <T id="UNIT_PoisonWard" l="0">Guardia Venenosa</T>
+      <T id="UNIT_RadialLauncher" l="0">Lanzador Radial</T>
+      <T id="UNIT_RocketLauncher" l="0">Lanzacohetes</T>
+      <T id="UNIT_ShockBlaster" l="0">Disparador de Choque</T>
+      <T id="UNIT_ShockLauncher" l="0">Lanzador de Choque</T>
+      <T id="UNIT_Shredder" l="0">Triturador</T>
+      <T id="UNIT_SIMO" l="0">S.I.M.O.</T>
+      <T id="UNIT_Skeleton" l="0">Esqueleto</T>
+      <T id="UNIT_SniperTower" l="0">Torre Francotirador</T>
+      <T id="UNIT_Surgeon" l="0">Cirujano</T>
+      <T id="UNIT_Tank" l="0">Tanque</T>
+      <T id="UNIT_Thrower" l="0">Lanzador</T>
+      <T id="UNIT_Troll" l="0">Trol</T>
+      <T id="UNIT_Zombie" l="0">Zombi</T>
+      <T id="TOOLTIP_EFFECT_GENERIC" l="0">{0}: {1}</T>
+    </IDS>
+  </Language>
+</LocData>

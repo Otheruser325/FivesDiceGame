@@ -1,0 +1,28 @@
+{
+    "files": [
+        "AcidShooter.defence",
+		"Ballista.defence",
+        "Barricade.defence",
+        "BoomCannon.defence",
+        "Cannon.defence",
+		"CryoFan.defence",
+        "DamageAmplifier.defence",
+		"DestroyTower.defence",
+        "Flamethrower.defence",
+        "ForceField.defence",
+		"Landmine.defence",
+        "LazorBeam.defence",
+        "MachineGun.defence",
+		"MicroSentry.defence",
+        "Microwavr.defence",
+        "Mortar.defence",
+		"Multishot.defence",
+		"RadialLauncher.defence",
+        "RocketLauncher.defence",
+        "ShockBlaster.defence",
+        "ShockLauncher.defence",
+		"Shredder.defence",
+		"SIMO.defence",
+        "SniperTower.defence"
+    ]
+}

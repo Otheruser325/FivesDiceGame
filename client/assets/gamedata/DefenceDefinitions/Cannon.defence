@@ -1,0 +1,21 @@
+{
+    "TypeName": "Cannon",
+	"FullName": "Cannon",
+	"Rarity": "Common",
+	"Health": 25,
+    "Damage": 25,
+    "Range": 4,
+	"Ammo": 1,
+	"ReloadDelay": 2,
+    "TargetingMode": "First",
+    "ProjectileSprite": "shell",
+	"DisplaySprite": "cannon",
+	"SpecialEffects": [
+	  {
+	    "Type": "ArmorPiercing",
+		"Value": 1.0
+	  }
+	],
+    "StatusEffects": [],
+	"IsProto": false
+}

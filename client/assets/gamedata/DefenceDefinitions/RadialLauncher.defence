@@ -1,0 +1,32 @@
+{
+    "TypeName": "RadialLauncher",
+	"FullName": "Radial Launcher",
+	"Rarity": "Legendary",
+	"Health": 50,
+    "Damage": 20,
+    "Range": 10,
+	"Ammo": 1,
+	"ReloadDelay": 4,
+    "TargetingMode": "First",
+    "ProjectileSprite": "nuclear_rocket",
+	"DisplaySprite": "radiallauncher",
+	"SpecialEffects": [
+	  {
+	    "Type": "CreatePuddle",
+		"PuddleType": "RadioactiveWaste",
+		"Duration": 3,
+		"Sprite": "radioactive_waste.png"
+	  },
+	  {
+	    "Type": "AreaOfEffect",
+		"Value": "3x3",
+		"SplashFactor": 1.0,
+		"Sprite": "nuclear_explosion.png",
+		"CondenseTargeting": true
+	  }
+	],
+    "StatusEffects": [],
+	"HasBlindSpot": true,
+	"BlindRange": 2,
+	"IsProto": true
+}

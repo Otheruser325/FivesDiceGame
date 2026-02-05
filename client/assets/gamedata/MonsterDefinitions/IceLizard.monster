@@ -1,0 +1,31 @@
+{
+    "TypeName": "IceLizard",
+    "FullName": "Ice Lizard",
+    "Rarity": "Uncommon",
+    "Health": 50,
+    "Damage": 8,
+    "Range": 2,
+    "Speed": 1,
+    "Ammo": 1,
+    "ReloadDelay": 1,
+    "TargetingMode": "First",
+    "ProjectileSprite": "null",
+    "DisplaySprite": "icelizard",
+    "SpecialEffects": [],
+    "StatusEffects": [
+        {
+            "Type": "Slow",
+            "Value": 1,
+            "Duration": 2,
+            "CanReapply": true,
+            "TargetingFilter": {
+                "Exclude": {
+                    "DefenceType": [
+                        "CryoFan"
+                    ]
+                }
+            }
+        }
+    ],
+    "IsProto": true
+}

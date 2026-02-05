@@ -1,0 +1,23 @@
+{
+    "TypeName": "Flamethrower",
+	"FullName": "Flamethrower",
+	"Rarity": "Common",
+	"Health": 45,
+    "Damage": 15,
+    "Range": 2,
+	"Ammo": 1,
+	"ReloadDelay": 1,
+    "TargetingMode": "First",
+    "ProjectileSprite": "fire",
+	"DisplaySprite": "flamethrower",
+	"SpecialEffects": [],
+    "StatusEffects": [
+        {
+            "Type": "Fire",
+            "Value": 10,
+            "Duration": 2,
+            "CanReapply": true
+        }
+    ],
+	"IsProto": false
+}

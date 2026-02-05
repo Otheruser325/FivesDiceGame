@@ -1,0 +1,26 @@
+{
+    "TypeName": "Mortar",
+	"FullName": "Mortar",
+	"Rarity": "Common",
+	"Health": 15,
+    "Damage": 12,
+    "Range": 7,
+	"Ammo": 1,
+	"ReloadDelay": 2,
+    "TargetingMode": "First",
+    "ProjectileSprite": "mortar_shell",
+	"DisplaySprite": "mortar",
+	"SpecialEffects": [ 
+	  {
+	    "Type": "AreaOfEffect",
+		"Value": "1x3",
+		"SplashFactor": 1.0,
+		"Sprite": "explosion.png",
+		"CondenseTargeting": true
+	  } 
+	],
+    "StatusEffects": [],
+	"HasBlindSpot": true,
+	"BlindRange": 1,
+	"IsProto": false
+}

@@ -1,0 +1,25 @@
+{
+    "TypeName": "Landmine",
+    "FullName": "Landmine",
+    "Rarity": "Common",
+    "Health": 5,
+    "Damage": null,
+    "Range": null,
+    "Ammo": null,
+    "ReloadDelay": null,
+    "TargetingMode": "None",
+    "ProjectileSprite": "null",
+    "DisplaySprite": "landmine",
+    "SpecialEffects": [
+        {
+            "Type": "DeathEffect",
+            "Radius": "3x3",
+            "DeathDamage": 30
+        }
+    ],
+    "StatusEffects": [],
+	"DontAttack": true,
+    "IsUndetectable": true,
+    "CanBeTrampled": true,
+    "IsProto": false
+}

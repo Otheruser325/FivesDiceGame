@@ -1,0 +1,23 @@
+{
+    "TypeName": "ElectroMage",
+    "FullName": "Electro Mage",
+    "Rarity": "Uncommon",
+    "Health": 25,
+    "Damage": 15,
+    "Range": 3,
+    "Speed": 1,
+    "Ammo": 1,
+    "ReloadDelay": 2,
+    "TargetingMode": "First",
+    "ProjectileSprite": "lightning_ball",
+    "DisplaySprite": "electromage",
+    "SpecialEffects": [],
+    "StatusEffects": [
+        {
+            "Type": "Stun",
+            "Duration": 1,
+            "CanReapply": true
+        }
+    ],
+    "IsProto": true
+}

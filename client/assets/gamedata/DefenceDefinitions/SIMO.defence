@@ -1,0 +1,17 @@
+{
+    "TypeName": "SIMO",
+    "FullName": "S.I.M.O.",
+    "Rarity": "Rare",
+    "Health": 70,
+    "Damage": 55,
+    "Range": 7,
+    "Ammo": 1,
+    "ReloadDelay": 2,
+    "TargetingMode": "Weak",
+    "ProjectileSprite": "tracer",
+    "DisplaySprite": "simo",
+    "SpecialEffects": [],
+    "StatusEffects": [],
+	"CanDetect": true,
+    "IsProto": true
+}

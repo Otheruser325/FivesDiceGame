@@ -1,0 +1,27 @@
+{
+    "TypeName": "Mech",
+	"FullName": "Mech",
+	"Rarity": "Rare",
+	"Health": 45,
+    "Damage": 15,
+    "Range": 3,
+	"Speed": 0.5,
+	"Ammo": 2,
+	"ReloadDelay": 1,
+    "TargetingMode": "First",
+    "ProjectileSprite": "energy_bullet",
+	"DisplaySprite": "mech",
+	"SpecialEffects": [
+	  {
+	    "Type": "Accuracy",
+		"MinValue": 0.4,
+		"MaxValue": 1.0
+	  },
+	  {
+	    "Type": "Armor",
+		"DamageReduction": 0.5
+	  }
+	],
+    "StatusEffects": [],
+	"IsProto": true
+}

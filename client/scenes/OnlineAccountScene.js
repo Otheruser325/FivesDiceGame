@@ -94,7 +94,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
             }
 
             // persist cached copy client-side
-            localStorage.setItem('fives_user', JSON.stringify(j.user));
+            localStorage.setItem('protodice_user', JSON.stringify(j.user));
             return;
           }
         } catch (err) {
@@ -106,7 +106,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
     }
 
     // Fallback: localStorage
-    const raw = localStorage.getItem('fives_user');
+    const raw = localStorage.getItem('protodice_user');
     if (raw) {
       try {
         this.user = JSON.parse(raw);
@@ -121,7 +121,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
         return;
       } catch (e) {
         console.warn('Corrupt local user cache', e);
-        localStorage.removeItem('fives_user');
+        localStorage.removeItem('protodice_user');
       }
     }
 
@@ -157,7 +157,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
     // rebuild UI from scratch
     this.refreshUI();
 
-    this.add.text(640, 140, 'Login to Fives', { fontSize: 48 }).setOrigin(0.5);
+    this.add.text(640, 140, 'Login to Protodice', { fontSize: 48 }).setOrigin(0.5);
 
     // Fetch available auth methods asynchronously
     this.getAvailableAuthMethods().then(methods => {
@@ -241,8 +241,8 @@ export default class OnlineAccountScene extends Phaser.Scene {
     }
 
     // Restrict guest creation if localStorage has a user or recent guest created
-    const cachedUser = localStorage.getItem('fives_user');
-    const guestCreatedAt = Number(localStorage.getItem('fives_guest_created_at') || 0);
+    const cachedUser = localStorage.getItem('protodice_user');
+    const guestCreatedAt = Number(localStorage.getItem('protodice_guest_created_at') || 0);
     const now = Date.now();
     const WAIT_MS = 24 * 60 * 60 * 1000;
     const guestBlocked = !!cachedUser || (guestCreatedAt && (now - guestCreatedAt) < WAIT_MS);
@@ -377,7 +377,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
       }
       
       if (j.ok && j.user) {
-        localStorage.setItem('fives_user', JSON.stringify(j.user));
+        localStorage.setItem('protodice_user', JSON.stringify(j.user));
         this.user = j.user;
 
         // Inform socket
@@ -423,8 +423,8 @@ export default class OnlineAccountScene extends Phaser.Scene {
       const j = await resp.json();
       if (j.ok && j.user) {
         this.user = j.user;
-        localStorage.setItem('fives_user', JSON.stringify(j.user));
-        localStorage.setItem('fives_guest_created_at', String(Date.now())); // prevent immediate re-creation
+        localStorage.setItem('protodice_user', JSON.stringify(j.user));
+        localStorage.setItem('protodice_guest_created_at', String(Date.now())); // prevent immediate re-creation
 
         // Inform socket immediately
         emitAuthUser(j.user);
@@ -464,7 +464,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
       const j = await resp.json();
       if (j.ok && j.user) {
         this.user = j.user;
-        localStorage.setItem('fives_user', JSON.stringify(j.user));
+        localStorage.setItem('protodice_user', JSON.stringify(j.user));
 
         // Inform socket
         emitAuthUser(j.user);
@@ -502,7 +502,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
         if (!newName || newName.trim().length < 2) return;
         const updated = { ...this.user, name: newName.trim() };
         this.user = updated;
-        localStorage.setItem('fives_user', JSON.stringify(updated));
+        localStorage.setItem('protodice_user', JSON.stringify(updated));
         alert('Name updated locally. Implement server-side rename later.');
         this.game.events.emit('auth-updated');
         this.scene.resume(this.returnTo);
@@ -518,7 +518,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
       try {
         await fetch(`${getServerUrl().replace(/\/$/, '')}/auth/logout`, { method: 'POST', credentials: 'include' });
       } catch (e) { console.warn('Logout request failed', e); }
-      localStorage.removeItem('fives_user');
+      localStorage.removeItem('protodice_user');
 
       // Inform socket that we're unauthenticated
       emitAuthUser(null);

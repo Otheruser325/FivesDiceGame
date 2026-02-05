@@ -1,0 +1,26 @@
+{
+    "TypeName": "Microwavr",
+    "FullName": "Microwav'r",
+    "Rarity": "Uncommon",
+    "Health": 90,
+    "Damage": 15,
+    "Range": 1,
+    "Ammo": 1,
+    "ReloadDelay": 1,
+    "TargetingMode": "Any",
+    "ProjectileSprite": "null",
+    "DisplaySprite": "microwavr",
+    "SpecialEffects": [
+        {
+            "Type": "AreaOfEffect",
+            "Value": "3x3",
+            "Sprite": "radiation.png",
+            "IsOmnidirectional": true
+        }
+    ],
+    "StatusEffects": [],
+	"CanDetect": true,
+    "CanTargetAdjacentLanes": true,
+    "BackTargeting": true,
+    "IsProto": true
+}

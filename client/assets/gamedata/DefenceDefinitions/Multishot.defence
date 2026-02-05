@@ -1,0 +1,23 @@
+{
+    "TypeName": "Multishot",
+	"FullName": "Multishot",
+	"Rarity": "Rare",
+	"Health": 20,
+    "Damage": 7,
+    "Range": 5,
+	"Ammo": 1,
+	"ReloadDelay": 2,
+    "TargetingMode": "First",
+    "ProjectileSprite": "yellow_bullet",
+	"DisplaySprite": "multishot",
+	"SpecialEffects": [
+	  {
+	    "Type": "MultiFire",
+		"FireCount": 3,
+		"FireDelay": 0.06
+	  }
+	],
+    "StatusEffects": [],
+	"CanTargetAdjacentLanes": true,
+	"IsProto": false
+}

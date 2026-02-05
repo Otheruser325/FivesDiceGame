@@ -1,0 +1,26 @@
+{
+    "TypeName": "RocketLauncher",
+	"FullName": "Rocket Launcher",
+	"Rarity": "Uncommon",
+	"Health": 20,
+    "Damage": 4,
+    "Range": 10,
+	"Ammo": 4,
+	"ReloadDelay": 3,
+    "TargetingMode": "First",
+    "ProjectileSprite": "rocket",
+	"DisplaySprite": "rocketlauncher",
+	"SpecialEffects": [ 
+	  {
+	    "Type": "AreaOfEffect",
+		"Value": "1x3",
+		"SplashFactor": 1.0,
+		"Sprite": "explosion.png",
+		"CondenseTargeting": true
+	  }
+	],
+    "StatusEffects": [],
+	"HasBlindSpot": true,
+	"BlindRange": 2,
+	"IsProto": false
+}

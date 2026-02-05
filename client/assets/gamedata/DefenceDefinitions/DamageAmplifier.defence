@@ -1,0 +1,23 @@
+{
+    "TypeName": "DamageAmplifier",
+    "FullName": "Damage Amplifier",
+    "Rarity": "Rare",
+    "Health": 90,
+    "Damage": null,
+    "Range": null,
+    "Ammo": null,
+    "ReloadDelay": null,
+    "TargetingMode": "None",
+    "ProjectileSprite": "null",
+    "DisplaySprite": "damageamplifier",
+    "SpecialEffects": [
+        {
+            "Type": "DamageBooster",
+            "Radius": "3x3",
+            "Value": 1.5
+        }
+    ],
+    "StatusEffects": [],
+	"DontAttack": true,
+    "IsProto": true
+}

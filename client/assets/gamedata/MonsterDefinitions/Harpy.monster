@@ -1,0 +1,17 @@
+{
+    "TypeName": "Harpy",
+	"FullName": "Harpy",
+	"Rarity": "Uncommon",
+	"Health": 35,
+    "Damage": 12,
+    "Range": 2,
+	"Speed": 2,
+	"Ammo": 2,
+	"ReloadDelay": 2,
+    "TargetingMode": "First",
+    "ProjectileSprite": "null",
+	"DisplaySprite": "harpy",
+	"SpecialEffects": [],
+    "StatusEffects": [],
+	"IsProto": true
+}

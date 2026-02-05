@@ -1,0 +1,18 @@
+{
+    "TypeName": "Ghost",
+	"FullName": "Ghost",
+	"Rarity": "Rare",
+	"Health": 20,
+    "Damage": 10,
+    "Range": 1,
+	"Speed": 2,
+	"Ammo": 1,
+	"ReloadDelay": 1,
+    "TargetingMode": "First",
+    "ProjectileSprite": "null",
+	"DisplaySprite": "ghost",
+	"SpecialEffects": [],
+    "StatusEffects": [],
+	"IsUndetectable": true,
+	"IsProto": false
+}

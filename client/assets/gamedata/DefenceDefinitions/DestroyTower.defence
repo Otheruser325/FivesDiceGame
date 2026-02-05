@@ -1,0 +1,19 @@
+{
+    "TypeName": "DestroyTower",
+    "FullName": "Destroy Tower",
+    "Rarity": "Epic",
+    "Health": 75,
+    "Damage": 999,
+    "Range": 9,
+    "Ammo": 1,
+    "ReloadDelay": 3,
+    "TargetingMode": "First",
+    "ProjectileSprite": "robotic_toy",
+    "DisplaySprite": "destroytower",
+    "SpecialEffects": [],
+    "StatusEffects": [],
+	"CanDetect": true,
+    "StartsWithNoAmmo": true,
+    "RemoveWhenOutOfAmmo": true,
+    "IsProto": true
+}

@@ -1,0 +1,22 @@
+{
+    "TypeName": "Bat",
+	"FullName": "Bat",
+	"Rarity": "Common",
+	"Health": 15,
+    "Damage": 5,
+    "Range": 2,
+	"Speed": 2,
+	"Ammo": 1,
+	"ReloadDelay": 1,
+    "TargetingMode": "First",
+    "ProjectileSprite": "null",
+	"DisplaySprite": "bat",
+	"SpecialEffects": [
+	  {
+	    "Type": "Lifesteal",
+		"Value": 1.0
+	  }
+	],
+    "StatusEffects": [],
+	"IsProto": false
+}

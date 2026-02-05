@@ -1,0 +1,22 @@
+{
+    "TypeName": "Tank",
+	"FullName": "Tank",
+	"Rarity": "Rare",
+	"Health": 55,
+    "Damage": 25,
+    "Range": 4,
+	"Speed": 0.5,
+	"Ammo": 1,
+	"ReloadDelay": 2,
+    "TargetingMode": "First",
+    "ProjectileSprite": "tank_shell",
+	"DisplaySprite": "tank",
+	"SpecialEffects": [
+	  {
+	    "Type": "Armor",
+		"DamageReduction": 0.5
+	  }
+	],
+    "StatusEffects": [],
+	"IsProto": true
+}

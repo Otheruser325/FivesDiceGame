@@ -1,0 +1,25 @@
+{
+    "TypeName": "Zombie",
+	"FullName": "Zombie",
+	"Rarity": "Uncommon",
+	"Health": 25,
+    "Damage": 14,
+    "Range": 1,
+	"Speed": 1,
+	"Ammo": 1,
+	"ReloadDelay": 2,
+    "TargetingMode": "First",
+    "ProjectileSprite": "null",
+	"DisplaySprite": "zombie",
+	"SpecialEffects": [
+	  {
+	    "Type": "Revive",
+		"ReviveChance": 0.5,
+		"HealthMult": 0.5,
+		"DamageMult": 0.5,
+		"MaxRevives": 2
+	  }
+	],
+    "StatusEffects": [],
+	"IsProto": false
+}

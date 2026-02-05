@@ -1,0 +1,32 @@
+{
+    "TypeName": "Surgeon",
+    "FullName": "Surgeon",
+    "Rarity": "Rare",
+    "Health": 40,
+    "Damage": 6,
+    "Range": 2,
+    "Speed": 1,
+    "Ammo": 1,
+    "ReloadDelay": 1,
+    "TargetingMode": "First",
+    "ProjectileSprite": "null",
+    "DisplaySprite": "surgeon",
+    "SpecialEffects": [
+        {
+            "Type": "HealAllies",
+            "Range": 3,
+            "HealMult": 2.0,
+            "TargetingMode": "First",
+            "ConsumesAttack": true
+        },
+        {
+            "Type": "DeathEffect",
+            "Radius": "3x3",
+            "DeathHealing": 20,
+            "DeathStatuses": [ "Purge" ]
+        }
+    ],
+    "StatusEffects": [],
+    "CanTargetAdjacentLanes": true,
+    "IsProto": true
+}

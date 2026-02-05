@@ -1,7 +1,9 @@
 import { getSocket, getServerUrl, probeHealth, connectTo, emitAuthUser } from '../utils/SocketManager.js';
 import GlobalAlerts from '../utils/AlertManager.js';
 import GlobalAudio from '../utils/AudioManager.js';
+import GlobalBackground from '../utils/BackgroundManager.js';
 import ErrorHandler from '../utils/ErrorManager.js';
+import GlobalLocalization from '../utils/LocalizationManager.js';
 
 export default class OnlineMenuScene extends Phaser.Scene {
     constructor() {
@@ -13,21 +15,40 @@ export default class OnlineMenuScene extends Phaser.Scene {
         this.lobbyUIElements = [];
         this.signInText = null;
         this._onAuthUpdated = null;
+        this._layout = null;
     }
 
     async create() {
-        ErrorHandler.setScene(this);
-        const backBtn = this.add.text(600, 450, '← Back', {
-            fontSize: 28,
-            color: '#66aaff'
-        }).setOrigin(0.5).setInteractive();
+        try {
+          ErrorHandler.setScene(this);
+        } catch (e) {}
+	    try {
+          GlobalBackground.registerScene(this, { key: 'bg', useImageIfAvailable: true });
+        } catch (e) {}
+        const t = (key, fallback) => GlobalLocalization.t(key, fallback);
+        const layout = this.getLayout();
+        this._layout = layout;
+
+        const backBtn = this.add.text(layout.centerX, layout.backY, t('UI_BACK', '<- BACK'), {
+            fontSize: 26,
+            fontFamily: '"Press Start 2P", cursive',
+            color: '#ff6666'
+        }).setOrigin(0.5).setInteractive({ useHandCursor: true });
 
         backBtn.on('pointerdown', () => {
             GlobalAudio.playButton(this);
             this.scene.start('PlayModeScene');
         });
 
-        this.add.text(600, 60, 'Online Mode', { fontSize: 48 }).setOrigin(0.5);
+        this.input.keyboard.on('keydown-ESC', () => {
+            GlobalAudio.playButton(this);
+            this.scene.start('PlayModeScene');
+        });
+
+        this.add.text(layout.centerX, layout.titleY, t('ONLINE_TITLE', 'Online Mode'), {
+            fontSize: '52px',
+            fontFamily: '"Press Start 2P", cursive'
+        }).setOrigin(0.5);
 
         // Initialize socket connection
         const socket = getSocket();
@@ -67,38 +88,38 @@ export default class OnlineMenuScene extends Phaser.Scene {
                 // Probe health to determine if server is actually down
                 const healthy = await probeHealth();
                 if (!healthy) {
-                    this.add.text(600, 150, "❌ Server Unavailable", {
+                    this.add.text(600, 150, t('ONLINE_SERVER_UNAVAILABLE_TITLE', 'Server Unavailable'), {
                         fontSize: 32, color: "#ff4444"
                     }).setOrigin(0.5);
-                    this.add.text(600, 200, "Online mode currently not available.", {
+                    this.add.text(600, 200, t('ONLINE_SERVER_UNAVAILABLE_BODY1', 'Online mode currently not available.'), {
                         fontSize: 20, color: "#ffaa88"
                     }).setOrigin(0.5);
-                    this.add.text(600, 240, "Please try again later.", {
+                    this.add.text(600, 240, t('ONLINE_SERVER_UNAVAILABLE_BODY2', 'Please try again later.'), {
                         fontSize: 18, color: "#cccccc"
                     }).setOrigin(0.5);
                     return;
                 }
                 
                 // Server is healthy but socket won't connect - might be Vercel timeout
-                this.add.text(600, 150, "⚠️  Connection Slow", {
+                this.add.text(600, 150, t('ONLINE_CONNECTION_SLOW_TITLE', 'Connection Slow'), {
                     fontSize: 32, color: "#ffaa00"
                 }).setOrigin(0.5);
-                this.add.text(600, 200, "Server is responding but socket connection is slow.", {
+                this.add.text(600, 200, t('ONLINE_CONNECTION_SLOW_BODY1', 'Server is responding but socket connection is slow.'), {
                     fontSize: 18, color: "#ffccaa"
                 }).setOrigin(0.5);
-                this.add.text(600, 240, "This may be a temporary network issue. Try again.", {
+                this.add.text(600, 240, t('ONLINE_CONNECTION_SLOW_BODY2', 'This may be a temporary network issue. Try again.'), {
                     fontSize: 16, color: "#cccccc"
                 }).setOrigin(0.5);
                 return;
             } catch (e) {
                 console.error('[OnlineMenuScene] Health check error:', e);
-                this.add.text(600, 150, "❌ Connection Failed", {
+                this.add.text(600, 150, t('ONLINE_CONNECTION_FAILED_TITLE', 'Connection Failed'), {
                     fontSize: 32, color: "#ff4444"
                 }).setOrigin(0.5);
-                this.add.text(600, 200, "Unable to reach the server.", {
+                this.add.text(600, 200, t('ONLINE_CONNECTION_FAILED_BODY1', 'Unable to reach the server.'), {
                     fontSize: 20, color: "#ffaa88"
                 }).setOrigin(0.5);
-                this.add.text(600, 240, "Check your internet connection and try again.", {
+                this.add.text(600, 240, t('ONLINE_CONNECTION_FAILED_BODY2', 'Check your internet connection and try again.'), {
                     fontSize: 16, color: "#cccccc"
                 }).setOrigin(0.5);
                 return;
@@ -178,6 +199,9 @@ export default class OnlineMenuScene extends Phaser.Scene {
     buildUI() {
         // clear any previous UI to prevent duplicates
         this.clearAllUI();
+        const layout = this._layout || this.getLayout();
+        const t = (key, fallback) => GlobalLocalization.t(key, fallback);
+        const menuFont = '"Press Start 2P", cursive';
 
         // Authorise user (tell server who we are)
         if (this.user) {
@@ -197,23 +221,56 @@ export default class OnlineMenuScene extends Phaser.Scene {
         // Top-right username / avatar
         const isGuest = this.user?.type === 'guest';
         const avatarTexture = (this.user?.avatar && !isGuest) ? this.user.avatar : 'playerIcon';
+        const accountTextX = this.cameras.main.width - 40;
+        const accountY = 40;
 
         if (this.user) {
-            this.avatar = this.add.image(990, 40, avatarTexture).setOrigin(0.5, 0.5).setScale(0.5).setInteractive();
+            this.avatar = this.add.image(accountTextX - 160, accountY, avatarTexture)
+                .setOrigin(0.5, 0.5)
+                .setScale(0.5)
+                .setInteractive({ useHandCursor: true });
             this.avatar.on('pointerdown', () => this.openAccountPopup());
         }
 
-        const labelText = this.user ? this.user.name : 'Not signed in';
-        this.accountText = this.add.text(1020, 40, labelText, {
-            fontSize: 28,
-            color: '#fff'
-        }).setOrigin(0, 0.5).setInteractive();
+        const labelText = this.user ? this.user.name : t('ONLINE_NOT_SIGNED_IN', 'Not signed in');
+        this.accountText = this.add.text(accountTextX, accountY, labelText, {
+            fontSize: 20,
+            fontFamily: menuFont,
+            color: '#ffffff'
+        }).setOrigin(1, 0.5).setInteractive({ useHandCursor: true });
         this.accountText.on('pointerdown', () => this.openAccountPopup());
+
+        // Main menu buttons (always visible)
+        const loadoutBtn = this.add.text(layout.centerX, layout.loadoutY, t('LOCAL_MENU_MY_LOADOUTS', 'My Loadouts'), {
+            fontFamily: menuFont,
+            fontSize: '30px'
+        }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+
+        loadoutBtn.on('pointerdown', () => {
+            GlobalAudio.playButton(this);
+            this.scene.start('OnlineLoadoutScene');
+        });
+
+        const leaderboardBtn = this.add.text(layout.centerX, layout.leaderboardY, t('ONLINE_LEADERBOARD', 'Leaderboard'), {
+            fontFamily: menuFont,
+            fontSize: '30px'
+        }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+
+        leaderboardBtn.on('pointerdown', () => {
+            GlobalAudio.playButton(this);
+            if (this.scene.get('LeaderboardScene')) {
+                this.scene.start('LeaderboardScene');
+            } else {
+                GlobalAlerts.show(this, t('ONLINE_LEADERBOARD_MISSING', 'Leaderboard scene not available yet.'), 'info');
+            }
+        });
+
+        this.lobbyUIElements.push(loadoutBtn, leaderboardBtn);
 
         // If logged in: show join input & lobby controls; otherwise show sign-in prompt
         if (this.user) {
             // Join input for logged-in users
-            this.joinInput = this.add.dom(600, 270, 'input', {
+            this.joinInput = this.add.dom(layout.centerX, layout.lobbyJoinInputY, 'input', {
                 width: '200px',
                 fontSize: '20px',
                 padding: '6px',
@@ -223,23 +280,40 @@ export default class OnlineMenuScene extends Phaser.Scene {
             });
 
             // Build lobby buttons dynamically
-            this.buildLobbyUI();
+            this.buildLobbyUI(layout);
         } else {
             // Show sign-in text if no user
-            this.signInText = this.add.text(600, 200, 'Please sign in to play online', {
-                fontSize: 28,
+            this.signInText = this.add.text(layout.centerX, layout.lobbyCreateY, t('ONLINE_SIGN_IN_PROMPT', 'Please sign in to play online'), {
+                fontSize: 22,
+                fontFamily: menuFont,
                 color: '#cccccc'
             }).setOrigin(0.5);
+
+            const signInBtn = this.add.text(layout.centerX, layout.lobbyJoinBtnY, t('ONLINE_SIGN_IN_ACTION', 'Sign In'), {
+                fontSize: 24,
+                fontFamily: menuFont,
+                color: '#66aaff'
+            }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+
+            signInBtn.on('pointerdown', () => {
+                GlobalAudio.playButton(this);
+                this.openAccountPopup();
+            });
+
+            this.lobbyUIElements.push(signInBtn);
         }
     }
 
-    buildLobbyUI() {
+    buildLobbyUI(layout) {
         const socket = getSocket();
+        const t = (key, fallback) => GlobalLocalization.t(key, fallback);
+        const menuFont = '"Press Start 2P", cursive';
 
         // Create Lobby button
-        const createBtn = this.add.text(600, 180, 'Create Lobby', {
-                fontSize: 32,
-                color: '#00ff00'
+        const createBtn = this.add.text(layout.centerX, layout.lobbyCreateY, t('ONLINE_CREATE_LOBBY', 'Create Lobby'), {
+                fontFamily: menuFont,
+                fontSize: 28,
+                color: '#66ff66'
             })
             .setOrigin(0.5).setInteractive();
         createBtn.on('pointerdown', () => {
@@ -247,21 +321,11 @@ export default class OnlineMenuScene extends Phaser.Scene {
             this.scene.start('OnlineConfigScene');
         });
 
-        // ✅ NEW: Leaderboard button (moved down to avoid lobby interference)
-        const leaderboardBtn = this.add.text(600, 400, '🏆 Leaderboard', {
-            fontSize: 28,
-            color: '#ffff00'
-        })
-        .setOrigin(0.5).setInteractive();
-        leaderboardBtn.on('pointerdown', () => {
-            GlobalAudio.playButton(this);
-            this.scene.start('LeaderboardScene');
-        });
-
         // Join Lobby button
-        const joinBtn = this.add.text(600, 310, 'Join Lobby', {
-                fontSize: 28,
-                color: '#33aaff'
+        const joinBtn = this.add.text(layout.centerX, layout.lobbyJoinBtnY, t('ONLINE_JOIN_LOBBY', 'Join Lobby'), {
+                fontFamily: menuFont,
+                fontSize: 26,
+                color: '#66aaff'
             })
             .setOrigin(0.5).setInteractive();
         
@@ -275,8 +339,8 @@ export default class OnlineMenuScene extends Phaser.Scene {
                 clearTimeout(joinTimeout);
                 joinTimeout = null;
             }
-            joinBtn.setText('Join Lobby');
-            joinBtn.setFill('#33aaff');
+            joinBtn.setText(t('ONLINE_JOIN_LOBBY', 'Join Lobby'));
+            joinBtn.setFill('#66aaff');
             joinBtn.setAlpha(1.0);
             joinBtn.setInteractive();
         };
@@ -294,7 +358,7 @@ export default class OnlineMenuScene extends Phaser.Scene {
             const socket = getSocket();
             if (!socket || !socket.connected) {
                 console.error('[OnlineMenuScene] Socket not connected, cannot join lobby');
-                GlobalAlerts.show(this, 'Connection lost. Please reconnect and try again.', 'error');
+                GlobalAlerts.show(this, t('ONLINE_CONNECTION_LOST', 'Connection lost. Please reconnect and try again.'), 'error');
                 return;
             }
 
@@ -304,12 +368,12 @@ export default class OnlineMenuScene extends Phaser.Scene {
             // Validate code format (should be 4-6 characters, alphanumeric)
             if (!code || code.length < 4 || code.length > 6 || !/^[A-Z0-9]+$/.test(code)) {
                 console.warn('[OnlineMenuScene] Invalid code format:', code);
-                GlobalAlerts.show(this, 'Please enter a valid lobby code (4-6 characters, letters and numbers only).', 'warning');
+                GlobalAlerts.show(this, t('ONLINE_INVALID_CODE', 'Please enter a valid lobby code (4-6 characters, letters and numbers only).'), 'warning');
                 return;
             }
 
             joiningLobby = true;
-            joinBtn.setText('Joining Lobby...');
+            joinBtn.setText(t('ONLINE_JOINING_LOBBY', 'Joining Lobby...'));
             joinBtn.setFill('#ffaa00');
             joinBtn.setAlpha(0.7);
             joinBtn.disableInteractive();
@@ -319,7 +383,7 @@ export default class OnlineMenuScene extends Phaser.Scene {
                 try { myId = socket.data?.user?.id || socket.userId || null; } catch (e) { myId = null; }
                 if (!myId) {
                   try {
-                    const raw = localStorage.getItem('fives_user');
+                    const raw = localStorage.getItem('protodice_user');
                     if (raw) {
                       const cached = JSON.parse(raw);
                       if (cached && cached.id) myId = cached.id;
@@ -329,7 +393,7 @@ export default class OnlineMenuScene extends Phaser.Scene {
                 
                if (!myId) {
                    console.error('[OnlineMenuScene] Could not get user ID, cannot join lobby');
-                   GlobalAlerts.show(this, 'Authentication error: Could not get your user ID. Please refresh and try again.', 'error');
+                   GlobalAlerts.show(this, t('ONLINE_AUTH_ERROR', 'Authentication error: Could not get your user ID. Please refresh and try again.'), 'error');
                    resetJoinButton();
                    return;
                }
@@ -367,12 +431,12 @@ export default class OnlineMenuScene extends Phaser.Scene {
                    console.warn('[OnlineMenuScene] Join response timeout, resetting button state');
                    socket.off('join-success', handleJoinSuccess);
                    socket.off('join-failed', handleJoinFailed);
-                   GlobalAlerts.show(this, 'Join request timed out. Please try again.', 'warning');
+                   GlobalAlerts.show(this, t('ONLINE_JOIN_TIMEOUT', 'Join request timed out. Please try again.'), 'warning');
                    resetJoinButton();
                }, 5000);
             } catch (e) { 
                 console.warn('[OnlineMenuScene] emit failed', e);
-                GlobalAlerts.show(this, 'Failed to send join request. Please try again.', 'warning');
+                GlobalAlerts.show(this, t('ONLINE_JOIN_FAILED_SEND', 'Failed to send join request. Please try again.'), 'warning');
                 resetJoinButton();
             }
         });
@@ -409,7 +473,7 @@ export default class OnlineMenuScene extends Phaser.Scene {
                     try { myId = socket.data?.user?.id || socket.userId || null; } catch (e) { myId = null; }
                     if (!myId) {
                         try {
-                            const raw = localStorage.getItem('fives_user');
+                            const raw = localStorage.getItem('protodice_user');
                             if (raw) {
                                 const cached = JSON.parse(raw);
                                 if (cached && cached.id) myId = cached.id;
@@ -448,7 +512,7 @@ export default class OnlineMenuScene extends Phaser.Scene {
             }
             // Remove listener
             socket.off('join-success', handleJoinSuccess);
-            GlobalAlerts.show(this, 'Failed to join lobby (wrong code or full). Please try again.', 'error');
+            GlobalAlerts.show(this, t('ONLINE_JOIN_FAILED', 'Failed to join lobby (wrong code or full). Please try again.'), 'error');
             resetJoinButton();
         };
 
@@ -460,7 +524,7 @@ export default class OnlineMenuScene extends Phaser.Scene {
         }
 
         // Track elements for easy clearing
-        this.lobbyUIElements.push(createBtn, leaderboardBtn, joinBtn);
+        this.lobbyUIElements.push(createBtn, joinBtn);
     }
 
     clearLobbyUI() {
@@ -497,7 +561,7 @@ export default class OnlineMenuScene extends Phaser.Scene {
 
         // fallback: localStorage cached user
         try {
-            const raw = localStorage.getItem('fives_user');
+            const raw = localStorage.getItem('protodice_us');
             if (raw) {
                 this.user = JSON.parse(raw);
                 delete this.user.socketId;
@@ -511,7 +575,7 @@ export default class OnlineMenuScene extends Phaser.Scene {
             }
         } catch (err) {
             console.warn('Corrupt local user cache', err);
-            localStorage.removeItem('fives_user');
+            localStorage.removeItem('protodice_us');
         }
 
         this.user = null;
@@ -536,11 +600,30 @@ export default class OnlineMenuScene extends Phaser.Scene {
     }
 
     getUserLabel() {
-        return this.user ? this.user.name : 'Not signed in';
+        return this.user ? this.user.name : GlobalLocalization.t('ONLINE_NOT_SIGNED_IN', 'Not signed in');
     }
 
     openAccountPopup() {
+        try {
+            GlobalAudio.playButton(this);
+        } catch (e) {}
         this.scene.launch('OnlineAccountScene', { returnTo: 'OnlineMenuScene' });
         this.scene.pause();
+    }
+
+    getLayout() {
+        const cam = this.cameras.main;
+        const centerX = cam.centerX;
+        const lobbyStartY = Math.max(520, cam.height - 400);
+        return {
+            centerX,
+            titleY: 80,
+            loadoutY: 220,
+            leaderboardY: 310,
+            lobbyCreateY: lobbyStartY,
+            lobbyJoinInputY: lobbyStartY + 60,
+            lobbyJoinBtnY: lobbyStartY + 120,
+            backY: Math.min(lobbyStartY + 200, cam.height - 80)
+        };
     }
 }

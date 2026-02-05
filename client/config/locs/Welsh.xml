@@ -1,0 +1,515 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<LocData>
+  <Language>
+    <IDS>
+      <T id="UI_SETTINGS" l="0">GOSODIADAU</T>
+      <T id="UI_ACHIEVEMENTS" l="0">CAMPFEYDD</T>
+      <T id="UI_HELP" l="0">CYMORTH</T>
+      <T id="UI_CHANGELOG" l="0">COFNOD</T>
+      <T id="UI_PLAY" l="0">CHWARAE</T>
+      <T id="UI_MUSIC_ON" l="0">CERDDORIAETH: ON</T>
+      <T id="UI_MUSIC_OFF" l="0">CERDDORIAETH: OFF</T>
+      <T id="UI_HOW_WANT_PLAY" l="0">Sut wyt ti eisiau chwarae?</T>
+      <T id="UI_LOCAL_PLAY" l="0">Chwarae lleol</T>
+      <T id="UI_ONLINE_PLAY" l="0">Chwarae ar-lein</T>
+      <T id="UI_BACK" l="0">&lt;- NOL</T>
+      <T id="UI_CLOSE" l="0">Cau</T>
+
+      <T id="SETTINGS_TITLE" l="0">GOSODIADAU</T>
+      <T id="SET_SOUND_ON" l="0">Effeithiau sain: ON</T>
+      <T id="SET_SOUND_OFF" l="0">Effeithiau sain: OFF</T>
+      <T id="SET_MUSIC_ON" l="0">Cerddoriaeth: ON</T>
+      <T id="SET_MUSIC_OFF" l="0">Cerddoriaeth: OFF</T>
+      <T id="SET_VISUAL_ON" l="0">Effeithiau gweledol: ON</T>
+      <T id="SET_VISUAL_OFF" l="0">Effeithiau gweledol: OFF</T>
+      <T id="SET_LANGUAGE" l="0">Iaith: {0}</T>
+      <T id="SET_JUKEBOX" l="0">Jiwcbox</T>
+      <T id="SET_MUSIC_TRACKS" l="0">Traciau cerddoriaeth</T>
+      <T id="SET_SHUFFLE_ON" l="0">Trac ar hap: ON</T>
+      <T id="SET_SHUFFLE_OFF" l="0">Trac ar hap: OFF</T>
+      <T id="TRACK_DICE_LEAGUE" l="0">Cynghrair Ddis</T>
+      <T id="TRACK_BASILISK_THEME" l="0">Thema Basilisk</T>
+      <T id="TRACK_POWERHOUSE" l="0">Pwerdy</T>
+
+      <T id="LOCAL_MENU_TITLE" l="0">Dewislen G&#234;m Leol</T>
+      <T id="LOCAL_MENU_MY_LOADOUTS" l="0">Fy llwythi</T>
+      <T id="LOCAL_MENU_CREATE_LOBBY" l="0">Creu lobi lleol</T>
+      <T id="LOCAL_MENU_CHALLENGES" l="0">Heriau</T>
+
+      <T id="HELP_TITLE" l="0">Cymorth</T>
+      <T id="HELP_SUBTITLE" l="0">Sut i chwarae Protodice</T>
+      <T id="HELP_SECTION_ABILITIES" l="0">Galluoedd</T>
+      <T id="HELP_SECTION_CLASSES" l="0">Dosbarthiadau</T>
+      <T id="HELP_SECTION_GAMEPLAY" l="0">Chwarae</T>
+      <T id="HELP_SECTION_WINCON" l="0">Buddugoliaeth</T>
+      <T id="HELP_TEXT_ABILITIES" l="0">Mae galluoedd yn cael eu rhannu&#39;n Effeithiau Arbennig ac Effeithiau Statws.
+
+Effeithiau Arbennig: Ardal Effaith, Tyllu Arfwisg, Pelydr Laser,
+T&#226;n Aml, Galw Uned, Blocio Pob L&#244;n, a mwy.
+
+Effeithiau Statws: T&#226;n, Gwenwyn, Arafu, Syfrdanu, Swyn, Asid,
+Anweladwy, a debuffau pwerus eraill.
+
+Mae nodweddion fel Man Dall, Targedu Cefn, a Lonydd Cyfagos
+yn newid sut mae uned yn chwarae ei r&#244;l.</T>
+      <T id="HELP_TEXT_GAMEPLAY" l="0">Mae Protodice yn g&#234;m amddiffyn tyrau strategol gyda dis.
+
+- Troeon: mae un ochr yn chwarae Amddiffyn, y llall Anghenfilod.
+- Rholiwch y dis i alw unedau o'ch offer.
+- Mae amddiffynfeydd yn diogelu'r chwith; mae anghenfilod yn ymosod o'r dde.
+- Mae unedau'n ymosod yn awtomatig yn &#244;l eu stats bob ton.
+
+System ddis:
+- 1-5: galw'r slot cyfatebol.
+- 6: rholio eto ar gyfer uned Prototeip.</T>
+      <T id="HELP_TEXT_WINCON" l="0">Mae Amddiffyn yn ennill trwy oroesi pob ton.
+Mae Anghenfilod yn ennill trwy dorri hyd at y chwith pellaf.
+
+Goroeswch, daliwch y llinell a rheolwch yr economi i bara.
+Neu orlefwch y lonydd i dorri'r amddiffynfeydd.</T>
+      <T id="HELP_WEAKNESS" l="0">Gwan</T>
+      <T id="HELP_DEFENCE_CLASSES" l="0">Dosbarthiadau Amddiffyn</T>
+      <T id="HELP_MONSTER_CLASSES" l="0">Dosbarthiadau Anghenfil</T>
+
+      <T id="CHANGELOG_TITLE" l="0">Cofnod newidiadau</T>
+
+      <T id="ERROR_SYNTAX" l="0">Gwall cystrawen</T>
+      <T id="ERROR_TYPE" l="0">Gwall math</T>
+      <T id="ERROR_REFERENCE" l="0">Gwall cyfeiriad</T>
+      <T id="ERROR_RANGE" l="0">Gwall ystod</T>
+      <T id="ERROR_GENERIC" l="0">Gwall</T>
+      <T id="ERROR_RECOVER" l="0">Ceisio adfer</T>
+      <T id="ERROR_DETAILS" l="0">Dangos manylion</T>
+      <T id="ERROR_RELOAD" l="0">Ail-lwytho tudalen</T>
+      <T id="ERROR_NO_DETAILS" l="0">Dim manylion pellach</T>
+
+      <T id="ALERT_ERROR" l="0">GWALL</T>
+      <T id="ALERT_SUCCESS" l="0">LLWYDDIANT</T>
+      <T id="ALERT_INFO" l="0">GWYBODAETH</T>
+      <T id="ALERT_WARNING" l="0">RHYBUDD</T>
+
+      <T id="GAME_CHALLENGE_BONUS" l="0"> (+{0} her)</T>
+      <T id="GAME_VICTORY_TOKENS" l="0">Buddugoliaeth! Enillwyd {0} tocyn{1}.</T>
+      <T id="GAME_DEFEAT_TOKENS" l="0">Gorchfygiad! Enillwyd {0} tocyn{1}.</T>
+
+      <T id="ONLINE_TITLE" l="0">Modd ar-lein</T>
+      <T id="ONLINE_SERVER_UNAVAILABLE_TITLE" l="0">Gweinydd ddim ar gael</T>
+      <T id="ONLINE_SERVER_UNAVAILABLE_BODY1" l="0">Nid yw modd ar-lein ar gael.</T>
+      <T id="ONLINE_SERVER_UNAVAILABLE_BODY2" l="0">Rhowch gynnig eto yn nes ymlaen.</T>
+      <T id="ONLINE_CONNECTION_SLOW_TITLE" l="0">Cysylltiad araf</T>
+      <T id="ONLINE_CONNECTION_SLOW_BODY1" l="0">Mae'r gweinydd yn ymateb ond mae'r cysylltiad yn araf.</T>
+      <T id="ONLINE_CONNECTION_SLOW_BODY2" l="0">Efallai problem dros dro. Ceisiwch eto.</T>
+      <T id="ONLINE_CONNECTION_FAILED_TITLE" l="0">Methodd cysylltu</T>
+      <T id="ONLINE_CONNECTION_FAILED_BODY1" l="0">Methu cyrraedd y gweinydd.</T>
+      <T id="ONLINE_CONNECTION_FAILED_BODY2" l="0">Gwiriwch eich cysylltiad a cheisiwch eto.</T>
+      <T id="ONLINE_NOT_SIGNED_IN" l="0">Heb fewngofnodi</T>
+      <T id="ONLINE_SIGN_IN_PROMPT" l="0">Mewngofnodwch i chwarae ar-lein</T>
+      <T id="ONLINE_CREATE_LOBBY" l="0">Creu lobi</T>
+      <T id="ONLINE_LEADERBOARD" l="0">Tabl arweinwyr</T>
+      <T id="ONLINE_JOIN_LOBBY" l="0">Ymuno a lobi</T>
+      <T id="ONLINE_CONNECTION_LOST" l="0">Cysylltiad wedi'i golli. Ailgysylltwch a cheisiwch eto.</T>
+      <T id="ONLINE_INVALID_CODE" l="0">Rhowch god dilys (4-6 nod alffaniwmerig).</T>
+      <T id="ONLINE_JOINING_LOBBY" l="0">Ymuno a lobi...</T>
+      <T id="ONLINE_AUTH_ERROR" l="0">Gwall dilysu: methwyd cael ID defnyddiwr.</T>
+      <T id="ONLINE_JOIN_TIMEOUT" l="0">Cais wedi amseru allan. Ceisiwch eto.</T>
+      <T id="ONLINE_JOIN_FAILED_SEND" l="0">Methwyd anfon y cais. Ceisiwch eto.</T>
+      <T id="ONLINE_JOIN_FAILED" l="0">Methwyd ymuno (cod anghywir neu'n llawn).</T>
+
+      <T id="CHALLENGES_TITLE" l="0">HERIAU</T>
+      <T id="OPP_GOBLIN_HORDE" l="0">Horde goblins</T>
+      <T id="OPP_SIEGE_CHOIR" l="0">Corws gwarchae</T>
+      <T id="OPP_SPECTRAL_SWARM" l="0">Haul spectrol</T>
+      <T id="OPP_BRUISER_PACK" l="0">Pecyn brwyswyr</T>
+      <T id="OPP_IRON_WALL" l="0">Mur haearn</T>
+      <T id="OPP_STORM_BATTERY" l="0">Batri storm</T>
+      <T id="OPP_CONTROL_GRID" l="0">Grid rheoli</T>
+      <T id="OPP_DEFAULT" l="0">Gwrthwynebydd</T>
+      <T id="DIFFICULTY_EASY" l="0">Hawdd</T>
+      <T id="DIFFICULTY_MEDIUM" l="0">Canolig</T>
+      <T id="DIFFICULTY_HARD" l="0">Anodd</T>
+      <T id="DIFFICULTY_NIGHTMARE" l="0">Hunllef</T>
+      <T id="CHALLENGE_DAILY_TITLE" l="0">Her ddyddiol</T>
+      <T id="CHALLENGE_DAILY_DESC" l="0">Her PvC dyddiol ar gyfer {0}.{1}</T>
+      <T id="CHALLENGE_PRESET" l="0">Loadout rhagosodedig: {0}.</T>
+      <T id="CHALLENGE_DEUCIFER_TITLE" l="0">Pwll Deucifer</T>
+      <T id="CHALLENGE_DEUCIFER_DESC" l="0">Hunllef 50 ton yn erbyn Deucifer.</T>
+      <T id="CHALLENGE_PLAYER" l="0">Chwaraewr</T>
+      <T id="CHALLENGE_DEUCIFER_NAME" l="0">Deucifer</T>
+      <T id="CHALLENGE_COMPLETE" l="0">CWBLHAWYD</T>
+      <T id="CHALLENGE_FAILED" l="0">WEDI METHU</T>
+      <T id="CHALLENGE_NOT_READY" l="0">DIM YN BAROD</T>
+      <T id="CHALLENGE_REWARD" l="0"> Gwobr: +{0} tocyn.</T>
+      <T id="CHALLENGE_GENERIC" l="0">Her</T>
+      <T id="CHALLENGE_COMING_SOON" l="0">Yn fuan...</T>
+      <T id="CHALLENGE_COMING_SOON_DESC" l="0">Mwy o heriau yn dod.</T>
+
+      <T id="LANG_ENGLISH" l="0">Saesneg</T>
+      <T id="LANG_FRENCH" l="0">Ffrangeg</T>
+      <T id="LANG_SPANISH" l="0">Sbaeneg</T>
+      <T id="LANG_ITALIAN" l="0">Eidaleg</T>
+      <T id="LANG_PORTUGUESE" l="0">Portiwgaleg</T>
+      <T id="LANG_WELSH" l="0">Cymraeg</T>
+          <T id="PRELOAD_LOADING" l="0">Llwytho...</T>
+      <T id="UI_YES" l="0">Ie</T>
+      <T id="UI_NO" l="0">Na</T>
+      <T id="UI_NA" l="0">Amherthnasol</T>
+      <T id="UI_CLOSE_SHORT" l="0">X</T>
+      <T id="GENERIC_PLAYER" l="0">Chwaraewr</T>
+      <T id="GENERIC_PLAYER_1" l="0">Chwaraewr 1</T>
+      <T id="GENERIC_PLAYER_2" l="0">Chwaraewr 2</T>
+      <T id="GENERIC_UNIT" l="0">Uned</T>
+      <T id="GENERIC_UNKNOWN" l="0">Anhysbys</T>
+      <T id="ACH_TITLE" l="0">CYFLAWNIADAU</T>
+      <T id="ACH_FIRSTPLAY_TITLE" l="0">Rwy&#39;n newydd i hyn</T>
+      <T id="ACH_FIRSTPLAY_DESC" l="0">Chwarae Protodice am y tro cyntaf.</T>
+      <T id="ACH_WAVES_100_TITLE" l="0">Warm-Up Tonau</T>
+      <T id="ACH_WAVES_100_DESC" l="0">Cyrraedd 100 ton i gyd.</T>
+      <T id="ACH_WAVES_500_TITLE" l="0">Wedi&#39;i brofi mewn brwydr</T>
+      <T id="ACH_WAVES_500_DESC" l="0">Cyrraedd 500 ton i gyd.</T>
+      <T id="ACH_WAVES_2500_TITLE" l="0">Rhyfel di-ddiwedd</T>
+      <T id="ACH_WAVES_2500_DESC" l="0">Cyrraedd 2,500 ton i gyd.</T>
+      <T id="ACH_TIME_1H_TITLE" l="0">Dim ond un arall</T>
+      <T id="ACH_TIME_1H_DESC" l="0">Chwarae Protodice am 1 awr i gyd.</T>
+      <T id="ACH_TIME_12H_TITLE" l="0">Popeth i mewn</T>
+      <T id="ACH_TIME_12H_DESC" l="0">Chwarae Protodice am 12 awr i gyd.</T>
+      <T id="ACH_WINS_1_TITLE" l="0">First Buddugoliaeth</T>
+      <T id="ACH_WINS_1_DESC" l="0">Ennill eich g&#234;m cyntaf.</T>
+      <T id="ACH_WINS_10_TITLE" l="0">Cadlywydd profiadol</T>
+      <T id="ACH_WINS_10_DESC" l="0">Ennill 10 g&#234;m.</T>
+      <T id="ACH_DEFEAT_ENEMIES_TITLE" l="0">Gelyn i lawr</T>
+      <T id="ACH_DEFEAT_ENEMIES_DESC" l="0">Trechu 250 enemies (monsters as defender / defences as attacker).</T>
+      <T id="ACH_AUGMENTED_TITLE" l="0">Wedi&#39;i uwchraddio</T>
+      <T id="ACH_AUGMENTED_DESC" l="0">Prynu an Epic unit in the shop.</T>
+      <T id="ACH_DARKEST_HOUR_TITLE" l="0">Yn ein hawr dywyllaf...</T>
+      <T id="ACH_DARKEST_HOUR_DESC" l="0">Prynu a Legendary unit in the shop.</T>
+      <T id="ACH_HELLSCAPE_TITLE" l="0">Uffern</T>
+      <T id="ACH_HELLSCAPE_DESC" l="0">Trechu Deucifer in Deucifer's Pit.</T>
+      <T id="ACH_STUN_WAVE_TITLE" l="0">Pwy sy'n syfrdanedig nawr?</T>
+      <T id="ACH_STUN_WAVE_DESC" l="0">Styn or freeze 5 enemies in one wave.</T>
+      <T id="ACH_BADGE_COMPLETE" l="0">WEDI&#39;I GWLBLHAU</T>
+      <T id="ACH_BADGE_LOCKED" l="0">WEDI&#39;I GLOI</T>
+      <T id="ACH_STATS_UNLOCKED" l="0">WEDI&#39;U DADGLOI: {0} / {1}</T>
+      <T id="ACH_TIME_FORMAT" l="0">{0}h {1}m</T>
+      <T id="ACH_STATS_LINE1" l="0">GEMAU: {0}     BUDDUGOLIAETHAU: {1}    TONNAU: {2}</T>
+      <T id="ACH_STATS_LINE2" l="0">AMSER CHWARAE: {0}    ANGHENFILOD: {1}    AMDDIFFYNFEYDD: {2}</T>
+      <T id="CONFIG_TITLE" l="0">Ffurfweddiad y g&#234;m</T>
+      <T id="CONFIG_PLAYERS" l="0">Chwaraewyr:</T>
+      <T id="CONFIG_PLAYER_SHORT" l="0">P{0}</T>
+      <T id="CONFIG_PROMPT_PLAYER_NAME" l="0">Enter name for Chwaraewr {0}:</T>
+      <T id="CONFIG_AI" l="0">Cyfrifiadur</T>
+      <T id="CONFIG_HUMAN" l="0">Dynol</T>
+      <T id="CONFIG_HOW_MANY_WAVES" l="0">Faint o donnau?</T>
+      <T id="CONFIG_WAVES_LABEL" l="0">{0} ton</T>
+      <T id="CONFIG_ADDITIONAL_RULES" l="0">Rheolau ychwanegol:</T>
+      <T id="CONFIG_SWITCH_SIDES" l="0">Newid ochrau: {0}</T>
+      <T id="SIDE_MONSTERS" l="0">Anghenfilod</T>
+      <T id="SIDE_DEFENCES" l="0">Amddiffynfeydd</T>
+      <T id="CONFIG_HOW_MANY_DICE" l="0">Faint o ddis?</T>
+      <T id="CONFIG_DICE_1" l="0">1 dis</T>
+      <T id="CONFIG_DICE_2" l="0">2 ddis</T>
+      <T id="CONFIG_BOARD_SIZE" l="0">Maint y bwrdd</T>
+      <T id="CONFIG_ROWS" l="0">Rhesi: {0}</T>
+      <T id="CONFIG_COLS" l="0">Colofnau: {0}</T>
+      <T id="CONFIG_START_GAME" l="0">Dechrau</T>
+      <T id="CHALLENGE_DESC_FALLBACK" l="0">Her description</T>
+      <T id="CHALLENGE_REWARD_LINE" l="0">Gwobr: +{0} Tocynnau</T>
+      <T id="CHALLENGE_SIDES_LINE" l="0">Chi: {0} | Gwrthwynebydd: {1} ({2})</T>
+      <T id="CHALLENGE_DICE" l="0">Dis: {0}</T>
+      <T id="CHALLENGE_BOARD" l="0">Bwrdd: {0} x {1}</T>
+      <T id="CHALLENGE_PLAYERS" l="0">Chwaraewyr: {0}</T>
+      <T id="CHALLENGE_WAVES" l="0">Tonau: {0}</T>
+      <T id="CHALLENGE_TEAMS_ENABLED" l="0">Timau: wedi&#39;u galluogi</T>
+      <T id="CHALLENGE_PLAYERS_LABEL" l="0">Chwaraewyr:</T>
+      <T id="CHALLENGE_AI_LABEL" l="0">AI {0}</T>
+      <T id="CHALLENGE_HUMAN_LABEL" l="0">Dynol</T>
+      <T id="CHALLENGE_START" l="0">DECHRAU HER</T>
+      <T id="TEAM_BLUE" l="0">GLAS</T>
+      <T id="TEAM_RED" l="0">COCH</T>
+      <T id="POSTGAME_TITLE" l="0">G&#234;m leol - Canlyniadau</T>
+      <T id="POSTGAME_PUN_VICTORY_1" l="0">Dis-tacwlar!</T>
+      <T id="POSTGAME_PUN_VICTORY_2" l="0">Enillydd, enillydd!</T>
+      <T id="POSTGAME_PUN_VICTORY_3" l="0">Yn rholio mewn buddugoliaeth!</T>
+      <T id="POSTGAME_PUN_DEFEAT_1" l="0">Pob lwc y tro nesaf!</T>
+      <T id="POSTGAME_PUN_DEFEAT_2" l="0">Gweddiwch i RNGesus!</T>
+      <T id="POSTGAME_PUN_DEFEAT_3" l="0">Colled ddis!</T>
+      <T id="POSTGAME_PUN_DRAW_1" l="0">Cydradd!</T>
+      <T id="POSTGAME_PUN_DRAW_2" l="0">Cydradd ddisastrus!</T>
+      <T id="POSTGAME_PUN_DRAW_3" l="0">Rholiau cytbwys!</T>
+      <T id="POSTGAME_NONE" l="0">Dim</T>
+      <T id="POSTGAME_MVP_LINE" l="0">{0} MVP: {1} ({2} difrod)</T>
+      <T id="POSTGAME_SUMMARY" l="0">Tonau: {0}/{1}    Tocynnau: {2}</T>
+      <T id="POSTGAME_RESULT_VICTORY" l="0">Buddugoliaeth!</T>
+      <T id="POSTGAME_RESULT_DEFEAT" l="0">Trechu!</T>
+      <T id="POSTGAME_RESULT_DRAW" l="0">G&#234;m gyfartal!</T>
+      <T id="ROLE_DEFENCE" l="0">Amddiffyn</T>
+      <T id="ROLE_MONSTER" l="0">Anghenfil</T>
+      <T id="ROLE_UNKNOWN" l="0">Anhysbys</T>
+      <T id="POSTGAME_ROLE" l="0">R&#244;l: {0}</T>
+      <T id="POSTGAME_SCORE" l="0">Sg&#244;r: {0}</T>
+      <T id="POSTGAME_DEFEATED" l="0">Wedi&#39;i drechu</T>
+      <T id="POSTGAME_MONSTERS_DEFEATED" l="0">Anghenfilod Defeated</T>
+      <T id="POSTGAME_DEFENCES_DESTROYED" l="0">Amddiffynfeydd Destroyed</T>
+      <T id="POSTGAME_EXTRA_LINE" l="0">{0}: {1}</T>
+      <T id="POSTGAME_RETURN" l="0">Dychwelyd i'r ddewislen</T>
+      <T id="POSTGAME_EXIT_CONFIRM" l="0">Dychwelyd i'r ddewislen?</T>
+      <T id="LOADOUT_TITLE" l="0">Offer</T>
+      <T id="LOADOUT_TOKENS" l="0">Tocynnau: {0}</T>
+      <T id="LOADOUT_DEFENCES" l="0">Amddiffynfeydd</T>
+      <T id="LOADOUT_MONSTERS" l="0">Anghenfilod</T>
+      <T id="LOADOUT_NORMAL" l="0">Arferol</T>
+      <T id="LOADOUT_PROTO" l="0">Proto</T>
+      <T id="LOADOUT_YOUR" l="0">Eich offer</T>
+      <T id="LOADOUT_SLOT" l="0">{0}.</T>
+      <T id="LOADOUT_AVAILABLE" l="0">Unedau ar gael</T>
+      <T id="LOADOUT_SHOP" l="0">Siop</T>
+      <T id="LOADOUT_DEV" l="0">DEV</T>
+      <T id="LOADOUT_CLASS" l="0">Dosbarth</T>
+      <T id="LOADOUT_PLACEMENT" l="0">Lleoliad</T>
+      <T id="LOADOUT_OWNED" l="0">&#10003; Perchen</T>
+      <T id="LOADOUT_LOCKED" l="0">Ar gau</T>
+      <T id="LOADOUT_STATUS_EFFECTS" l="0">Effeithiau statws:</T>
+      <T id="LOADOUT_SPECIAL_EFFECTS" l="0">Effeithiau arbennig:</T>
+      <T id="LOADOUT_ABILITIES" l="0">Galluoedd:</T>
+      <T id="LOADOUT_ADD" l="0">Ychwanegu</T>
+      <T id="LOADOUT_COST" l="0">Cost: {0} tocyn</T>
+      <T id="LOADOUT_BUY_SHOP" l="0">Prynu in Shop</T>
+      <T id="LOADOUT_UNKNOWN_EFFECT" l="0">Effaith anhysbys</T>
+      <T id="LOADOUT_FULL" l="0">Llwyth yn llawn! Tynnwch uned yn gyntaf.</T>
+      <T id="LOADOUT_ALREADY" l="0">Uned eisoes yn y llwyth!</T>
+      <T id="LOADOUT_ADDED" l="0">Uned wedi&#39;i hychwanegu at y llwyth!</T>
+      <T id="LOADOUT_EMPTY_SLOT" l="0">Slot gwag</T>
+      <T id="STAT_HP" l="0">IECHYD</T>
+      <T id="STAT_DMG" l="0">DIFROD</T>
+      <T id="STAT_AMMO" l="0">Bwledi</T>
+      <T id="STAT_RANGE" l="0">Ystod</T>
+      <T id="STAT_RELOAD" l="0">Ail-lwytho</T>
+      <T id="RARITY_COMMON" l="0">Cyffredin</T>
+      <T id="RARITY_UNCOMMON" l="0">Anarferol</T>
+      <T id="RARITY_RARE" l="0">Prin</T>
+      <T id="RARITY_EPIC" l="0">Epig</T>
+      <T id="RARITY_LEGENDARY" l="0">Chwedlonol</T>
+      <T id="CLASS_DAMAGE_DEALER" l="0">Difrod Dealer</T>
+      <T id="CLASS_SUPPORT" l="0">Cefnogaeth</T>
+      <T id="CLASS_CONTROL" l="0">Rheolaeth</T>
+      <T id="CLASS_UTILITY" l="0">Defnyddiol</T>
+      <T id="CLASS_SUMMONER" l="0">Galwr</T>
+      <T id="CLASS_TANK" l="0">Tanc</T>
+      <T id="CLASS_BRUISER" l="0">B&#244;riwr</T>
+      <T id="CLASS_SKIRMISHER" l="0">Ysgarmeswr</T>
+      <T id="CLASS_SWARM" l="0">Haid</T>
+      <T id="CLASS_GENERALIST" l="0">Cyffredinol</T>
+      <T id="PLACEMENT_BACKLINE" l="0">Llinell gefn</T>
+      <T id="PLACEMENT_MIDLINE" l="0">Llinell ganol</T>
+      <T id="PLACEMENT_FRONTLINE" l="0">Llinell flaen</T>
+      <T id="SHOP_TITLE" l="0">Siop Unedau</T>
+      <T id="SHOP_OWNED" l="0">&#10003; Perchen</T>
+      <T id="SHOP_BUY" l="0">Prynu</T>
+      <T id="SHOP_ALREADY_OWNED" l="0">{0} eisoes yn berchen.</T>
+      <T id="SHOP_NOT_ENOUGH" l="0">Dim digon o docynnau ({0} angen).</T>
+      <T id="SHOP_PURCHASED" l="0">Prynwyd {0}!</T>
+      <T id="DEV_MENU_TITLE" l="0">DEWISLEN DEV</T>
+      <T id="DEV_ADD_TOKENS" l="0">+10,000 Tocynnau</T>
+      <T id="DEV_UNLOCK_ALL" l="0">Dadgloi POB uned</T>
+      <T id="DEV_UNLOCK_BY_KEY" l="0">Dadgloi yn &#244;l allwedd...</T>
+      <T id="DEV_PROMPT_UNIT_KEY" l="0">Rhowch allwedd uned (e.e. ForceField, Golem):</T>
+      <T id="DEV_LOG_LOADOUTS" l="0">Cofnod Offer</T>
+      <T id="DEV_UNKNOWN_UNIT" l="0">Uned anhysbys: {0}</T>
+      <T id="GAME_WAVE_TURN" l="0">Ton {0}/{1} - {2}'s tro</T>
+      <T id="HISTORY_WAVE_STARTED" l="0">Ton {0} started</T>
+      <T id="HISTORY_TURN" l="0">{0}'s tro ({1})</T>
+      <T id="GAME_ROLL_DICE" l="0">Rholio'r dis</T>
+      <T id="GAME_END_TURN" l="0">Diwedd Tro</T>
+      <T id="GAME_REROLL_PROTO" l="0">Ail-rolio Proto ({0})</T>
+      <T id="GAME_DEPLOY_FIRST" l="0">Rhowch bob uned i lawr yn gyntaf!</T>
+      <T id="GAME_ROLL_FIRST" l="0">Rholiwch y dis yn gyntaf!</T>
+      <T id="GAME_INVALID_PLACEMENT" l="0">Lleoliad annilys!</T>
+      <T id="GAME_HOLDING_MAX" l="0">Yn dal uchafswm unedau - rhowch rai yn gyntaf!</T>
+      <T id="GAME_AI_LABEL" l="0">AI</T>
+      <T id="GAME_AI_THINKING" l="0">{0} yn meddwl...</T>
+      <T id="GAME_HISTORY_LOG" l="0">Cofnod Hanes</T>
+      <T id="GAME_LOG_BUTTON" l="0">Cofnod</T>
+      <T id="GAME_EXIT_CONFIRM" l="0">Ydych chi'n si&#251;r eich bod am
+ ddychwelyd i'r brif ddewislen?</T>
+      <T id="GAME_PLAYER_LEFT" l="0">{0} (wedi gadael)</T>
+      <T id="HISTORY_PLAYED_UNIT" l="0">{0} chwaraeodd {1} (rhes {2}, col {3})</T>
+      <T id="HISTORY_REROLL_PROTO" l="0">{0} ail-rolio proto: {1}</T>
+      <T id="HISTORY_ROLLED" l="0">{0} rolio: {1}</T>
+      <T id="HISTORY_UNIT_DEFEATED" l="0">Trechwyd {0}</T>
+      <T id="HISTORY_UNIT_REMOVED" l="0">Tynnwyd {0}</T>
+      <T id="TOOLTIP_TURN" l="0">tro</T>
+      <T id="TOOLTIP_TURNS" l="0">troeon</T>
+      <T id="TOOLTIP_LIFESPAN_LINE" l="0">Hyd oes: {0} {1}</T>
+      <T id="TOOLTIP_LIFESPAN_VALUE" l="0">Hyd oes: {0}</T>
+      <T id="TOOLTIP_HP" l="0">IECHYD: {0} / {1}</T>
+      <T id="TOOLTIP_CANT_ATTACK" l="0">Ni all ymosod</T>
+      <T id="TOOLTIP_DAMAGE" l="0">Difrod: {0}</T>
+      <T id="TOOLTIP_MULTIPLIER" l="0">x{0}</T>
+      <T id="TOOLTIP_AMMO" l="0">Bwledi: {0} / {1}</T>
+      <T id="TOOLTIP_AMMO_SINGLE" l="0">Bwledi: {0}</T>
+      <T id="TOOLTIP_RANGE" l="0">Ystod: {0}</T>
+      <T id="TOOLTIP_RELOADING" l="0">Yn ail-lwytho ({0} troeon)</T>
+      <T id="TOOLTIP_READY" l="0">Yn barod</T>
+      <T id="TOOLTIP_RELOAD" l="0">Ail-lwytho: {0}</T>
+      <T id="TOOLTIP_TRAIT" l="0">Nodwedd: {0}</T>
+      <T id="TRAIT_CAN_DETECT" l="0">Yn gallu canfod yr anweladwy</T>
+      <T id="TRAIT_STARTS_NO_AMMO" l="0">Starts With Na Ammo</T>
+      <T id="TRAIT_REMOVE_OUT_OF_AMMO" l="0">Wedi&#39;i dynnu pan allan o fwledi</T>
+      <T id="TRAIT_CAN_BE_TRAMPLED" l="0">Gellir ei sathru (heb ei dargedu)</T>
+      <T id="TRAIT_INNATE_UNDETECTABLE" l="0">Anweladwy cynhenid</T>
+      <T id="TOOLTIP_CENTER_ATTACKER" l="0">canol=ymosodwr</T>
+      <T id="TOOLTIP_CENTER_TARGET" l="0">canol=targed</T>
+      <T id="TOOLTIP_SPLASH" l="0">sblash x{0}</T>
+      <T id="TOOLTIP_EST_SPLASH" l="0">amc sblash {0}</T>
+      <T id="TOOLTIP_FILTER_MONSTERS" l="0">Anghenfilod: {0}</T>
+      <T id="TOOLTIP_FILTER_DEFENCES" l="0">Amddiffynfeydd: {0}</T>
+      <T id="TOOLTIP_FILTER_STATUS" l="0">&#194; statws: {0}</T>
+      <T id="TOOLTIP_FILTER_INCLUDE" l="0">Cynnwys({0})</T>
+      <T id="TOOLTIP_FILTER_EXCLUDE" l="0">Eithrio({0})</T>
+      <T id="TOOLTIP_AOE" l="0">Ardal: {0}</T>
+      <T id="TOOLTIP_ENTIRE_ROW" l="0">rhes gyfan</T>
+      <T id="TOOLTIP_TRAVELS_WHOLE_ROW" l="0"> ({0})</T>
+      <T id="TOOLTIP_TRAVELS_WHOLE_ROW_SHORT" l="0">teithio&#39;r rhes gyfan</T>
+      <T id="TOOLTIP_EXT" l="0">ext={0}</T>
+      <T id="TOOLTIP_LASER_BEAM" l="0">Pelydr laser: {0}</T>
+      <T id="TOOLTIP_ACCURACY" l="0">Cywirdeb: min {0} / max {1} (cyf {2})</T>
+      <T id="TOOLTIP_ARMOR" l="0">Arfwisg: {0} (lleihad difrod: {1})</T>
+      <T id="TOOLTIP_ARMOR_PIERCING" l="0">Tyllu arfwisg</T>
+      <T id="TOOLTIP_LIFESTEAL" l="0">Dwyn bywyd: {0}x</T>
+      <T id="TOOLTIP_BLOCK_ALL_LANES" l="0">Blocio pob l&#244;n: tarian {0} (presennol {1})</T>
+      <T id="TOOLTIP_DAMAGE_BOOSTER" l="0">Hybu difrod: x{0} - ardal {1}</T>
+      <T id="TOOLTIP_SUMMON" l="0">Galw: {0} x{1} - oeri {2} {3}</T>
+      <T id="TOOLTIP_ONLY_WHEN_MET" l="0"> (dim ond pan fodlwyd)</T>
+      <T id="TOOLTIP_FIRST" l="0">Cyntaf</T>
+      <T id="TOOLTIP_SPREAD_TARGETING" l="0">Targedu gwasgaredig: ammoIndex {0} - modd {1} - minGelynion {2}{3}</T>
+      <T id="TOOLTIP_MULTIFIRE" l="0">T&#226;n aml: {0} ergydion - oedi {1}s</T>
+      <T id="TOOLTIP_REVIVE" l="0">Atgyfodi: siawns {0} - uchaf {1} - Iechyd x{2} - Difrod x{3}</T>
+      <T id="TOOLTIP_DEATH_DAMAGE" l="0">Difrod {0}</T>
+      <T id="TOOLTIP_DEATH_HEAL" l="0">Iachau {0}</T>
+      <T id="TOOLTIP_RADIUS" l="0">Radiws {0}</T>
+      <T id="TOOLTIP_STATUSES" l="0">Statwsau: {0}</T>
+      <T id="TOOLTIP_DEATH_EFFECT_NONE" l="0">Effaith marwolaeth: (dim)</T>
+      <T id="TOOLTIP_DEATH_EFFECT" l="0">Effaith marwolaeth: {0}</T>
+      <T id="TOOLTIP_DAMAGE_VALUE" l="0">Difrod {0}</T>
+      <T id="TOOLTIP_DURATION" l="0">Hyd {0}</T>
+      <T id="TOOLTIP_SPRITE" l="0">Sprite {0}</T>
+      <T id="TOOLTIP_CREATE_PUDDLE" l="0">Creu pwll: {0}{1}</T>
+      <T id="TOOLTIP_RANGE_SHORT" l="0">pellter {0}</T>
+      <T id="TOOLTIP_MULT_SHORT" l="0">x{0}</T>
+      <T id="TOOLTIP_MODE" l="0">modd {0}</T>
+      <T id="TOOLTIP_NO_AMMO_COST" l="0">dim cost bwledi</T>
+      <T id="TOOLTIP_HEAL_ALLIES" l="0">Iachau Allies: {0}</T>
+      <T id="TOOLTIP_SPECIAL_EFFECTS_NONE" l="0">Effeithiau arbennig: dim</T>
+      <T id="STATUS_FIRE" l="0">T&#226;n: {0} dmg/tro ({1} troeon)</T>
+      <T id="STATUS_POISON" l="0">Gwenwyn: {0} dmg/tro ({1} troeon)</T>
+      <T id="STATUS_PURGE" l="0">Purge: Imiwn to status effects ({0} troeon)</T>
+      <T id="STATUS_ACID" l="0">Acid: x{0} ({1} troeon)</T>
+      <T id="STATUS_SLOW_BASE" l="0">Arafu: +{0} reload</T>
+      <T id="STATUS_SLOW_SPEED" l="0">, {0}% cyflymder</T>
+      <T id="STATUS_DURATION" l="0"> ({0} troeon)</T>
+      <T id="STATUS_STUN" l="0">Styn: {0} troeon</T>
+      <T id="STATUS_FROZEN" l="0">Rhewedig: {0} troeon</T>
+      <T id="STATUS_CHARM" l="0">Swynedig: attacks allies ({0} troeon)</T>
+      <T id="STATUS_UNDETECTABLE_PERM" l="0">Anweladwy: ni ellir ei dargedu (parhaol)</T>
+      <T id="STATUS_UNDETECTABLE" l="0">Undetectable: cannot be targeted ({0} troeon)</T>
+      <T id="STATUS_GENERIC" l="0">{0}: {1}</T>
+      <T id="STATUS_FIRE_DESC" l="0">T&#226;n: {0} dmg/tro{1}{2}{3}</T>
+      <T id="STATUS_POISON_DESC" l="0">Gwenwyn: {0} dmg/tro{1}{2}{3}</T>
+      <T id="STATUS_SLOW_DESC" l="0">Arafu{0}{1}{2}{3}{4}</T>
+      <T id="STATUS_STUN_DESC" l="0">Styn: Prevents action{0}{1}{2}</T>
+      <T id="STATUS_FROZEN_DESC" l="0">Rhewedig: Prevents action{0}{1}{2}</T>
+      <T id="STATUS_ACID_DESC" l="0">Asid{0}{1}{2}{3}</T>
+      <T id="STATUS_PURGE_DESC" l="0">Glanhau: yn tynnu pob effaith statws{0}{1}</T>
+      <T id="STATUS_CHARM_DESC" l="0">Swyn: yn ymosod ar gynghreiriaid{0}{1}{2}</T>
+      <T id="STATUS_UNDETECTABLE_DESC" l="0">Undetectable: Ni ellir ei dargedu{0}{1}{2}</T>
+      <T id="STATUS_GENERIC_DESC" l="0">- {0}{1}{2}{3}{4}</T>
+      <T id="FILTER_INCLUDE_MONSTERS" l="0">Include Anghenfilod</T>
+      <T id="FILTER_INCLUDE_DEFENCES" l="0">Include Amddiffynfeydd</T>
+      <T id="FILTER_REQUIRE_STATUS" l="0">Gofyn am statws</T>
+      <T id="FILTER_EXCLUDE_MONSTERS" l="0">Exclude Anghenfilod</T>
+      <T id="FILTER_EXCLUDE_DEFENCES" l="0">Exclude Amddiffynfeydd</T>
+      <T id="FILTER_EXCLUDE_STATUS" l="0">Eithrio statws</T>
+      <T id="FILTER_LABEL" l="0">Hidl</T>
+      <T id="EFFECT_AOE_DESC" l="0">Ardal effaith: {0}{1}{2}{3}{4}</T>
+      <T id="EFFECT_LASER_DESC" l="0">Pelydr laser{0}{1}{2}</T>
+      <T id="EFFECT_MULTIFIRE_DESC" l="0">T&#226;n aml: {0} ergydion{1}</T>
+      <T id="EFFECT_SPREAD_DESC" l="0">Targedu gwasgaredig{0}{1}{2}{3}</T>
+      <T id="EFFECT_SUMMON_DESC" l="0">Galw: {0}x {1}{2}{3}{4}</T>
+      <T id="EFFECT_PUDDLE_DESC" l="0">Creu pwll: {0}{1}{2}{3}{4}{5}</T>
+      <T id="EFFECT_DEATH_DESC" l="0">Effaith marwolaeth: {0}{1}{2}{3}{4}</T>
+      <T id="EFFECT_LIFESTEAL_DESC" l="0">Dwyn bywyd{0}</T>
+      <T id="EFFECT_ARMOR_DESC" l="0">Arfwisg{0}{1}</T>
+      <T id="EFFECT_PIERCE_DESC" l="0">Tyllu arfwisg{0}</T>
+      <T id="EFFECT_REVIVE_DESC" l="0">Adfywio{0}{1}{2}{3}</T>
+      <T id="EFFECT_HEAL_DESC" l="0">Iachau Allies{0}{1}{2}{3}{4}</T>
+      <T id="EFFECT_BOOST_DESC" l="0">Difrod Boost: {0}{1}</T>
+      <T id="EFFECT_ACCURACY_DESC" l="0">Cywirdeb{0}</T>
+      <T id="EFFECT_BLOCK_DESC" l="0">Blocio pob l&#244;n{0}{1}</T>
+      <T id="EFFECT_GENERIC_DESC" l="0">- {0}</T>
+      <T id="ABILITY_ADJACENT" l="0">Gallu targedu lonydd cyfagos</T>
+      <T id="ABILITY_BACK" l="0">Gallu targedu tu &#244;l</T>
+      <T id="ABILITY_BLIND" l="0">Man dall</T>
+      <T id="ABILITY_TEMP" l="0">Dros dro</T>
+      <T id="ABILITY_TURNS" l="0">troeon</T>
+      <T id="ABILITY_TARGETING" l="0">Targedu</T>
+      <T id="ABILITY_SPEED" l="0">Cyflymder</T>
+      <T id="ABILITY_TILE" l="0">teilsen</T>
+      <T id="ABILITY_TURN" l="0">tro</T>
+      <T id="ABILITY_NO_ATTACK" l="0">Ni all ymosod</T>
+      <T id="ABILITY_DETECT" l="0">Yn gallu canfod unedau anweledig</T>
+      <T id="ABILITY_UNDETECTABLE" l="0">Anweladwy cynhenid</T>
+      <T id="ABILITY_NO_AMMO" l="0">Starts With Na Ammo</T>
+      <T id="ABILITY_REMOVE_NO_AMMO" l="0">Wedi&#39;i dynnu pan allan o fwledi</T>
+      <T id="ABILITY_TRAMPLED" l="0">Gellir ei sathru (heb ei dargedu)</T>
+      <T id="DIFFICULTY_BABY" l="0">Baban</T>
+      <T id="UNIT_AcidShooter" l="0">Saethwr Asid</T>
+      <T id="UNIT_Archer" l="0">Saethwr</T>
+      <T id="UNIT_Ballista" l="0">Balista</T>
+      <T id="UNIT_Barricade" l="0">Rhwystrau</T>
+      <T id="UNIT_Bat" l="0">Ystlum</T>
+      <T id="UNIT_Bomber" l="0">Bomwr</T>
+      <T id="UNIT_BoomCannon" l="0">Canon Boom</T>
+      <T id="UNIT_Cannon" l="0">Canon</T>
+      <T id="UNIT_Catapult" l="0">Catapwlt</T>
+      <T id="UNIT_CryoFan" l="0">Ffan Cryo</T>
+      <T id="UNIT_Cupid" l="0">Cwpid</T>
+      <T id="UNIT_DamageAmplifier" l="0">Chwyddwr Difrod</T>
+      <T id="UNIT_Demon" l="0">Cythraul</T>
+      <T id="UNIT_DestroyTower" l="0">Twr Dinistr</T>
+      <T id="UNIT_ElectroMage" l="0">Dewin Electro</T>
+      <T id="UNIT_FireImp" l="0">Imp Tan</T>
+      <T id="UNIT_Flamethrower" l="0">Taflwr Fflam</T>
+      <T id="UNIT_ForceField" l="0">Maes Grym</T>
+      <T id="UNIT_Ghost" l="0">Ysbryd</T>
+      <T id="UNIT_Goblin" l="0">Goblin</T>
+      <T id="UNIT_Golem" l="0">Golem</T>
+      <T id="UNIT_Harpy" l="0">Harpi</T>
+      <T id="UNIT_IceLizard" l="0">Madfall Ia</T>
+      <T id="UNIT_Knight" l="0">Marchog</T>
+      <T id="UNIT_Landmine" l="0">Mwynglawdd</T>
+      <T id="UNIT_LazorBeam" l="0">Pelydr Lazor</T>
+      <T id="UNIT_MachineGun" l="0">Gwn Peiriant</T>
+      <T id="UNIT_Mech" l="0">Mec</T>
+      <T id="UNIT_MicroSentry" l="0">Micro Gwarchod</T>
+      <T id="UNIT_Microwavr" l="0">Microdon</T>
+      <T id="UNIT_Mortar" l="0">Morter</T>
+      <T id="UNIT_Multishot" l="0">Aml-saethu</T>
+      <T id="UNIT_Necromancer" l="0">Nekromancwr</T>
+      <T id="UNIT_Orc" l="0">Orc</T>
+      <T id="UNIT_PoisonWard" l="0">Gward Gwenwyn</T>
+      <T id="UNIT_RadialLauncher" l="0">Lansiwr Radial</T>
+      <T id="UNIT_RocketLauncher" l="0">Lansiwr Roced</T>
+      <T id="UNIT_ShockBlaster" l="0">Tariad Sioc</T>
+      <T id="UNIT_ShockLauncher" l="0">Lansiwr Sioc</T>
+      <T id="UNIT_Shredder" l="0">Rhwygwr</T>
+      <T id="UNIT_SIMO" l="0">S.I.M.O.</T>
+      <T id="UNIT_Skeleton" l="0">Sgerbwd</T>
+      <T id="UNIT_SniperTower" l="0">Twr Sniper</T>
+      <T id="UNIT_Surgeon" l="0">Llawfeddyg</T>
+      <T id="UNIT_Tank" l="0">Tanc</T>
+      <T id="UNIT_Thrower" l="0">Taflwr</T>
+      <T id="UNIT_Troll" l="0">Trol</T>
+      <T id="UNIT_Zombie" l="0">Sombi</T>
+      <T id="TOOLTIP_EFFECT_GENERIC" l="0">{0}: {1}</T>
+    </IDS>
+  </Language>
+</LocData>

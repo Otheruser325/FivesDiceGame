@@ -1,0 +1,25 @@
+{
+    "TypeName": "Shredder",
+	"FullName": "Shredder",
+	"Rarity": "Rare",
+	"Health": 90,
+    "Damage": 12,
+    "Range": 1,
+	"Ammo": 2,
+	"ReloadDelay": 1,
+    "TargetingMode": "Any",
+    "ProjectileSprite": "null",
+	"DisplaySprite": "shredder",
+	"SpecialEffects": [ 
+	  {
+	    "Type": "Armor",
+		"Value": 5
+	  },
+	  {
+	    "Type": "Lifesteal",
+		"Value": 0.5
+	  }
+	],
+    "StatusEffects": [],
+	"IsProto": true
+}

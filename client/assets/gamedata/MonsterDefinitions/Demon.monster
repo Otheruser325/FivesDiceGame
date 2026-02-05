@@ -1,0 +1,29 @@
+{
+    "TypeName": "Demon",
+	"FullName": "Demon",
+	"Rarity": "Uncommon",
+	"Health": 60,
+    "Damage": 15,
+    "Range": 2,
+	"Speed": 1,
+	"Ammo": 1,
+	"ReloadDelay": 1,
+    "TargetingMode": "First",
+    "ProjectileSprite": "null",
+	"DisplaySprite": "demon",
+	"SpecialEffects": [
+	  {
+	    "Type": "Revive",
+		"ReviveChance": 1.0,
+		"HealthMult": 0.75,
+		"DamageMult": 0.75,
+		"MaxRevives": 1
+	  },
+	  {
+	    "Type": "Lifesteal",
+		"Value": 0.5
+	  }
+	],
+    "StatusEffects": [],
+	"IsProto": true
+}

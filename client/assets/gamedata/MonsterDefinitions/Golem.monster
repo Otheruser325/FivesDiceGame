@@ -1,0 +1,23 @@
+{
+    "TypeName": "Golem",
+	"FullName": "Golem",
+	"Rarity": "Uncommon",
+	"Health": 100,
+    "Damage": 16,
+    "Range": 1,
+	"Speed": 0.5,
+	"Ammo": 1,
+	"ReloadDelay": 2,
+    "TargetingMode": "First",
+    "ProjectileSprite": "null",
+	"DisplaySprite": "golem",
+	"SpecialEffects": [
+	  {
+	    "Type": "DeathEffect",
+		"Radius": "3x3",
+		"DeathDamage": 15
+	  } 
+	],
+    "StatusEffects": [],
+	"IsProto": true
+}

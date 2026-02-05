@@ -1,0 +1,25 @@
+{
+    "TypeName": "Bomber",
+	"FullName": "Bomber",
+	"Rarity": "Rare",
+	"Health": 10,
+    "Damage": 15,
+    "Range": 4,
+	"Speed": 1,
+	"Ammo": 1,
+	"ReloadDelay": 2,
+    "TargetingMode": "First",
+    "ProjectileSprite": "bomb",
+	"DisplaySprite": "bomber",
+	"SpecialEffects": [ 
+	  {
+	    "Type": "AreaOfEffect",
+		"Value": "1x3",
+		"SplashFactor": 1.0,
+		"Sprite": "explosion.png",
+		"CondenseTargeting": false
+	  } 
+	],
+    "StatusEffects": [],
+	"IsProto": false
+}

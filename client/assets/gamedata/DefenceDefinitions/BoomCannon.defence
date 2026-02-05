@@ -1,0 +1,21 @@
+{
+    "TypeName": "BoomCannon",
+	"FullName": "Boom Cannon",
+	"Rarity": "Uncommon",
+	"Health": 60,
+    "Damage": 50,
+    "Range": 6,
+	"Ammo": 1,
+	"ReloadDelay": 3,
+    "TargetingMode": "First",
+    "ProjectileSprite": "shell",
+	"DisplaySprite": "boomcannon",
+	"SpecialEffects": [
+	  {
+	    "Type": "ArmorPiercing",
+		"Value": 1.5
+	  }
+	],
+    "StatusEffects": [],
+	"IsProto": true
+}

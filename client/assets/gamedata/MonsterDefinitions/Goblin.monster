@@ -1,0 +1,17 @@
+{
+    "TypeName": "Goblin",
+	"FullName": "Goblin",
+	"Rarity": "Common",
+	"Health": 30,
+    "Damage": 5,
+    "Range": 1,
+	"Speed": 1,
+	"Ammo": 3,
+	"ReloadDelay": 2,
+    "TargetingMode": "First",
+    "ProjectileSprite": "null",
+	"DisplaySprite": "goblin",
+	"SpecialEffects": [],
+    "StatusEffects": [],
+	"IsProto": false
+}

@@ -1,0 +1,37 @@
+{
+    "TypeName": "ShockBlaster",
+    "FullName": "Shock Blaster",
+    "Rarity": "Uncommon",
+    "Health": 80,
+    "Damage": 8,
+    "Range": 8,
+    "Ammo": 2,
+    "ReloadDelay": 1,
+    "TargetingMode": "First",
+    "ProjectileSprite": "shock_bullet",
+    "DisplaySprite": "shockblaster",
+    "SpecialEffects": [
+        {
+            "Type": "SpreadTargeting",
+            "TargetMode": "Last",
+            "AmmoIndex": 1,
+            "OnlyActivateWhenEnoughEnemies": true,
+            "MinimumEnemies": 2
+        }
+    ],
+    "StatusEffects": [
+        {
+            "Type": "Stun",
+            "Duration": 1,
+            "CanReapply": true,
+            "TargetingFilter": {
+                "Exclude": {
+                    "MonsterType": [
+                        "ElectroMage"
+                    ]
+                }
+            }
+        }
+    ],
+    "IsProto": true
+}

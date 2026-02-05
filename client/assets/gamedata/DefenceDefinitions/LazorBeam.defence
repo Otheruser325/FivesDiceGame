@@ -1,0 +1,22 @@
+{
+    "TypeName": "LazorBeam",
+	"FullName": "Lazor Beam",
+	"Rarity": "Uncommon",
+	"Health": 80,
+    "Damage": 10,
+    "Range": 8,
+	"Ammo": 1,
+	"ReloadDelay": 2,
+    "TargetingMode": "First",
+    "ProjectileSprite": "laser",
+	"DisplaySprite": "lazorbeam",
+	"SpecialEffects": [
+	  {
+	    "Type": "LaserBeam",
+		"TravelEntireRow": false,
+	    "Extension": 4
+	  }
+	],
+    "StatusEffects": [],
+	"IsProto": true
+}

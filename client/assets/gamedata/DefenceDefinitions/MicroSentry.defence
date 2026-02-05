@@ -1,0 +1,20 @@
+{
+    "TypeName": "MicroSentry",
+	"FullName": "Micro Sentry",
+	"Rarity": "Rare",
+	"Health": 25,
+    "Damage": 5,
+    "Range": 5,
+	"Ammo": 3,
+	"ReloadDelay": 1,
+    "TargetingMode": "First",
+	"HasLifespan": true,
+	"Lifespan": 5,
+    "ProjectileSprite": "bullet",
+	"DisplaySprite": "microsentry",
+	"SpecialEffects": [],
+    "StatusEffects": [],
+	"CanTargetAdjacentLanes": true,
+	"BackTargeting": true,
+	"IsProto": false
+}

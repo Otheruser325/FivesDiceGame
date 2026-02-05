@@ -1,0 +1,23 @@
+{
+    "TypeName": "AcidShooter",
+	"FullName": "Acid Shooter",
+	"Rarity": "Uncommon",
+	"Health": 70,
+    "Damage": 10,
+    "Range": 7,
+	"Ammo": 2,
+	"ReloadDelay": 2,
+    "TargetingMode": "First",
+    "ProjectileSprite": "acid_bullet",
+	"DisplaySprite": "acidshooter",
+	"SpecialEffects": [],
+    "StatusEffects": [
+        {
+            "Type": "Acid",
+            "Duration": 2,
+            "BonusDamage": 1.25,
+            "CanReapply": true
+        }
+    ],
+	"IsProto": true
+}

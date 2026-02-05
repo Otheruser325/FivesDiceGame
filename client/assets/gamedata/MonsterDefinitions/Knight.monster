@@ -1,0 +1,22 @@
+{
+    "TypeName": "Knight",
+	"FullName": "Knight",
+	"Rarity": "Uncommon",
+	"Health": 50,
+    "Damage": 8,
+    "Range": 1,
+	"Speed": 1,
+	"Ammo": 1,
+	"ReloadDelay": 2,
+    "TargetingMode": "First",
+    "ProjectileSprite": "slash",
+	"DisplaySprite": "knight",
+	"SpecialEffects": [
+	  {
+	    "Type": "Armor",
+		"DamageReduction": 0.75
+	  }
+	],
+    "StatusEffects": [],
+	"IsProto": false
+}

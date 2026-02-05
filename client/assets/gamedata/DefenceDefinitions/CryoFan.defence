@@ -1,0 +1,36 @@
+{
+    "TypeName": "CryoFan",
+    "FullName": "Cryo Fan",
+    "Rarity": "Epic",
+    "Health": 60,
+    "Damage": 3,
+    "Range": 3,
+    "Ammo": 1,
+    "ReloadDelay": 1,
+    "TargetingMode": "First",
+    "ProjectileSprite": "gust",
+    "DisplaySprite": "cryofan",
+    "SpecialEffects": [
+        {
+            "Type": "LaserBeam",
+            "TravelEntireRow": true
+        }
+    ],
+    "StatusEffects": [
+        {
+            "Type": "Slow",
+            "Value": 1,
+            "SpeedReduction": 0.5,
+            "Duration": 3,
+            "CanReapply": true,
+            "TargetingFilter": {
+                "Exclude": {
+                    "MonsterType": [
+                        "IceLizard"
+                    ]
+                }
+            }
+        }
+    ],
+    "IsProto": true
+}

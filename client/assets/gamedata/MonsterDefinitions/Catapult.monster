@@ -1,0 +1,22 @@
+{
+    "TypeName": "Catapult",
+	"FullName": "Catapult",
+	"Rarity": "Rare",
+	"Health": 30,
+    "Damage": 30,
+    "Range": 6,
+	"Speed": 0.5,
+	"Ammo": 1,
+	"ReloadDelay": 3,
+    "TargetingMode": "First",
+    "ProjectileSprite": "boulder",
+	"DisplaySprite": "catapult",
+	"SpecialEffects": [
+	  {
+	    "Type": "ArmorPiercing",
+		"Value": 1.0
+	  }
+	],
+    "StatusEffects": [],
+	"IsProto": true
+}

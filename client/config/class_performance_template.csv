@@ -1,0 +1,21 @@
+Faction,Class,PrimaryRole,IdealPlacement,Strengths,Weaknesses,Counters,Synergies,EarlyGame,MidGame,LateGame,Notes
+Defence,Artillery,Long-ranged splash units,Backline,Lane splash and poke,Blind spot and early pressure,TODO,TODO,TODO,TODO,TODO,TODO
+Defence,Bruiser,High health and high damage close range,Frontline,Durable brawler,Kited by range,TODO,TODO,TODO,TODO,TODO,TODO
+Defence,Control,Debuff and stall,Mid/Backline,Locks down enemies,Low burst,TODO,TODO,TODO,TODO,TODO,TODO
+Defence,Damage Dealer,High sustained or burst damage,Midline,Fast kills,Needs protection,TODO,TODO,TODO,TODO,TODO,TODO
+Defence,Finisher,Removes key threats after charge-up,Backline,Deletes priority targets,Slow setup,TODO,TODO,TODO,TODO,TODO,TODO
+Defence,Generalist,Versatile all-rounder,Midline,Fits most comps,Not best at one role,TODO,TODO,TODO,TODO,TODO,TODO
+Defence,Hybrid,Combines multiple roles,Varies,Covers gaps,Needs correct placement,TODO,TODO,TODO,TODO,TODO,TODO
+Defence,Support,Buffs or heals allies,Backline,Team scaling,Low damage,TODO,TODO,TODO,TODO,TODO,TODO
+Defence,Tank,High health with low damage,Frontline,Soaks damage,Low kill pressure,TODO,TODO,TODO,TODO,TODO,TODO
+Monster,Artillery,Long-ranged splash units,Backline,Punishes clusters,Low HP and pressure,TODO,TODO,TODO,TODO,TODO,TODO
+Monster,Bruiser,High health with moderate or high damage,Frontline,Frontline threat,Kited by range,TODO,TODO,TODO,TODO,TODO,TODO
+Monster,Control,Debuff and stall,Midline,Disrupts defences,Lower damage,TODO,TODO,TODO,TODO,TODO,TODO
+Monster,Damage Dealer,High sustained or burst damage,Midline,Kills defences quickly,Needs cover,TODO,TODO,TODO,TODO,TODO,TODO
+Monster,Hybrid,Combines multiple roles,Midline,Flexible pressure,Needs support,TODO,TODO,TODO,TODO,TODO,TODO
+Monster,Skirmisher,Fast movement pressure,Frontline,Early tempo,Fragile,TODO,TODO,TODO,TODO,TODO,TODO
+Monster,Swarm,High quantity pressure,Frontline,Overwhelms lanes,Weak to AoE,TODO,TODO,TODO,TODO,TODO,TODO
+Monster,Siege,Very long range that packs a punch,Backline,Breaks backline,Slow,TODO,TODO,TODO,TODO,TODO,TODO
+Monster,Support,Buffs or heals allies,Midline,Sustain allies,Low DPS,TODO,TODO,TODO,TODO,TODO,TODO
+Monster,Summoner,Spawns units for overtime pressure,Midline,Snowball pressure,Vulnerable if focused,TODO,TODO,TODO,TODO,TODO,TODO
+Monster,Tank,High health with low damage,Frontline,Soaks hits,Low kill pressure,TODO,TODO,TODO,TODO,TODO,TODO

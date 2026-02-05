@@ -1,0 +1,17 @@
+{
+    "TypeName": "Skeleton",
+	"FullName": "Skeleton",
+	"Rarity": "Common",
+	"Health": 25,
+    "Damage": 10,
+    "Range": 1,
+	"Speed": 1,
+	"Ammo": 2,
+	"ReloadDelay": 2,
+    "TargetingMode": "First",
+    "ProjectileSprite": "null",
+	"DisplaySprite": "skeleton",
+	"SpecialEffects": [],
+    "StatusEffects": [],
+	"IsProto": false
+}

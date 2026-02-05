@@ -1,0 +1,39 @@
+{
+    "TypeName": "ShockLauncher",
+    "FullName": "Shock Launcher",
+    "Rarity": "Rare",
+    "Health": 30,
+    "Damage": 4,
+    "Range": 8,
+    "Ammo": 1,
+    "ReloadDelay": 3,
+    "TargetingMode": "First",
+    "ProjectileSprite": "shock_bomb",
+    "DisplaySprite": "shocklauncher",
+    "SpecialEffects": [
+        {
+            "Type": "AreaOfEffect",
+            "Value": "3x3",
+            "SplashFactor": 1.0,
+            "Sprite": "shock_explosion.png",
+            "CondenseTargeting": false
+        }
+    ],
+    "StatusEffects": [
+        {
+            "Type": "Stun",
+            "Duration": 1,
+            "CanReapply": true,
+            "TargetingFilter": {
+                "Exclude": {
+                    "MonsterType": [
+                        "ElectroMage"
+                    ]
+                }
+            }
+        }
+    ],
+    "HasBlindSpot": true,
+    "BlindRange": 1,
+    "IsProto": false
+}

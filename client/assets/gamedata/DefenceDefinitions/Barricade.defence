@@ -1,0 +1,17 @@
+{
+    "TypeName": "Barricade",
+    "FullName": "Barricade",
+    "Rarity": "Common",
+    "Health": 70,
+    "Damage": null,
+    "Range": null,
+    "Ammo": null,
+    "ReloadDelay": null,
+    "TargetingMode": "None",
+    "ProjectileSprite": "null",
+    "DisplaySprite": "barricade",
+    "SpecialEffects": [],
+    "StatusEffects": [],
+	"DontAttack": true,
+    "IsProto": false
+}

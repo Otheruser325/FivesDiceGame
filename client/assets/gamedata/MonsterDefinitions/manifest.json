@@ -1,0 +1,28 @@
+{
+    "files": [
+	    "Archer.monster",
+        "Bat.monster",
+		"Bomber.monster",
+		"Catapult.monster",
+		"Cupid.monster",
+		"Demon.monster",
+		"ElectroMage.monster",
+        "FireImp.monster",
+		"Ghost.monster",
+        "Goblin.monster",
+		"Golem.monster",
+		"Harpy.monster",
+		"IceLizard.monster",
+		"Knight.monster",
+		"Mech.monster",
+		"Necromancer.monster",
+        "Orc.monster",
+		"PoisonWard.monster",
+		"Skeleton.monster",
+		"Surgeon.monster",
+		"Tank.monster",
+		"Thrower.monster",
+        "Troll.monster",
+		"Zombie.monster"
+    ]
+}

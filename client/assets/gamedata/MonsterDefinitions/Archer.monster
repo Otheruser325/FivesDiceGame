@@ -1,0 +1,17 @@
+{
+    "TypeName": "Archer",
+	"FullName": "Archer",
+	"Rarity": "Common",
+	"Health": 15,
+    "Damage": 8,
+    "Range": 3,
+	"Speed": 1,
+	"Ammo": 1,
+	"ReloadDelay": 1,
+    "TargetingMode": "First",
+    "ProjectileSprite": "arrow",
+	"DisplaySprite": "archer",
+	"SpecialEffects": [],
+    "StatusEffects": [],
+	"IsProto": false
+}

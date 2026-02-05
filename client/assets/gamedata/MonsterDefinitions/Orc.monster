@@ -1,0 +1,17 @@
+{
+    "TypeName": "Orc",
+	"FullName": "Orc",
+	"Rarity": "Common",
+	"Health": 40,
+    "Damage": 6,
+    "Range": 1,
+	"Speed": 1,
+	"Ammo": 1,
+	"ReloadDelay": 1,
+    "TargetingMode": "First",
+    "ProjectileSprite": "null",
+	"DisplaySprite": "orc",
+	"SpecialEffects": [],
+    "StatusEffects": [],
+	"IsProto": false
+}

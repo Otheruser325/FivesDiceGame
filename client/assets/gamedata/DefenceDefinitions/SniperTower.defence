@@ -1,0 +1,16 @@
+{
+    "TypeName": "SniperTower",
+	"FullName": "Sniper Tower",
+	"Rarity": "Common",
+	"Health": 25,
+    "Damage": 10,
+    "Range": 6,
+	"Ammo": 1,
+	"ReloadDelay": 1,
+    "TargetingMode": "First",
+    "ProjectileSprite": "tracer",
+	"DisplaySprite": "snipertower",
+	"SpecialEffects": [],
+    "StatusEffects": [],
+	"IsProto": false
+}

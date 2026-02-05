@@ -1,0 +1,23 @@
+{
+    "TypeName": "ForceField",
+    "FullName": "Force Field",
+    "Rarity": "Epic",
+    "Health": 90,
+    "Damage": null,
+    "Range": null,
+    "Ammo": null,
+    "ReloadDelay": null,
+    "TargetingMode": "None",
+    "ProjectileSprite": "null",
+    "DisplaySprite": "forcefield",
+    "SpecialEffects": [
+        {
+            "Type": "BlockAllLanes",
+            "ShieldValue": 150,
+            "DissipatesWhenDestroyed": true
+        }
+    ],
+    "StatusEffects": [],
+	"DontAttack": true,
+    "IsProto": true
+}
