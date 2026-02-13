@@ -14,8 +14,8 @@ const DEFAULT_PORTS = [8080, 8081, 8082, 8083, 8084, 8085];
 
 // Production server URLs - supports both Vercel deployment and custom domain
 const PRODUCTION_SERVERS = [
-  'https://api.protodice.net',     // Primary: Custom domain API
-  'https://protodice.vercel.app'        // Fallback: Vercel deployment
+  'https://api.fivesdicegame.com',     // Primary: Custom domain API
+  'https://fivesapi.vercel.app'        // Fallback: Vercel deployment
 ];
 
 const MAX_CONNECTION_RETRIES = 15;           // Allow more retries for network resilience
@@ -52,7 +52,7 @@ function _initialServerCandidate() {
     }
   } catch (e) { /* ignore */ }
 
-  // Default based on MODE: production connects to api.protodice.net, development to localhost
+  // Default based on MODE: production connects to api.fivesdicegame.com, development to localhost
   if (MODE === 'development') {
     const proto = (typeof window !== 'undefined' && window.location && window.location.protocol === 'https:') ? 'https' : 'http';
     _serverUrl = `${proto}://localhost:8080`;

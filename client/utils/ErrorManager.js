@@ -238,15 +238,13 @@ class ErrorManager {
                 .setStrokeStyle(3, config.color);
 
             const titleText = scene.add.text(cx, cy - height / 2 + 24, config.title, {
-                fontSize: 24,
-                fontFamily: '"Press Start 2P", cursive',
+                fontSize: 32,
                 color: config.hex
             }).setOrigin(0.5).setDepth(10002);
             titleText.name = 'err_title';
 
             const bodyText = scene.add.text(cx, cy - 8, displayMessage, {
-                fontSize: 16,
-                fontFamily: '"Press Start 2P", cursive',
+                fontSize: 24,
                 color: '#ffffff',
                 align: 'center',
                 wordWrap: {
@@ -259,8 +257,7 @@ class ErrorManager {
             const btnY = cy + height / 2 - 36;
             const makeBtn = (label, xOffset, cb, color = '#ffffff') => {
                 const b = scene.add.text(cx + xOffset, btnY, label, {
-                    fontSize: 18,
-                    fontFamily: '"Press Start 2P", cursive',
+                    fontSize: 28,
                     color
                 }).setOrigin(0.5).setDepth(10002).setInteractive({
                     useHandCursor: true

@@ -1,6 +1,10 @@
 import GlobalAudio from '../utils/AudioManager.js';
 import { getServerUrl } from '../utils/SocketManager.js';
 import SyncManager from '../utils/SyncManager.js';
+import GlobalLocalization from '../utils/LocalizationManager.js';
+
+const t = (key, fallback) => GlobalLocalization.t(key, fallback);
+const tf = (key, fallback, ...args) => GlobalLocalization.format(key, fallback, ...args);
 
 export default class LeaderboardScene extends Phaser.Scene {
     constructor() {
@@ -18,7 +22,7 @@ export default class LeaderboardScene extends Phaser.Scene {
 
     create() {
         // Back button
-        const backBtn = this.add.text(60, 40, '← Back', {
+        const backBtn = this.add.text(60, 40, t('UI_BACK', '<- Back'), {
             fontSize: 28,
             color: '#66aaff'
         }).setOrigin(0.5).setInteractive();
@@ -29,7 +33,7 @@ export default class LeaderboardScene extends Phaser.Scene {
         });
 
         // Title
-        this.add.text(600, 40, '🏆 Leaderboard', {
+        this.add.text(600, 40, t('LEADERBOARD_TITLE', 'Leaderboard'), {
             fontSize: 48,
             color: '#ffff00',
             fontStyle: 'bold'
@@ -38,11 +42,11 @@ export default class LeaderboardScene extends Phaser.Scene {
         // Sort buttons area (smaller Y position)
         const sortY = 100;
         const sortButtons = [
-            { label: 'Total Score', value: 'total', x: 200 },
-            { label: 'Highest Score', value: 'highest', x: 400 },
-            { label: 'Combos Rolled', value: 'combos', x: 600 },
-            { label: 'Games Won', value: 'wins', x: 800 },
-            { label: 'Best Combo', value: 'best', x: 1000 }
+            { label: t('LEADERBOARD_SORT_TOTAL', 'Total Score'), value: 'total', x: 200 },
+            { label: t('LEADERBOARD_SORT_HIGHEST', 'Highest Score'), value: 'highest', x: 400 },
+            { label: t('LEADERBOARD_SORT_COMBOS', 'Combos Rolled'), value: 'combos', x: 600 },
+            { label: t('LEADERBOARD_SORT_WINS', 'Games Won'), value: 'wins', x: 800 },
+            { label: t('LEADERBOARD_SORT_BEST', 'Best Combo'), value: 'best', x: 1000 }
         ];
 
         sortButtons.forEach(btn => {
@@ -72,7 +76,7 @@ export default class LeaderboardScene extends Phaser.Scene {
         this.leaderboardContainer = this.add.container(600, 180);
 
         // Loading text
-        this.leaderboardText = this.add.text(600, 300, 'Loading leaderboard...', {
+        this.leaderboardText = this.add.text(600, 300, t('LEADERBOARD_LOADING', 'Loading leaderboard...'), {
             fontSize: 18,
             color: '#ffffff',
             align: 'center'
@@ -81,7 +85,7 @@ export default class LeaderboardScene extends Phaser.Scene {
         // Load leaderboard data from server
         this.loadLeaderboard();
 
-        // ✅ Setup visibility change handler to refresh leaderboard when page returns from background
+        // Setup visibility change handler to refresh leaderboard when page returns from background
         SyncManager.setupVisibilityHandler(() => {
             try {
                 this.loadLeaderboard();
@@ -155,7 +159,7 @@ export default class LeaderboardScene extends Phaser.Scene {
         });
 
         console.log('[LeaderboardScene] Fetching leaderboard, sort:', this.currentSort);
-        this._updateLeaderboardText('Loading...');
+        this._updateLeaderboardText(t('LEADERBOARD_LOADING_SHORT', 'Loading...'));
 
         try {
             const server = getServerUrl();
@@ -214,7 +218,7 @@ export default class LeaderboardScene extends Phaser.Scene {
 
     displayLeaderboard() {
         if (!this.leaderboardData || this.leaderboardData.length === 0) {
-            this._updateLeaderboardText('No leaderboard data available.\nPlay some games first!');
+            this._updateLeaderboardText(t('LEADERBOARD_NO_DATA', 'No leaderboard data available.\nPlay some games first!'));
             return;
         }
 
@@ -244,24 +248,24 @@ export default class LeaderboardScene extends Phaser.Scene {
         let headerLabel = '';
         switch (this.currentSort) {
             case 'total':
-                headerLabel = 'Total Score';
+                headerLabel = t('LEADERBOARD_SORT_TOTAL', 'Total Score');
                 break;
             case 'highest':
-                headerLabel = 'Highest Score';
+                headerLabel = t('LEADERBOARD_SORT_HIGHEST', 'Highest Score');
                 break;
             case 'combos':
-                headerLabel = 'Total Combos';
+                headerLabel = t('LEADERBOARD_SORT_COMBOS', 'Combos Rolled');
                 break;
             case 'wins':
-                headerLabel = 'Games Won';
+                headerLabel = t('LEADERBOARD_SORT_WINS', 'Games Won');
                 break;
             case 'best':
-                headerLabel = 'Best Combo';
+                headerLabel = t('LEADERBOARD_SORT_BEST', 'Best Combo');
                 break;
         }
 
         // Column headers with heavy spacing
-        const headerText = this.add.text(0, headerY, `RANK    PLAYER                    ${headerLabel}`, {
+        const headerText = this.add.text(0, headerY, tf('LEADERBOARD_HEADER', 'RANK  PLAYER  {0}', headerLabel), {
             fontSize: 16,
             color: '#cccccc',
             fontFamily: 'monospace'
@@ -269,7 +273,8 @@ export default class LeaderboardScene extends Phaser.Scene {
         this.leaderboardContainer.add(headerText);
 
         // Separator
-        const sepText = this.add.text(0, headerY + 25, '─────────────────────────────────────────', {
+        const separator = '-'.repeat(46);
+        const sepText = this.add.text(0, headerY + 25, separator, {
             fontSize: 14,
             color: '#666666',
             fontFamily: 'monospace'
@@ -289,12 +294,7 @@ export default class LeaderboardScene extends Phaser.Scene {
             graphics.fillRect(0, 0, screenWidth, lineHeight - 10);
             this.leaderboardContainer.add(graphics);
 
-            // Rank with medal emoji for top 3
-            let rankDisplay = rank.toString().padStart(2, ' ');
-            if (rank === 1) rankDisplay = '1st';
-            else if (rank === 2) rankDisplay = '2nd';
-            else if (rank === 3) rankDisplay = '3rd';
-            else rankDisplay = rank + 'th';
+            const rankDisplay = tf('LEADERBOARD_RANK_DISPLAY', '#{0}', rank);
 
             const rankText = this.add.text(-280, yOffset + 15, rankDisplay, {
                 fontSize: 20,
@@ -350,22 +350,25 @@ export default class LeaderboardScene extends Phaser.Scene {
                 circle.fillStyle(typeColor, 1);
                 circle.fillCircle(32, 32, 32);
 
-                // Add icon text for type indicator
-                const typeEmoji = player.type === 'discord' ? '🎮' :
-                                  player.type === 'google' ? '🔵' :
-                                  '•';
-                const emojiText = this.add.text(avatarX + 32, avatarY + 32, typeEmoji, {
+                // Add text for type indicator
+                const typeLabel = player.type === 'discord'
+                    ? t('LEADERBOARD_TYPE_DISCORD', 'D')
+                    : player.type === 'google'
+                    ? t('LEADERBOARD_TYPE_GOOGLE', 'G')
+                    : t('LEADERBOARD_TYPE_UNKNOWN', '?');
+                const typeText = this.add.text(avatarX + 32, avatarY + 32, typeLabel, {
                     fontSize: 24,
                     color: '#ffffff'
                 }).setOrigin(0.5);
-                this.leaderboardContainer.add(emojiText);
+                this.leaderboardContainer.add(typeText);
                 this.leaderboardContainer.add(circle);
             }
 
             // Player name and country flag
-            const playerName = (player.name || 'Unknown').substring(0, 20);
-            const countryFlag = player.countryFlag || '🌍';
-            const nameText = this.add.text(-150, yOffset + 20, `${countryFlag} ${playerName}`, {
+            const playerName = (player.name || t('GENERIC_UNKNOWN', 'Unknown')).substring(0, 20);
+            const countryFlag = player.countryFlag || '';
+            const namePrefix = countryFlag ? `${countryFlag} ` : '';
+            const nameText = this.add.text(-150, yOffset + 20, `${namePrefix}${playerName}`, {
                 fontSize: 18,
                 color: '#ffffff',
                 fontStyle: 'bold'
@@ -376,22 +379,23 @@ export default class LeaderboardScene extends Phaser.Scene {
             let statValue = '';
             switch (this.currentSort) {
                 case 'total':
-                    statValue = (player.totalScore || 0).toString();
+                    statValue = String(player.totalScore || 0);
                     break;
                 case 'highest':
-                    statValue = (player.highestScore || 0).toString();
+                    statValue = String(player.highestScore || 0);
                     break;
                 case 'combos':
-                    statValue = (player.totalCombosRolled || 0).toString();
+                    statValue = String(player.totalCombosRolled || 0);
                     break;
                 case 'wins':
-                    statValue = (player.gamesWon || 0).toString();
+                    statValue = String(player.gamesWon || 0);
                     break;
-                case 'best':
+                case 'best': {
                     // Get best combo category
                     const bestCombo = this._getBestComboForPlayer(player);
-                    statValue = `${bestCombo.count}x ${bestCombo.name}`;
+                    statValue = tf('LEADERBOARD_BEST_COMBO', '{0}x {1}', bestCombo.count, bestCombo.name);
                     break;
+                }
             }
 
             const valueText = this.add.text(260, yOffset + 20, statValue, {
@@ -409,8 +413,9 @@ export default class LeaderboardScene extends Phaser.Scene {
         if (this.playerRank) {
             yOffset += 20;
             const playerRankColor = rankColors[this.playerRank.rank] || '#ffff66';
-            
-            const yourRankText = this.add.text(0, yOffset, '─────────────────────────────────────────', {
+            const footerSeparator = '-'.repeat(46);
+
+            const yourRankText = this.add.text(0, yOffset, footerSeparator, {
                 fontSize: 14,
                 color: '#666666',
                 fontFamily: 'monospace'
@@ -418,7 +423,7 @@ export default class LeaderboardScene extends Phaser.Scene {
             this.leaderboardContainer.add(yourRankText);
 
             yOffset += 25;
-            const yourRankLabel = this.add.text(0, yOffset, `YOUR RANK: #${this.playerRank.rank} of ${this.playerRank.totalPlayers}`, {
+            const yourRankLabel = this.add.text(0, yOffset, tf('LEADERBOARD_YOUR_RANK', 'YOUR RANK: #{0} of {1}', this.playerRank.rank, this.playerRank.totalPlayers), {
                 fontSize: 16,
                 color: playerRankColor,
                 fontStyle: 'bold'
@@ -426,8 +431,8 @@ export default class LeaderboardScene extends Phaser.Scene {
             this.leaderboardContainer.add(yourRankLabel);
 
             yOffset += 30;
-            const statsInfo = this.add.text(0, yOffset, 
-                `Total: ${this.playerRank.totalScore} pts | Played: ${this.playerRank.totalGamesPlayed} | Best: ${this.playerRank.highestScore} pts`,
+            const statsInfo = this.add.text(0, yOffset,
+                tf('LEADERBOARD_YOUR_STATS', 'Total: {0} pts | Played: {1} | Best: {2} pts', this.playerRank.totalScore, this.playerRank.totalGamesPlayed, this.playerRank.highestScore),
                 {
                     fontSize: 14,
                     color: '#cccccc'
@@ -444,13 +449,13 @@ export default class LeaderboardScene extends Phaser.Scene {
         const combos = player.comboStats || {};
         
         const comboHierarchy = [
-            { key: 'fiveOfAKind', name: 'Five-of-a-Kind' },
-            { key: 'fourOfAKind', name: 'Four-of-a-Kind' },
-            { key: 'fullHouse', name: 'Full House' },
-            { key: 'straight', name: 'Straight' },
-            { key: 'triple', name: 'Triple' },
-            { key: 'twoPair', name: 'Two Pair' },
-            { key: 'pair', name: 'Pair' }
+            { key: 'fiveOfAKind', name: t('COMBO_NAME_FIVE_KIND', 'Five of a Kind') },
+            { key: 'fourOfAKind', name: t('COMBO_NAME_FOUR_KIND', 'Four of a Kind') },
+            { key: 'fullHouse', name: t('COMBO_NAME_FULL_HOUSE', 'Full House') },
+            { key: 'straight', name: t('COMBO_NAME_STRAIGHT', 'Straight') },
+            { key: 'triple', name: t('COMBO_NAME_TRIPLE', 'Triple') },
+            { key: 'twoPair', name: t('COMBO_NAME_TWO_PAIR', 'Two Pair') },
+            { key: 'pair', name: t('COMBO_NAME_PAIR', 'Pair') }
         ];
 
         for (const combo of comboHierarchy) {
@@ -462,6 +467,6 @@ export default class LeaderboardScene extends Phaser.Scene {
             }
         }
 
-        return { name: 'None', count: 0 };
+        return { name: t('LEADERBOARD_NONE', 'None'), count: 0 };
     }
 }

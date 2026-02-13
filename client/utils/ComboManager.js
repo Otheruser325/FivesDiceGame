@@ -17,21 +17,23 @@ const RAINBOW_COLORS = [
   0xcc33ff  // magenta
 ];
 
-export function showComboText(scene, comboName, intensity = 1) {
+export function showComboText(scene, comboName, intensity = 1, comboKeyOverride = null) {
   const settings = scene?.registry?.get('settings') ?? { visualEffects: true };
 
-  const comboKey =
-    comboName.includes('FIVE OF A KIND') ? 'fiveOfAKind' :
-    comboName.includes('FOUR') ? 'fourOfAKind' :
-    comboName.includes('FULL HOUSE') ? 'fullHouse' :
-    comboName.includes('TRIPLE') ? 'triple' :
-    comboName.includes('STRAIGHT') ? 'straight' :
-    comboName.includes('TWO PAIR') ? 'twoPair' :
-    comboName.includes('PAIR') ? 'pair' :
-    null;
+  const safeName = String(comboName || '');
+  const resolvedKey = comboKeyOverride || (
+    safeName.includes('FIVE OF A KIND') ? 'fiveOfAKind' :
+    safeName.includes('FOUR') ? 'fourOfAKind' :
+    safeName.includes('FULL HOUSE') ? 'fullHouse' :
+    safeName.includes('TRIPLE') ? 'triple' :
+    safeName.includes('STRAIGHT') ? 'straight' :
+    safeName.includes('TWO PAIR') ? 'twoPair' :
+    safeName.includes('PAIR') ? 'pair' :
+    null
+  );
 
-  const baseColor = COMBO_TEXT_COLORS[comboKey] ?? '#ffffff';
-  const isRainbow = comboKey === 'fiveOfAKind';
+  const baseColor = COMBO_TEXT_COLORS[resolvedKey] ?? '#ffffff';
+  const isRainbow = resolvedKey === 'fiveOfAKind';
 
   if (settings.visualEffects === false) {
     const simple = scene.add.text(600, 200, comboName, {
@@ -60,7 +62,7 @@ export function showComboText(scene, comboName, intensity = 1) {
     scene.tweens.killTweensOf(text);
   });
 
-  // 🌈 Rainbow polish (Five of a Kind only)
+  //  Rainbow polish (Five of a Kind only)
   if (isRainbow) {
     scene.tweens.addCounter({
       from: 0,
@@ -127,7 +129,7 @@ export function comboFlash(scene, color, duration = 500, alpha = 0.5, additive =
     let alive = true;
     overlay.once(Phaser.GameObjects.Events.DESTROY, () => alive = false);
 
-    // 🌈 Smooth overlay rainbow cycling
+    //  Smooth overlay rainbow cycling
     if (isRainbow) {
       scene.tweens.addCounter({
         from: 0,
@@ -140,7 +142,7 @@ export function comboFlash(scene, color, duration = 500, alpha = 0.5, additive =
         }
       });
 
-      // 🌈 DISCRETE rainbow camera flashes (SAFE)
+      //  DISCRETE rainbow camera flashes (SAFE)
       const flashCount = 6;
       const flashInterval = Math.floor(dur / flashCount);
 
@@ -209,7 +211,7 @@ export function playComboFX(scene, comboName) {
 
         case "fiveOfAKind":
             comboFlash(scene, 'RAINBOW', 1500, 0.75, true); // rainbow handled inside ComboText glow
-            comboShake(scene, 12, 1000); // DiceQuake™
+            comboShake(scene, 12, 1000); // DiceQuake TM
             break;
 
         case "fullHouse":

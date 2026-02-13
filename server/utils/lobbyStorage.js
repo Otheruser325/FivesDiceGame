@@ -134,7 +134,7 @@ function _rowToLobby(row) {
     hostSocketId: finalHostSocketId,
     hostUserId: finalHostUserId,
     players: Array.isArray(players) ? players : (players || []),
-    config: config ?? { players: 2, rounds: 20, combos: false },
+    config: config ?? { players: 2, rounds: 20, combos: false, multiplex: false },
     createdAt: finalCreatedAt,
     updatedAt: finalUpdatedAt,
     updated_user: updated_user || null,
@@ -169,7 +169,7 @@ function _lobbyToRow(lobby) {
     hostsocketid: hostSocketId ?? null,  // ✅ Map to lowercase database column
     hostuserid: hostUserId ?? null,      // ✅ Map to lowercase database column
     players: Array.isArray(players) ? players : (players || []),
-    config: config ?? { players: 2, rounds: 20, combos: false },
+    config: config ?? { players: 2, rounds: 20, combos: false, multiplex: false },
     created_at: toISOString(createdAt),
     updated_at: toISOString(updatedAt),
     updated_user: updated_user || null,

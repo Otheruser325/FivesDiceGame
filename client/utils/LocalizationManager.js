@@ -156,6 +156,8 @@ class LocalizationManager {
     out = out.replace(/[\u2013\u2014]/g, '-');
     out = out.replace(/\u2026/g, '...');
     out = out.replace(/\u2022/g, '-');
+    out = out.replace(/\\n/g, '\n');
+    out = out.replace(/\/n/g, '\n');
     return out;
   }
 

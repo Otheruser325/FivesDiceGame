@@ -1,239 +1,272 @@
 import GlobalAudio from '../utils/AudioManager.js';
-import GlobalBackground from '../utils/BackgroundManager.js';
 import ErrorHandler from '../utils/ErrorManager.js';
 import GlobalLocalization from '../utils/LocalizationManager.js';
+
+const t = (key, fallback) => GlobalLocalization.t(key, fallback);
+const tf = (key, fallback, ...args) => GlobalLocalization.format(key, fallback, ...args);
+const list = (key, fallback) => t(key, fallback).split('|').map(s => s.trim()).filter(Boolean);
+const teamLabel = (team) => (team === 'red' ? t('TEAM_RED', 'RED') : t('TEAM_BLUE', 'BLUE'));
 
 export default class LocalPostGameScene extends Phaser.Scene {
     constructor() {
         super('LocalPostGameScene');
-        this.PIXEL_FONT = '"Press Start 2P", cursive';
-        this._onEscKey = null;
-        this._escExitArmed = false;
-        this._exitModalActive = false;
-        this._exitModal = null;
     }
 
     create() {
-        try {
-            ErrorHandler.setScene(this);
-        } catch (e) {}
-        try {
-            GlobalBackground.registerScene(this, { key: 'bg', useImageIfAvailable: true });
-        } catch (e) {}
-        const t = (key, fallback) => GlobalLocalization.t(key, fallback);
-        const fmt = (key, ...args) => GlobalLocalization.format(key, ...args);
+        const stats = this.registry.get("localPostGame");
 
-        const stats = this.registry.get("localPostGame") || {};
-        const names = Array.isArray(stats.names) ? stats.names : [t('GENERIC_PLAYER_1', 'Player 1'), t('GENERIC_PLAYER_2', 'Player 2')];
-        const roles = Array.isArray(stats.roles) ? stats.roles : ["defence", "monster"];
-        const scores = Array.isArray(stats.scores) ? stats.scores : [0, 0];
-        const tokens = Number(stats.tokensEarned || 0);
-        const waves = Number(stats.waves || 0);
-        const finalWave = Number(stats.finalWave || 0);
-        const mvpByPlayer = Array.isArray(stats.mvpByPlayer) ? stats.mvpByPlayer : [];
-
-        const victoryPuns = [
-            t('POSTGAME_PUN_VICTORY_1', "Dice-tacular!"),
-            t('POSTGAME_PUN_VICTORY_2', "Winner winner!"),
-            t('POSTGAME_PUN_VICTORY_3', "Rolling in victory!")
-        ];
-        const defeatPuns = [
-            t('POSTGAME_PUN_DEFEAT_1', "Better luck next roll!"),
-            t('POSTGAME_PUN_DEFEAT_2', "Pray to RNGesus!"),
-            t('POSTGAME_PUN_DEFEAT_3', "Dicey loss!")
-        ];
-        const drawPuns = [
-            t('POSTGAME_PUN_DRAW_1', "It's a tie!"),
-            t('POSTGAME_PUN_DRAW_2', "Dice-asterous draw!"),
-            t('POSTGAME_PUN_DRAW_3', "Balanced rolls!")
-        ];
-
-        const winnerIndex = Number.isFinite(stats.winnerIndex) ? stats.winnerIndex : (() => {
-            if (scores[0] === scores[1]) return -1;
-            return scores[0] > scores[1] ? 0 : 1;
-        })();
-
-        this.add.text(600, 50, t('POSTGAME_TITLE', "Local Game - Results"), {
-            fontSize: 36,
-            fontFamily: this.PIXEL_FONT
+        this.add.text(600, 50, t('LOCAL_POSTGAME_TITLE', 'Local Game - Results'), {
+            fontSize: 40
         }).setOrigin(0.5);
 
-        const formatMvpLine = (idx) => {
-            const playerLabel = names[idx] || `P${idx + 1}`;
-            const entry = mvpByPlayer[idx] || {};
-            const unitName = entry.unitName || t('POSTGAME_NONE', 'None');
-            const damage = Number(entry.damage || 0);
-            return fmt('POSTGAME_MVP_LINE', '{0} MVP: {1} ({2} dmg)', playerLabel, unitName, damage);
+        // Check if teams are enabled
+        const teamsEnabled = stats.teamsEnabled || false;
+
+        // Buzzwords and colors
+        const rankColors = {
+            1: "#FFD700", // Gold
+            2: "#C0C0C0", // Silver
+            3: "#CD7F32", // Bronze
         };
-        const mvpText = `${formatMvpLine(0)}\n${formatMvpLine(1)}`;
-        this.add.text(600, 120, mvpText, {
-            fontSize: 16,
-            color: "#ffffff",
-            align: "center",
-            fontFamily: this.PIXEL_FONT,
-            wordWrap: { width: 1000, useAdvancedWrap: true }
-        }).setOrigin(0.5);
 
-        const summary = fmt('POSTGAME_SUMMARY', 'Waves: {0}/{1}    Tokens: {2}', finalWave, waves, tokens);
-        this.add.text(600, 190, summary, {
-            fontSize: 18,
-            color: "#ffff88",
-            fontFamily: this.PIXEL_FONT
-        }).setOrigin(0.5);
+        const buzzwords = {
+            1: list('POSTGAME_BUZZ_1', 'Winner winner!|Dicetastic!|Dice-tacular!'),
+            2: list('POSTGAME_BUZZ_2', 'Excellent performance!|In-deucible!|Outstanding!'),
+            3: list('POSTGAME_BUZZ_3', 'Good game!|You did well!|You show no mercy!'),
+            other: list('POSTGAME_BUZZ_OTHER', 'Better luck next time!|Pray to RNGesus!|You will be gifted later...')
+        };
 
-        const colX = [320, 880];
-        const startY = 240;
-        const blockW = 420;
-        const blockH = 360;
-
-        const winnerBuzz = victoryPuns[Math.floor(Math.random() * victoryPuns.length)];
-        const loserBuzz = defeatPuns[Math.floor(Math.random() * defeatPuns.length)];
-        const drawBuzz = drawPuns[Math.floor(Math.random() * drawPuns.length)];
-
-        for (let i = 0; i < Math.min(names.length, 2); i++) {
-            const isWinner = winnerIndex === i;
-            const role = roles[i] || 'unknown';
-            const score = Number(scores[i] || 0);
-            const name = names[i] || `P${i + 1}`;
-            const resultLabel = (winnerIndex < 0) ? t('POSTGAME_RESULT_DRAW', 'Draw!') : (isWinner ? t('POSTGAME_RESULT_VICTORY', 'Victory!') : t('POSTGAME_RESULT_DEFEAT', 'Defeat!'));
-            const resultColor = (winnerIndex < 0) ? "#ffff66" : (isWinner ? "#66ff66" : "#ff6666");
-            const buzzword = (winnerIndex < 0) ? drawBuzz : (isWinner ? winnerBuzz : loserBuzz);
-
-            this.add.rectangle(colX[i], startY + blockH / 2, blockW, blockH, 0x000000, 0.35)
-                .setStrokeStyle(2, isWinner ? 0xffff66 : 0x666666);
-
-            this.add.text(colX[i], startY + 20, name, {
-                fontSize: 24,
-                color: isWinner ? "#ffff66" : "#ffffff",
-                fontFamily: this.PIXEL_FONT
-            }).setOrigin(0.5, 0);
-
-            this.add.text(colX[i], startY + 50, resultLabel, {
-                fontSize: 20,
-                color: resultColor,
-                fontFamily: this.PIXEL_FONT
-            }).setOrigin(0.5, 0);
-
-            this.add.text(colX[i], startY + 78, `"${buzzword}"`, {
-                fontSize: 14,
-                color: "#ffffff",
-                fontStyle: "italic",
-                fontFamily: this.PIXEL_FONT,
-                wordWrap: { width: blockW - 30, useAdvancedWrap: true }
-            }).setOrigin(0.5, 0);
-
-            const roleLabel = role === 'defence' ? t('ROLE_DEFENCE', 'Defence') : (role === 'monster' ? t('ROLE_MONSTER', 'Monster') : t('ROLE_UNKNOWN', 'Unknown'));
-            this.add.text(colX[i], startY + 120, fmt('POSTGAME_ROLE', 'Role: {0}', roleLabel), {
-                fontSize: 18,
-                color: "#cccccc",
-                fontFamily: this.PIXEL_FONT
-            }).setOrigin(0.5, 0);
-
-            this.add.text(colX[i], startY + 160, fmt('POSTGAME_SCORE', 'Score: {0}', score), {
-                fontSize: 20,
-                color: "#ffffff",
-                fontFamily: this.PIXEL_FONT
-            }).setOrigin(0.5, 0);
-
-            let extraLabel = t('POSTGAME_DEFEATED', 'Defeated');
-            let extraValue = 0;
-            if (role === 'defence') {
-                extraLabel = t('POSTGAME_MONSTERS_DEFEATED', 'Monsters Defeated');
-                extraValue = Number(stats.defeatedMonsters || 0);
-            } else if (role === 'monster') {
-                extraLabel = t('POSTGAME_DEFENCES_DESTROYED', 'Defences Destroyed');
-                extraValue = Number(stats.destroyedDefences || 0);
-            }
-
-            this.add.text(colX[i], startY + 200, fmt('POSTGAME_EXTRA_LINE', '{0}: {1}', extraLabel, extraValue), {
-                fontSize: 18,
-                color: "#ffffff",
-                fontFamily: this.PIXEL_FONT
-            }).setOrigin(0.5, 0);
+        if (teamsEnabled) {
+            this.displayTeamsResults(stats, rankColors, buzzwords);
+        } else {
+            this.displayIndividualResults(stats, rankColors, buzzwords);
         }
 
-        const back = this.add.text(600, 800, t('POSTGAME_RETURN', 'Return to Menu'), {
+        // -------- Back Button --------
+        const back = this.add.text(600, 800, t('POSTGAME_RETURN_MENU', 'Return to Menu'), {
             fontSize: 26,
-            color: "#ff6666",
-            fontFamily: this.PIXEL_FONT
+            color: "#ff6666"
         }).setOrigin(0.5).setInteractive();
 
         back.on("pointerdown", () => {
             GlobalAudio.playButton(this);
-            this.scene.start('LocalMenuScene');
-        });
-
-        this._bindExitHotkey();
-
-        this.events.once('shutdown', () => {
-            if (this._onEscKey && this.input && this.input.keyboard) {
-                this.input.keyboard.off('keydown-ESC', this._onEscKey, this);
-            }
-            this._onEscKey = null;
-            this._escExitArmed = false;
-            this._exitModalActive = false;
-            this._exitModal = null;
+            this.scene.start('MenuScene');
         });
     }
 
-    _bindExitHotkey() {
-        if (!this.input || !this.input.keyboard) return;
-        if (this._onEscKey) return;
-        this._onEscKey = (event) => {
-            if (event && event.repeat) return;
-            if (this._escExitArmed) {
-                this._escExitArmed = false;
-                this._exitModalActive = false;
-                this.scene.start('LocalMenuScene');
-                return;
+    displayIndividualResults(stats, rankColors, buzzwords) {
+        // -------- Determine Rankings --------
+        const scoredPlayers = stats.scores
+            .map((score, index) => ({
+                index,
+                score
+            }))
+            .sort((a, b) => b.score - a.score);
+
+        const placements = new Array(stats.players);
+        scoredPlayers.forEach((p, i) => placements[p.index] = i + 1);
+
+        // -------- Display Stats --------
+        const totalPlayers = stats.players;
+        let startY = 140;
+        let titleSize = 26;
+        let statSize = 20;
+        let buzzSize = 22;
+        let colX = [];
+
+        if (totalPlayers === 2) {
+            titleSize *= 1.5;
+            statSize *= 1.5;
+            buzzSize *= 1.5;
+            colX = [300, 700];
+        }
+        else if (totalPlayers === 4) {
+            colX = [300, 700];
+        }
+        else {
+            colX = [200, 500, 800];
+        }
+
+        for (let i = 0; i < stats.players; i++) {
+            const c = stats.combos[i];
+            const name = stats.names[i];
+            const score = stats.scores[i];
+            const placement = placements[i];
+
+            let row, col, x, y;
+
+            if (totalPlayers === 2) {
+                row = 0;
+                col = i;
+                x = colX[col];
+                y = startY;
+            } else if (totalPlayers === 4) {
+                row = Math.floor(i / 2);
+                col = i % 2;
+                x = colX[col];
+                y = startY + row * 260;
+            } else {
+                row = Math.floor(i / 3);
+                col = i % 3;
+                x = colX[col];
+                y = startY + row * 260;
             }
-            this._escExitArmed = true;
-            this.showConfirmExit();
-        };
-        this.input.keyboard.on('keydown-ESC', this._onEscKey, this);
+
+            const pool = buzzwords[placement] || buzzwords.other;
+            const message = pool[Math.floor(Math.random() * pool.length)];
+
+            const placeColor = rankColors[placement] || "#ffffff";
+
+            const title = tf('POSTGAME_PLACEMENT_TITLE', '{0} - #{1}', name, placement);
+            const combosLines = [
+                tf('STAT_SCORE_LINE', 'Score: {0}', score),
+                '',
+                tf('STAT_PAIRS_LINE', 'Pairs: {0}', c.pair),
+                tf('STAT_TWO_PAIRS_LINE', 'Two Pairs: {0}', c.twoPair),
+                tf('STAT_TRIPLES_LINE', 'Triples: {0}', c.triple),
+                tf('STAT_FULL_HOUSES_LINE', 'Full Houses: {0}', c.fullHouse),
+                tf('STAT_FOUR_KIND_LINE', 'Four-of-a-Kinds: {0}', c.fourOfAKind),
+                tf('STAT_FIVE_KIND_LINE', 'Five-of-a-Kinds: {0}', c.fiveOfAKind),
+                tf('STAT_STRAIGHTS_LINE', 'Straights: {0}', c.straight)
+            ];
+            const combosText = combosLines.join('\n');
+
+            const spacing = {
+                titleToStats: statSize * 5,
+                statsToBuzz: buzzSize * 4.5,
+            };
+
+            // Title (larger + coloured)
+            this.add.text(x, y, title, {
+                fontSize: titleSize,
+                color: placeColor,
+                align: "center"
+            }).setOrigin(0.5);
+
+            // Stats block
+            this.add.text(x, y + spacing.titleToStats, combosText, {
+                fontSize: statSize,
+                color: "#ffffff",
+                align: "center"
+            }).setOrigin(0.5);
+
+            // Buzzword (highlighted slightly bigger)
+            this.add.text(x, y + spacing.titleToStats + spacing.statsToBuzz, `"${message}"`, {
+                fontSize: buzzSize,
+                color: placeColor,
+                fontStyle: "italic",
+                align: "center"
+            }).setOrigin(0.5);
+        }
     }
 
-    showConfirmExit() {
-        if (this._exitModalActive) return;
-        this._exitModalActive = true;
+    displayTeamsResults(stats, rankColors, buzzwords) {
+        // Organize players by team
+        const blueTeam = [];
+        const redTeam = [];
 
-        const bg = this.add.rectangle(600, 300, 500, 220, 0x000000, 0.8);
-        const msg = this.add.text(600, 265, t('POSTGAME_EXIT_CONFIRM', 'Return to menu?'), {
-            fontSize: 24,
-            color: "#ffffff",
-            align: "center",
-            fontFamily: this.PIXEL_FONT
+        for (let i = 0; i < stats.players; i++) {
+            const playerTeam = stats.teams[i]; // Can be 'blue'|'red' or 0|1
+            const playerData = {
+                index: i,
+                name: stats.names[i],
+                score: stats.scores[i],
+                combos: stats.combos[i]
+            };
+
+            // Handle both string ('blue'/'red') and numeric (0/1) formats
+            const isBlueTeam = playerTeam === 'blue' || playerTeam === 0;
+            
+            if (isBlueTeam) {
+                blueTeam.push(playerData);
+            } else {
+                redTeam.push(playerData);
+            }
+        }
+
+        // Calculate team totals
+        const blueTotal = blueTeam.reduce((sum, p) => sum + p.score, 0);
+        const redTotal = redTeam.reduce((sum, p) => sum + p.score, 0);
+
+        // Determine team winner
+        const blueWins = blueTotal > redTotal;
+
+        // Draw team columns
+        this.drawTeamColumn(blueTeam, blueTotal, blueWins, "#66aaff", 320, stats, buzzwords);
+        this.drawTeamColumn(redTeam, redTotal, !blueWins, "#ff6666", 880, stats, buzzwords);
+    }
+
+    drawTeamColumn(team, teamTotal, isWinner, teamColor, xPos, stats, buzzwords) {
+        const startY = 140;
+        const titleSize = 24;
+        const statSize = 20;
+        const buzzSize = 18;
+
+        // Team header with background
+        const headerBg = this.add.rectangle(xPos, startY - 30, 320, 70, teamColor === "#66aaff" ? 0x3366aa : 0xaa3333);
+        headerBg.setAlpha(0.3);
+
+        // Team name
+        const teamName = tf('TEAM_LABEL', '{0} TEAM', teamColor === '#66aaff' ? teamLabel('blue') : teamLabel('red'));
+        this.add.text(xPos, startY - 40, teamName, {
+            fontSize: titleSize + 4,
+            color: teamColor,
+            fontStyle: "bold",
+            align: "center"
         }).setOrigin(0.5);
 
-        const yesBtn = this.add.text(540, 335, t('UI_YES', 'Yes'), {
-            fontSize: 24,
-            color: "#66ff66",
-            fontFamily: this.PIXEL_FONT
-        }).setOrigin(0.5).setInteractive();
+        // Team total score
+        this.add.text(xPos, startY - 10, tf('TEAM_TOTAL_LINE', 'Team Total: {0}', teamTotal), {
+            fontSize: titleSize,
+            color: "#ffffff",
+            align: "center"
+        }).setOrigin(0.5);
 
-        const noBtn = this.add.text(660, 335, t('UI_NO', 'No'), {
-            fontSize: 24,
-            color: "#ff6666",
-            fontFamily: this.PIXEL_FONT
-        }).setOrigin(0.5).setInteractive();
+        // Draw each player in the team
+        let yOffset = startY + 105;
+        const playerTextColor = isWinner ? "#FFD700" : "#ffffff";
+        
+        team.forEach((player, idx) => {
+            const combosLines = [
+                player.name,
+                tf('STAT_SCORE_LINE', 'Score: {0}', player.score),
+                '',
+                tf('STAT_PAIRS_LINE', 'Pairs: {0}', player.combos.pair),
+                tf('STAT_TWO_PAIRS_LINE', 'Two Pairs: {0}', player.combos.twoPair),
+                tf('STAT_TRIPLES_LINE', 'Triples: {0}', player.combos.triple),
+                tf('STAT_FULL_HOUSES_LINE', 'Full Houses: {0}', player.combos.fullHouse),
+                tf('STAT_FOUR_KIND_LINE', 'Four-of-a-Kinds: {0}', player.combos.fourOfAKind),
+                tf('STAT_FIVE_KIND_LINE', 'Five-of-a-Kinds: {0}', player.combos.fiveOfAKind),
+                tf('STAT_STRAIGHTS_LINE', 'Straights: {0}', player.combos.straight)
+            ];
+            const combosText = combosLines.join('\n');
 
-        yesBtn.on('pointerdown', () => {
-            GlobalAudio.playButton(this);
-            this._escExitArmed = false;
-            this._exitModalActive = false;
-            this.scene.start('LocalMenuScene');
+            // Player card background
+            const cardBg = this.add.rectangle(xPos, yOffset + 45, 280, 210, isWinner ? 0xaaaa00 : 0x333333);
+            cardBg.setAlpha(0.2);
+            if (isWinner) {
+                cardBg.setStrokeStyle(2, 0xffff00);
+            }
+
+            // Player stats with golden color if team won
+            this.add.text(xPos, yOffset, combosText, {
+                fontSize: statSize,
+                color: playerTextColor,
+                align: "center"
+            }).setOrigin(0.5);
+
+            yOffset += 235;
         });
 
-        noBtn.on('pointerdown', () => {
-            GlobalAudio.playButton(this);
-            bg.destroy();
-            msg.destroy();
-            yesBtn.destroy();
-            noBtn.destroy();
-            this._escExitArmed = false;
-            this._exitModalActive = false;
-        });
-
-        this._exitModal = { bg, msg, yesBtn, noBtn };
+        // Team buzzword at the bottom (after all players)
+        const teamBuzzwords = isWinner ? buzzwords[1] : buzzwords[3] || buzzwords.other;
+        const teamMessage = teamBuzzwords[Math.floor(Math.random() * teamBuzzwords.length)];
+        const teamBuzzColor = isWinner ? "#FFD700" : "#ffffff";
+        this.add.text(xPos, yOffset - 40, `"${teamMessage}"`, {
+            fontSize: buzzSize,
+            color: teamBuzzColor,
+            fontStyle: "italic",
+            align: "center"
+        }).setOrigin(0.5);
     }
 }

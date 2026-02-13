@@ -1,12 +1,40 @@
 {
-  "title": "Protodice — Changelog",
+  "title": "Fives - Changelog",
   "entries": [
     {
-      "version": "0.5.0",
-      "date": "05/02/2026",
-      "tags": ["Pre-Release"],
+      "version": "1.2.0",
+      "date": "13/02/2026",
+      "tags": [
+        "Release",
+        "Updates"
+      ],
       "changes": [
-        "Alpha release on Protodice! Let us know what you think about our new game!"
+        "Added Multiplex rule: dice counts will now MULTIPLY each other for a much bigger scoring outcome!\nCombine with Combo rules for a chaotic, diverse experience!",
+        "Added localisation support: English, French, Italian, Portuguese, Spanish, Welsh.",
+        "Added hotkeys for rolling dice and ending turn (Spacebar/R and T respectively).",
+        "Several fixes and improvements to multiplayer backend."
+      ]
+    },
+    {
+      "version": "1.1.0",
+      "date": "18/01/2026",
+      "tags": [
+        "Release",
+        "Updates"
+      ],
+      "changes": [
+        "Added Teams rule: players can form teams and share scores and work together to win.",
+        "Online functionality improvements and bug fixes."
+      ]
+    },
+    {
+      "version": "1.0.0",
+      "date": "13/12/2025",
+      "tags": [
+        "Release"
+      ],
+      "changes": [
+        "Fives Release!"
       ]
     }
   ]

@@ -4,11 +4,11 @@ const DEFAULTS = {
   visualEffects: true,    // combo FX / overlays
   shuffleTrack: false,    // shuffle music tracks
   trackIndex: 0,          // which music track
-  language: 'English'     // localisation language
+  language: 'English',    // UI language
 };
 
 class SettingsManager {
-  constructor(storageKey = 'protodice_settings') {
+  constructor(storageKey = 'fives_settings') {
     this.storageKey = storageKey;
   }
 

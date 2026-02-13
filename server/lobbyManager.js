@@ -1,5 +1,5 @@
 import { loadLobbies, saveLobby, saveLobbies, pruneLocalLobbies, deleteSupabaseLobby } from "./utils/lobbyStorage.js";
-import { checkCombo } from "../client/utils/ComboManager.js";
+import { rollDice, calculateScore } from "./utils/DiceManager.js";
 import { getUsernameFromDB, getActivePlayers, normalizeAllPlayers } from "./utils/playerStateManager.js";
 import { loadUser } from "./utils/userStorage.js";
 import LeaderboardManager from "./utils/leaderboardManager.js";
@@ -74,7 +74,7 @@ export default class LobbyManager {
             hostsocketid: item.hostsocketid || item.host || null,
             hostuserid: item.hostuserid || item.hostuser || null,
             players: Array.isArray(item.players) ? item.players : (item.players ? JSON.parse(item.players) : []),
-            config: item.config || (item.config_json ? item.config_json : { players: 2, rounds: 20, combos: false }),
+            config: item.config || (item.config_json ? item.config_json : { players: 2, rounds: 20, combos: false, multiplex: false }),
             createdAt: item.createdAt || item.created_at || Date.now(),
             updatedAt: item.updatedAt || item.updated_at || Date.now()
           };
@@ -321,7 +321,8 @@ export default class LobbyManager {
           config: {
             players: config.players || 2,
             rounds: config.rounds || 20,
-            combos: !!config.combos
+            combos: !!config.combos,
+            multiplex: !!config.multiplex
           },
           createdAt: Date.now(),
           updatedAt: Date.now(),
@@ -653,12 +654,13 @@ export default class LobbyManager {
 
         const game = {
           code,
-          config: lobby.config || { players: 2, rounds: 20, combos: false },
+          config: lobby.config || { players: 2, rounds: 20, combos: false, multiplex: false },
           players: gamePlayersWithAvatars,
           currentIndex: 0,
           round: 1,
           totalRounds: lobby.config?.rounds || 20,
           combosEnabled: !!lobby.config?.combos,
+          multiplexEnabled: !!lobby.config?.multiplex,
           turnTimer: null,
           turnExpiresAt: null,
           timeLimitSeconds: lobby.config?.timeLimitSeconds || 30,
@@ -735,8 +737,8 @@ export default class LobbyManager {
       if (game.turnTimer) { clearTimeout(game.turnTimer); game.turnTimer = null; }
 
       setTimeout(() => {
-        const dice = this.rollDice(5);
-        const { points, combo } = this.calculateScore(dice, game.combosEnabled);
+        const dice = rollDice(5);
+        const { points, combo } = calculateScore(dice, game.combosEnabled, game.multiplexEnabled);
 
         player.score += points;
         if (combo && combo.key) player.comboStats[combo.key] = (player.comboStats[combo.key] || 0) + 1;
@@ -1213,29 +1215,6 @@ export default class LobbyManager {
     game.turnTimer = setTimeout(() => this.handleTimeout(code), timeLimitSeconds * 1000);
   }
 
-  // Utility: roll N dice
-  rollDice(count = 5) {
-    return Array.from({ length: count }, () => Math.ceil(Math.random() * 6));
-  }
-
-  calculateScore(dice = [], combosEnabled) {
-    const base = Array.isArray(dice) && dice.length ? dice.reduce((a, b) => a + b, 0) : 0;
-    const combo = checkCombo(dice);
-
-    const points = (combo && combosEnabled)
-      ? Math.floor(base * (combo.multiplier || 1))
-      : base;
-
-    return { points, combo };
-  }
-
-  applyBonus(dice, baseScore, combosEnabled) {
-    if (!combosEnabled) return baseScore;
-    const combo = checkCombo(dice);
-    if (!combo) return baseScore;
-    return Math.floor(baseScore * (combo.multiplier || 1));
-  }
-
   handleTimeout(code) {
     const game = this.activeGames[code];
     if (!game) return;
@@ -1244,8 +1223,8 @@ export default class LobbyManager {
     const player = game.players[playerIndex];
     if (!player) return;
 
-    const dice = this.rollDice(5);
-    const { points, combo } = this.calculateScore(dice, game.combosEnabled);
+    const dice = rollDice(5);
+    const { points, combo } = calculateScore(dice, game.combosEnabled, game.multiplexEnabled);
 
     player.score += points;
     if (combo && combo.key) player.comboStats[combo.key] = (player.comboStats[combo.key] || 0) + 1;

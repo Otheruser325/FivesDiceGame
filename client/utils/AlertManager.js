@@ -38,29 +38,23 @@ class AlertManager {
     const panel = scene.add.rectangle(cx, cy, width, height, 0x1e1e1e)
       .setStrokeStyle(3, config.color);
 
-    const modalFont = '"Press Start 2P", cursive';
-    const t = (key, fallback) => GlobalLocalization.t(key, fallback);
-
     // Title
     const titleText = scene.add.text(cx, cy - height / 2 + 26, config.title, {
       fontSize: 24,
-      fontFamily: modalFont,
       color: config.hex
     }).setOrigin(0.5);
 
     // Message
     const bodyText = scene.add.text(cx, cy, message, {
       fontSize: 20,
-      fontFamily: modalFont,
       color: '#ffffff',
       align: 'center',
       wordWrap: { width: width - 48 }
     }).setOrigin(0.5);
 
     // Close button
-    const closeBtn = scene.add.text(cx, cy + height / 2 - 32, t('UI_CLOSE', 'Close'), {
+    const closeBtn = scene.add.text(cx, cy + height / 2 - 32, GlobalLocalization.t('UI_CLOSE', 'Close'), {
       fontSize: 20,
-      fontFamily: modalFont,
       color: '#ff6666'
     })
     .setOrigin(0.5)
@@ -88,17 +82,16 @@ class AlertManager {
   }
 
   getTypeConfig(type) {
-    const t = (key, fallback) => GlobalLocalization.t(key, fallback);
     switch (type) {
       case 'error':
-        return { title: t('ALERT_ERROR', 'ERROR'), color: 0xff4444, hex: '#ff4444' };
+        return { title: GlobalLocalization.t('ALERT_ERROR_TITLE', 'ERROR'), color: 0xff4444, hex: '#ff4444' };
       case 'success':
-        return { title: t('ALERT_SUCCESS', 'SUCCESS'), color: 0x66ff66, hex: '#66ff66' };
+        return { title: GlobalLocalization.t('ALERT_SUCCESS_TITLE', 'SUCCESS'), color: 0x66ff66, hex: '#66ff66' };
       case 'info':
-        return { title: t('ALERT_INFO', 'INFO'), color: 0x66aaff, hex: '#66aaff' };
+        return { title: GlobalLocalization.t('ALERT_INFO_TITLE', 'INFO'), color: 0x66aaff, hex: '#66aaff' };
       case 'warning':
       default:
-        return { title: t('ALERT_WARNING', 'WARNING'), color: 0xffff66, hex: '#ffff66' };
+        return { title: GlobalLocalization.t('ALERT_WARNING_TITLE', 'WARNING'), color: 0xffff66, hex: '#ffff66' };
     }
   }
 

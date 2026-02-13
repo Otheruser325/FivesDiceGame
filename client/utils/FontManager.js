@@ -16,24 +16,6 @@ class FontManager {
     await Promise.all(tasks);
   }
 
-  async ensure(defs = [], options = {}) {
-    if (!Array.isArray(defs) || defs.length === 0) return;
-    try {
-      if (typeof document !== 'undefined' && document.fonts && typeof document.fonts.check === 'function') {
-        defs.forEach(def => {
-          try {
-            const family = def.family || 'Unknown';
-            const weight = String(def.weight || '400');
-            const cacheKey = `${family}::${weight}`;
-            const test = `${weight} 16px "${family}"`;
-            if (!document.fonts.check(test)) this._loaded.delete(cacheKey);
-          } catch (e) {}
-        });
-      }
-    } catch (e) {}
-    await this.init(defs, options);
-  }
-
   isLoaded(family, weight = '400') {
     return this._loaded.has(`${family}::${weight}`);
   }

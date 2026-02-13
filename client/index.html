@@ -3,14 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Protodice</title>
-
-    <!-- Preconnect to Google Fonts for faster loading -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-
-    <!-- Google Fonts - Press Start 2P -->
-    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <title>Fives</title>
 
     <!-- Stylesheet -->
     <link rel="stylesheet" href="styles.css" />
@@ -19,9 +12,62 @@
     <link rel="icon" type="image/ico" href="favicon.ico" />
 
     <!-- Phaser CDN -->
-    <script src="/phaser.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3/dist/phaser.min.js"></script>
+    <!-- Socket.io client library - loaded dynamically from correct server -->
+    <script>
+      // Determine server URL and load socket.io from there
+      (function() {
+        // Try multiple paths to load socket.io
+        // In development, localhost is first; in production, use fallback servers
+        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const paths = isLocalhost ? [
+          '/socket.io/socket.io.min.js',
+          '/socket.io.js',
+          'http://localhost:8080/socket.io/socket.io.min.js',
+          'http://localhost:8080/socket.io.js'
+        ] : [
+          'https://api.fivesdicegame.com/socket.io/socket.io.min.js',
+          'https://api.fivesdicegame.com/socket.io.js',
+          'https://fivesapi.vercel.app/socket.io/socket.io.min.js',
+          'https://fivesapi.vercel.app/socket.io.js'
+        ];
+        
+        let loaded = false;
+        const loadSocketIO = (index) => {
+          if (index >= paths.length) {
+            if (!loaded) {
+              console.error('[SocketIO] Failed to load socket.io from any path');
+              // Fallback: create a stub
+              window.io = null;
+            }
+            return;
+          }
+          
+          const script = document.createElement('script');
+          const path = paths[index];
+          script.src = path;
+          
+          script.onload = () => {
+            loaded = true;
+            console.info('[SocketIO] Loaded from:', path);
+          };
+          
+          script.onerror = () => {
+            console.debug('[SocketIO] Failed to load from:', path, '- trying next');
+            loadSocketIO(index + 1);
+          };
+          
+          script.type = 'text/javascript';
+          script.async = true;
+          document.head.appendChild(script);
+        };
+        
+        loadSocketIO(0);
+      })();
+    </script>
 </head>
 <body>
+
     <!-- Game Container -->
     <div id="game-container"></div>
 
