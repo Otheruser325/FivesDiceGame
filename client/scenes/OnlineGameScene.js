@@ -164,7 +164,7 @@ export default class OnlineGameScene extends Phaser.Scene {
     this.installSocketHandlers();
 
     // Setup visibility change handler to sync when page returns from background
-    SyncManager.setupVisibilityHandler(() => {
+    this._syncVisibilityCleanup = SyncManager.setupVisibilityHandler(() => {
       console.log('[OnlineGameScene] Page became visible - syncing game state');
       try {
         SyncManager.fullSync({
@@ -1171,6 +1171,10 @@ export default class OnlineGameScene extends Phaser.Scene {
     if (this._handleVisibilityChange && typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', this._handleVisibilityChange);
       this._handleVisibilityChange = null;
+    }
+    if (this._syncVisibilityCleanup) {
+      try { this._syncVisibilityCleanup(); } catch (e) {}
+      this._syncVisibilityCleanup = null;
     }
     
     const s = getSocket();

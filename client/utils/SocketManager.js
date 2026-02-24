@@ -15,10 +15,10 @@ const DEFAULT_PORTS = [8080, 8081, 8082, 8083, 8084, 8085];
 const VERCEL_API_SERVER = 'https://fivesapi.vercel.app';
 const CUSTOM_API_SERVER = 'https://api.fivesdicegame.com';
 
-const MAX_CONNECTION_RETRIES = 10;           // Keep retries finite for faster fallback UX
+const MAX_CONNECTION_RETRIES = 8;            // Keep retries finite for faster fallback UX
 const INITIAL_RECONNECT_DELAY = 300;          // 300ms initial delay
 const MAX_RECONNECT_DELAY = 8000;             // 8s max delay
-const CONNECTION_TIMEOUT = 10000;             // 10s timeout for initial connection
+const CONNECTION_TIMEOUT = 20000;             // 20s timeout for initial connection
 
 function _isLocalHost(hostname) {
   return hostname === 'localhost' || hostname === '127.0.0.1';
@@ -117,8 +117,8 @@ function _buildSocketOptions(server) {
     upgrade: !isVercel,
     upgradeTimeout: isVercel ? 1000 : 10000,
     rememberUpgrade: false,
-    pingInterval: 20000,
-    pingTimeout: 10000,
+    pingInterval: isVercel ? 10000 : 20000,
+    pingTimeout: isVercel ? 20000 : 10000,
     path: '/socket.io/',
     query: {},
     randomizationFactor: 0.5,
@@ -288,6 +288,17 @@ export function getLastConnectionId() {
 export function connectTo(url) {
   if (!url) return;
   const normalized = _norm(url);
+  if (_serverUrl && _norm(_serverUrl) === normalized && OnlineSocket) {
+    if (OnlineSocket.connected) return OnlineSocket;
+    const canReconnect = OnlineSocket.io?.opts?.reconnection !== false;
+    if (canReconnect) {
+      try { OnlineSocket.connect(); } catch (e) { /* ignore */ }
+      return OnlineSocket;
+    }
+    // stale socket: fall through and recreate
+    try { OnlineSocket.close(); } catch (e) { /* ignore */ }
+    OnlineSocket = null;
+  }
   _serverUrl = normalized;
   resetConnectionState();  // Reset state when changing servers
 
@@ -433,7 +444,7 @@ function _attachSocketHandlers(sock, server) {
     }
 
     // Production failover: after a few failed attempts, switch to next configured origin.
-    if (_connectionRetries === 3) {
+    if (_connectionRetries === 2) {
       const fallback = _getFailoverTarget(server);
       if (fallback) {
         console.warn('[Socket] Switching to fallback server:', fallback);
@@ -546,8 +557,10 @@ export function getSocket() {
   // attach default handlers
   _attachSocketHandlers(OnlineSocket, server);
 
-  // start background probe (non-blocking). If it finds a better server it will reconnect.
-  _backgroundProbeAndReconnect();
+  // Background probe is development-only to avoid extra production handshake load.
+  if (MODE === 'development') {
+    _backgroundProbeAndReconnect();
+  }
 
   return OnlineSocket;
 }

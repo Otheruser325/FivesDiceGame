@@ -29,6 +29,7 @@ export default class OnlineLobbyScene extends Phaser.Scene {
 
     create() {
         ErrorHandler.setScene(this);
+        this.exitModal = null;
         this.add.text(600, 60, t('ONLINE_LOBBY_TITLE', 'Lobby'), { fontSize: 42 }).setOrigin(0.5);
 
         // ROOM CODE DISPLAY
@@ -69,13 +70,7 @@ export default class OnlineLobbyScene extends Phaser.Scene {
         leaveBtn.on("pointerdown", () => {
             GlobalAudio.playButton(this);
             if (this.debugger) this.debugger.log('leave-lobby click', { code: this.code });
-            
-            // FIX: Ensure socket handlers are removed BEFORE leaving
-            // This prevents race condition where leaving quickly causes handlers to fire on old scene
-            this.shutdown();
-            
-            getSocket().emit("leave-lobby", this.code);
-            this.scene.start("OnlineMenuScene");
+            this.showConfirmExit();
         });
 
         // READY BUTTON
@@ -186,6 +181,14 @@ export default class OnlineLobbyScene extends Phaser.Scene {
 
         // Request initial data
         getSocket().emit("request-lobby-data", this.code);
+
+        if (this.input && this.input.keyboard) {
+            this._escHandler = (event) => {
+                if (event.repeat) return;
+                this.handleEscPressed();
+            };
+            this.input.keyboard.on('keydown-ESC', this._escHandler);
+        }
     }
 
     updateLobbyData(data) {
@@ -396,6 +399,12 @@ export default class OnlineLobbyScene extends Phaser.Scene {
     }
 
     shutdown() {
+        if (this.input && this.input.keyboard && this._escHandler) {
+            this.input.keyboard.off('keydown-ESC', this._escHandler);
+            this._escHandler = null;
+        }
+        this.hideConfirmExit();
+
         // remove event listeners
         const socket = getSocket();
         socket.off("lobby-data");
@@ -412,6 +421,62 @@ export default class OnlineLobbyScene extends Phaser.Scene {
 
     destroy() {
         this.shutdown();
+    }
+
+    handleEscPressed() {
+        if (this.exitModal) {
+            this.hideConfirmExit();
+            return;
+        }
+        this.showConfirmExit();
+    }
+
+    showConfirmExit() {
+        if (this.exitModal) return;
+
+        const bg = this.add.rectangle(600, 300, 520, 260, 0x000000, 0.85);
+        const msg = this.add.text(
+            600,
+            260,
+            t('ONLINE_LEAVE_CONFIRM', 'Are you sure you want to leave the lobby?'),
+            { fontSize: 24, align: 'center' }
+        ).setOrigin(0.5);
+
+        const yesBtn = this.add.text(540, 340, t('UI_YES', 'Yes'), {
+            fontSize: 28,
+            color: '#66ff66'
+        }).setOrigin(0.5).setInteractive();
+
+        const noBtn = this.add.text(660, 340, t('UI_NO', 'No'), {
+            fontSize: 28,
+            color: '#ff6666'
+        }).setOrigin(0.5).setInteractive();
+
+        yesBtn.on('pointerdown', () => {
+            GlobalAudio.playButton(this);
+            this.hideConfirmExit();
+            if (this.debugger) this.debugger.log('leave-lobby confirm yes', { code: this.code });
+            this.shutdown();
+            getSocket().emit("leave-lobby", this.code);
+            this.scene.start("OnlineMenuScene");
+        });
+
+        noBtn.on('pointerdown', () => {
+            GlobalAudio.playButton(this);
+            this.hideConfirmExit();
+        });
+
+        this.exitModal = { bg, msg, yesBtn, noBtn };
+    }
+
+    hideConfirmExit() {
+        if (!this.exitModal) return;
+        const { bg, msg, yesBtn, noBtn } = this.exitModal;
+        if (bg) bg.destroy();
+        if (msg) msg.destroy();
+        if (yesBtn) yesBtn.destroy();
+        if (noBtn) noBtn.destroy();
+        this.exitModal = null;
     }
 
     /**

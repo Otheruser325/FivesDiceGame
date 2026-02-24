@@ -41,7 +41,7 @@ export default class OnlineMenuScene extends Phaser.Scene {
 
         this.add.text(600, 60, t('ONLINE_MENU_TITLE', 'Online Mode'), { fontSize: 48 }).setOrigin(0.5);
 
-        const waitForSocketConnection = (sock, timeoutMs = 12000) => new Promise((resolve) => {
+        const waitForSocketConnection = (sock, timeoutMs = 18000) => new Promise((resolve) => {
             if (!sock) {
                 resolve(false);
                 return;
@@ -85,7 +85,7 @@ export default class OnlineMenuScene extends Phaser.Scene {
 
         let socketReady = !!(socket && socket.connected);
         if (!socketReady && socket) {
-            socketReady = await waitForSocketConnection(socket, 12000);
+            socketReady = await waitForSocketConnection(socket, 18000);
         }
 
         // One fast retry against current selected origin before rendering unavailable state.
@@ -96,7 +96,7 @@ export default class OnlineMenuScene extends Phaser.Scene {
                 // ignore
             }
             socket = getSocket();
-            socketReady = await waitForSocketConnection(socket, 6000);
+            socketReady = await waitForSocketConnection(socket, 10000);
         }
 
         if (!socketReady) {

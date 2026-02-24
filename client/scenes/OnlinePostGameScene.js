@@ -58,6 +58,21 @@ export default class OnlinePostGameScene extends Phaser.Scene {
             GlobalAudio.playButton(this);
             this.scene.start('OnlineMenuScene');
         });
+
+        if (this.input && this.input.keyboard) {
+            this._escHandler = (event) => {
+                if (event.repeat) return;
+                GlobalAudio.playButton(this);
+                this.scene.start('OnlineMenuScene');
+            };
+            this.input.keyboard.on('keydown-ESC', this._escHandler);
+            this.events.once('shutdown', () => {
+                if (this.input && this.input.keyboard && this._escHandler) {
+                    this.input.keyboard.off('keydown-ESC', this._escHandler);
+                }
+                this._escHandler = null;
+            });
+        }
     }
 
     displayIndividualResults(stats, rankColors, buzzwords) {

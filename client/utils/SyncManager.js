@@ -141,7 +141,9 @@ class SyncManager {
    * @param {Function} onVisibilityChange - Callback when visibility changes
    */
   static setupVisibilityHandler(onVisibilityChange) {
-    document.addEventListener('visibilitychange', () => {
+    if (typeof document === 'undefined') return () => {};
+
+    const handler = () => {
       if (document.hidden) {
         console.log('[SyncManager] Page hidden - pausing updates');
       } else {
@@ -150,7 +152,14 @@ class SyncManager {
           onVisibilityChange();
         }
       }
-    });
+    };
+
+    document.addEventListener('visibilitychange', handler);
+    return () => {
+      try {
+        document.removeEventListener('visibilitychange', handler);
+      } catch (e) {}
+    };
   }
 
   /**

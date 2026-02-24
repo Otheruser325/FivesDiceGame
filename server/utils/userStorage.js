@@ -13,9 +13,17 @@ const __dirname = path.dirname(__filename);
 const usersFile = path.join(__dirname, "../data/users.json");
 const usersAdapter = new JSONFile(usersFile);
 const usersDb = new Low(usersAdapter);
-await usersDb.read();
-usersDb.data ||= {};
-usersDb.data.users ||= {};
+usersDb.data = { users: {} };
+const usersDbReady = usersDb.read()
+  .then(() => {
+    usersDb.data ||= {};
+    usersDb.data.users ||= {};
+  })
+  .catch((err) => {
+    console.warn('[userStorage] local users DB read failed, continuing with in-memory defaults:', err?.message || err);
+    usersDb.data ||= {};
+    usersDb.data.users ||= {};
+  });
 const LOCAL_DB_PATH = usersFile;
 
 // In-memory cache for users (needed for Vercel read-only filesystem)

@@ -9,6 +9,7 @@ export default class LobbyManager {
     this.io = io;
     this.lobbies = {};
     this.activeGames = {};
+    this.isServerless = process.env.VERCEL === '1' || !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.NOW_REGION;
     this.init();
   }
 
@@ -29,27 +30,29 @@ export default class LobbyManager {
     // 3) reload the cleaned storage into memory so this.lobbies is the canonical (pruned) view
     await this.load();
 
-    // 4) start polling/prune intervals after initial sync
-    this._pollHandle = setInterval(() => this.load().catch(err => {
-      console.warn("[LobbyManager] periodic load failed:", err);
-    }), this._pollIntervalMs || 60000);
+    // 4) start periodic background jobs only on persistent server processes.
+    if (!this.isServerless) {
+      this._pollHandle = setInterval(() => this.load().catch(err => {
+        console.warn("[LobbyManager] periodic load failed:", err);
+      }), this._pollIntervalMs || 60000);
 
-    this._pruneHandle = setInterval(() => {
-      pruneLocalLobbies().then(res => {
-        if (res.removedCount && res.removedCount > 0) {
-          console.info(`[LobbyManager] pruneLocalLobbies removed ${res.removedCount} stale entries (remaining ${res.remainingCount})`);
-          // sync memory with disk after pruning
-          return this.load();
-        }
-      }).catch(err => {
-        console.warn("[LobbyManager] pruneLocalLobbies failed:", err);
-      });
-    }, this._pollIntervalMs || 60000);
+      this._pruneHandle = setInterval(() => {
+        pruneLocalLobbies().then(res => {
+          if (res.removedCount && res.removedCount > 0) {
+            console.info(`[LobbyManager] pruneLocalLobbies removed ${res.removedCount} stale entries (remaining ${res.remainingCount})`);
+            // sync memory with disk after pruning
+            return this.load();
+          }
+        }).catch(err => {
+          console.warn("[LobbyManager] pruneLocalLobbies failed:", err);
+        });
+      }, this._pollIntervalMs || 60000);
 
-    // 5) start server-side lobby pruning (clean up dead lobbies and games)
-    this._serverPruneHandle = setInterval(() => {
-      this.pruneInMemoryLobbies();
-    }, 5 * 60 * 1000); // Prune every 5 minutes
+      // 5) start server-side lobby pruning (clean up dead lobbies and games)
+      this._serverPruneHandle = setInterval(() => {
+        this.pruneInMemoryLobbies();
+      }, 5 * 60 * 1000); // Prune every 5 minutes
+    }
   }
 
   // Load all lobbies from storage (defensive: supports array or map)

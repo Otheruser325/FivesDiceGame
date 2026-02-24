@@ -18,6 +18,8 @@ export default class LeaderboardScene extends Phaser.Scene {
         this._retryCount = 0;
         this._loading = false;
         this._abortController = null;
+        this._teardownVisibilityHandler = null;
+        this._isShuttingDown = false;
     }
 
     create() {
@@ -52,25 +54,27 @@ export default class LeaderboardScene extends Phaser.Scene {
         sortButtons.forEach(btn => {
             const text = this.add.text(btn.x, sortY, btn.label, {
                 fontSize: 16,
-                color: this.currentSort === btn.value ? '#66ff66' : '#cccccc'
+                color: '#cccccc'
             }).setOrigin(0.5).setInteractive();
 
             text.on('pointerdown', () => {
                 GlobalAudio.playButton(this);
                 this.currentSort = btn.value;
+                this._refreshSortButtonStyles();
                 this.loadLeaderboard();
             });
 
             text.on('pointerover', () => {
-                text.setColor(this.currentSort === btn.value ? '#66ff66' : '#ffff00');
+                this._refreshSortButtonStyles(btn.value);
             });
 
             text.on('pointerout', () => {
-                text.setColor(this.currentSort === btn.value ? '#66ff66' : '#cccccc');
+                this._refreshSortButtonStyles();
             });
 
             this.sortButtons[btn.value] = text;
         });
+        this._refreshSortButtonStyles();
 
         // Container for leaderboard entries (graphics-based)
         this.leaderboardContainer = this.add.container(600, 180);
@@ -86,8 +90,9 @@ export default class LeaderboardScene extends Phaser.Scene {
         this.loadLeaderboard();
 
         // Setup visibility change handler to refresh leaderboard when page returns from background
-        SyncManager.setupVisibilityHandler(() => {
+        this._teardownVisibilityHandler = SyncManager.setupVisibilityHandler(() => {
             try {
+                if (!this.scene || !this.scene.isActive()) return;
                 this.loadLeaderboard();
             } catch (err) {
                 console.warn('[LeaderboardScene] Failed to refresh on visibility change:', err);
@@ -96,6 +101,7 @@ export default class LeaderboardScene extends Phaser.Scene {
 
         // Cleanup on shutdown
         this.events.once('shutdown', () => {
+            this._isShuttingDown = true;
             if (this._leaderboardTimeout) {
                 clearTimeout(this._leaderboardTimeout);
                 this._leaderboardTimeout = null;
@@ -103,6 +109,10 @@ export default class LeaderboardScene extends Phaser.Scene {
             if (this._abortController) {
                 this._abortController.abort();
                 this._abortController = null;
+            }
+            if (this._teardownVisibilityHandler) {
+                this._teardownVisibilityHandler();
+                this._teardownVisibilityHandler = null;
             }
         });
     }
@@ -142,7 +152,7 @@ export default class LeaderboardScene extends Phaser.Scene {
 
     _updateLeaderboardText(text) {
         try {
-            if (this.leaderboardText) {
+            if (this.leaderboardText && this.leaderboardText.scene && this.leaderboardText.active) {
                 this.leaderboardText.setText(text);
             }
         } catch (err) {
@@ -150,13 +160,41 @@ export default class LeaderboardScene extends Phaser.Scene {
         }
     }
 
+    _isAliveGameObject(obj) {
+        return !!(obj && obj.scene && obj.active !== false);
+    }
+
+    _setSortButtonsInteractive(enabled) {
+        Object.values(this.sortButtons).forEach(btn => {
+            if (!this._isAliveGameObject(btn)) return;
+            try {
+                if (enabled) btn.setInteractive();
+                else btn.disableInteractive();
+            } catch (e) {}
+        });
+    }
+
+    _refreshSortButtonStyles(hoverKey = null) {
+        Object.keys(this.sortButtons).forEach(key => {
+            const btn = this.sortButtons[key];
+            if (!this._isAliveGameObject(btn) || !btn.setColor) return;
+            const isSelected = this.currentSort === key;
+            const isHovered = hoverKey === key;
+            if (isSelected) {
+                btn.setColor('#66ff66');
+            } else if (isHovered) {
+                btn.setColor('#ffff00');
+            } else {
+                btn.setColor('#cccccc');
+            }
+        });
+    }
+
     async _fetchLeaderboard() {
         this._loading = true;
 
         // Disable sort buttons while loading
-        Object.values(this.sortButtons).forEach(btn => {
-            if (btn && btn.disableInteractive) btn.disableInteractive();
-        });
+        this._setSortButtonsInteractive(false);
 
         console.log('[LeaderboardScene] Fetching leaderboard, sort:', this.currentSort);
         this._updateLeaderboardText(t('LEADERBOARD_LOADING_SHORT', 'Loading...'));
@@ -178,13 +216,7 @@ export default class LeaderboardScene extends Phaser.Scene {
             this.playerRank = data.playerRank || null;
             this.displayLeaderboard();
 
-            // Update button colors
-            Object.keys(this.sortButtons).forEach(key => {
-                const btn = this.sortButtons[key];
-                if (btn && btn.setColor) {
-                    btn.setColor(this.currentSort === key ? '#66ff66' : '#cccccc');
-                }
-            });
+            this._refreshSortButtonStyles();
 
         } catch (err) {
             // Don't log or retry on abort
@@ -199,6 +231,8 @@ export default class LeaderboardScene extends Phaser.Scene {
             if (this._retryCount < 1) {
                 this._retryCount++;
                 this._leaderboardTimeout = setTimeout(() => {
+                    if (this._isShuttingDown) return;
+                    if (!this.scene || !this.scene.isActive()) return;
                     if (!this.leaderboardData.length) {
                         console.warn('[LeaderboardScene] Leaderboard fetch failed, retrying...');
                         this._fetchLeaderboard();
@@ -210,9 +244,7 @@ export default class LeaderboardScene extends Phaser.Scene {
         } finally {
             this._loading = false;
             // Re-enable sort buttons
-            Object.values(this.sortButtons).forEach(btn => {
-                if (btn && btn.setInteractive) btn.setInteractive();
-            });
+            this._setSortButtonsInteractive(true);
         }
     }
 

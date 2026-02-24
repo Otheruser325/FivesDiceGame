@@ -1,3 +1,31 @@
 {
-  "lobbies": {}
+  "lobbies": {
+    "63FWL": {
+      "code": "63FWL",
+      "hostsocketid": "CGqBd8zGUDWQ1INRAAAE",
+      "hostuserid": "c3c7bb6b-689e-4140-acce-d44d93c4f81b",
+      "players": [
+        {
+          "id": "c3c7bb6b-689e-4140-acce-d44d93c4f81b",
+          "name": "Guest7378",
+          "ready": false,
+          "left": false,
+          "connected": true
+        }
+      ],
+      "config": {
+        "players": 6,
+        "rounds": 10,
+        "combos": true,
+        "multiplex": true
+      },
+      "created_at": "2026-02-24T18:21:29.789Z",
+      "updated_at": "2026-02-24T18:21:29.789Z",
+      "updated_user": {
+        "id": "c3c7bb6b-689e-4140-acce-d44d93c4f81b",
+        "name": "Guest7378",
+        "timestamp": 1771957289789
+      }
+    }
+  }
 }

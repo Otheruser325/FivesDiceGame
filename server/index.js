@@ -23,6 +23,27 @@ if (process.env.NODE_ENV === 'production' || process.env.VERCEL === '1') {
   app.set('trust proxy', 1);
 }
 
+// Fast health/root responses before any auth/session middleware.
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    redis: redisClient ? 'connected' : 'not connected',
+    uptime: process.uptime()
+  });
+});
+
+if (process.env.NODE_ENV === 'production') {
+  app.get('/', (req, res) => {
+    res.json({
+      service: 'fives-api',
+      status: 'ok',
+      health: '/health',
+      timestamp: new Date().toISOString()
+    });
+  });
+}
+
 // Helper function to get allowed origins for CORS and Socket.io
 function getAllowedOrigins() {
   // If environment variable is set, use it
@@ -53,24 +74,30 @@ function getAllowedOrigins() {
   ];
 }
 
-// Production-ready socket.io configuration
+const isServerlessSocket = IS_SERVERLESS;
+
+// Socket.IO is tuned differently for Vercel/serverless:
+// - polling only (no websocket upgrade)
+// - shorter ping cycle so polling requests complete promptly
+// - lower payload cap and no heavy compression on serverless
 const io = new Server(server, {
   cors: {
     origin: getAllowedOrigins(),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
   },
-  transports: ['websocket', 'polling'], // Prioritize WebSocket, fallback to polling
-  pingTimeout: 90000, // 90 seconds (increased for network jitter tolerance)
-  pingInterval: 30000, // 30 seconds between pings
-  connectTimeout: 60000, // 60 seconds to establish connection
-  maxHttpBufferSize: 1e8, // 100 MB
-  allowEIO3: true, // Support older clients
-  compression: true, // Enable compression for production
-  upgrade: true, // Allow WebSocket upgrades
-  rememberUpgrade: true, // Remember successful upgrades
-  addTrailingSlash: false,
-  forceNew: false
+  path: '/socket.io/',
+  transports: isServerlessSocket ? ['polling'] : ['websocket', 'polling'],
+  upgrade: !isServerlessSocket,
+  rememberUpgrade: false,
+  pingTimeout: isServerlessSocket ? 20000 : 90000,
+  pingInterval: isServerlessSocket ? 10000 : 30000,
+  connectTimeout: isServerlessSocket ? 20000 : 60000,
+  maxHttpBufferSize: 1e6,
+  allowEIO3: true,
+  httpCompression: !isServerlessSocket,
+  perMessageDeflate: !isServerlessSocket,
+  serveClient: false
 });
 
 // Initialize LobbyManager
@@ -81,6 +108,13 @@ let redisClient = null;
 let sessionStore = null;
 
 async function initializeRedis() {
+  // Redis introduces network latency per request and can stall serverless invocations.
+  // In Vercel/serverless mode we use in-memory session storage.
+  if (IS_SERVERLESS) {
+    console.log('[Session] Serverless mode: skipping Redis session store');
+    return false;
+  }
+
   // Skip Redis in development unless explicitly configured
   if (process.env.NODE_ENV === 'development' && !process.env.REDIS_URL) {
     console.log('[Session] Development mode: skipping Redis (not needed)');
@@ -89,10 +123,14 @@ async function initializeRedis() {
 
   if (process.env.REDIS_URL) {
     try {
-      redisClient = createClient({ 
+      redisClient = createClient({
         url: process.env.REDIS_URL,
         socket: {
-          reconnectStrategy: (retries) => Math.min(retries * 50, 500)
+          connectTimeout: IS_SERVERLESS ? 1200 : 5000,
+          reconnectStrategy: (retries) => {
+            if (IS_SERVERLESS) return false;
+            return Math.min(retries * 50, 500);
+          }
         }
       });
       
@@ -131,7 +169,7 @@ async function initializeSession() {
     secret: process.env.SESSION_SECRET || 'fives-dice-game-secret-key',
     resave: false,
     saveUninitialized: false,
-    rolling: true,
+    rolling: !IS_SERVERLESS,
     proxy: process.env.NODE_ENV === 'production' || process.env.VERCEL === '1',
     cookie: {
       secure: process.env.NODE_ENV === 'production',
@@ -162,10 +200,13 @@ app.use(sessionMiddleware);
 // Initialize auth middleware (Passport)
 authMiddleware(app);
 
-// Share session with socket.io
-io.use((socket, next) => {
-  sessionMiddleware(socket.request, {}, next);
-});
+// Share HTTP session with Socket.IO only outside serverless.
+// In serverless polling mode we rely on explicit `auth-user` payloads from client.
+if (!IS_SERVERLESS) {
+  io.use((socket, next) => {
+    sessionMiddleware(socket.request, {}, next);
+  });
+}
 
 // CORS middleware
 app.use((req, res, next) => {
@@ -190,28 +231,6 @@ app.use((req, res, next) => {
   
   next();
 });
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'healthy', 
-    timestamp: new Date().toISOString(),
-    redis: redisClient ? 'connected' : 'not connected',
-    uptime: process.uptime()
-  });
-});
-
-// Fast root response for uptime probes and direct browser checks.
-if (process.env.NODE_ENV === 'production') {
-  app.get('/', (req, res) => {
-    res.json({
-      service: 'fives-api',
-      status: 'ok',
-      health: '/health',
-      timestamp: new Date().toISOString()
-    });
-  });
-}
 
 // Auth routes
 app.use('/auth', authRouter);

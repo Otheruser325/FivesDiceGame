@@ -13,9 +13,17 @@ const __dirname = path.dirname(__filename);
 const lobbiesFile = path.join(__dirname, "../data/lobbies.json");
 const adapter = new JSONFile(lobbiesFile);
 const lobbiesDb = new Low(adapter);
-await lobbiesDb.read();
-lobbiesDb.data ||= {};
-lobbiesDb.data.lobbies ||= {};
+lobbiesDb.data = { lobbies: {} };
+const lobbiesDbReady = lobbiesDb.read()
+  .then(() => {
+    lobbiesDb.data ||= {};
+    lobbiesDb.data.lobbies ||= {};
+  })
+  .catch((err) => {
+    console.warn('[lobbyStorage] local lobbies DB read failed, continuing with in-memory defaults:', err?.message || err);
+    lobbiesDb.data ||= {};
+    lobbiesDb.data.lobbies ||= {};
+  });
 const LOCAL_DB_PATH = lobbiesFile;
 const DEFAULT_EXPIRE_MS = 1000 * 60 * 60 * 3;
 
