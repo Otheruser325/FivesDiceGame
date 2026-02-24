@@ -13,6 +13,7 @@ import LeaderboardManager from './utils/leaderboardManager.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const IS_SERVERLESS = process.env.VERCEL === '1' || !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.NOW_REGION;
 
 const app = express();
 const server = createServer(app);
@@ -200,6 +201,18 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Fast root response for uptime probes and direct browser checks.
+if (process.env.NODE_ENV === 'production') {
+  app.get('/', (req, res) => {
+    res.json({
+      service: 'fives-api',
+      status: 'ok',
+      health: '/health',
+      timestamp: new Date().toISOString()
+    });
+  });
+}
+
 // Auth routes
 app.use('/auth', authRouter);
 
@@ -361,34 +374,42 @@ app.use('*', (req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('[Server] SIGTERM received, shutting down gracefully');
-  server.close(() => {
-    if (redisClient) {
-      redisClient.quit();
-    }
-    process.exit(0);
+// Graceful shutdown (non-serverless only)
+if (!IS_SERVERLESS) {
+  process.on('SIGTERM', () => {
+    console.log('[Server] SIGTERM received, shutting down gracefully');
+    server.close(() => {
+      if (redisClient) {
+        redisClient.quit();
+      }
+      process.exit(0);
+    });
   });
-});
 
-process.on('SIGINT', () => {
-  console.log('[Server] SIGINT received, shutting down gracefully');
-  server.close(() => {
-    if (redisClient) {
-      redisClient.quit();
-    }
-    process.exit(0);
+  process.on('SIGINT', () => {
+    console.log('[Server] SIGINT received, shutting down gracefully');
+    server.close(() => {
+      if (redisClient) {
+        redisClient.quit();
+      }
+      process.exit(0);
+    });
   });
-});
+}
 
 // Start server
 const PORT = process.env.PORT || 8080;
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🎲 Fives Dice Game Server running on port ${PORT}`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`📡 Socket.io enabled with transports: ${io.engine.opts.transports.join(', ')}`);
-  console.log(`🔗 Health check: http://localhost:${PORT}/health`);
-});
+if (!IS_SERVERLESS) {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log('[Server] Fives Dice Game Server running on port ' + PORT);
+    console.log('[Server] Environment: ' + (process.env.NODE_ENV || 'development'));
+    console.log('[Server] Socket.io transports: ' + io.engine.opts.transports.join(', '));
+    console.log('[Server] Health check: http://localhost:' + PORT + '/health');
+  });
+} else {
+  console.log('[Server] Running in serverless mode (Vercel-compatible request handler)');
+}
 
 export { app, server, io };
+export default app;
+

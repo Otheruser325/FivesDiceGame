@@ -67,13 +67,13 @@ function _getProductionCandidates() {
     ? window.location.hostname
     : '';
 
-  // Prefer Vercel API when running on a vercel.app game host.
+  // On vercel.app host, prioritize and restrict to Vercel API to avoid noisy
+  // cross-origin failures against custom domains that may be offline.
   if (host.includes('vercel.app')) {
-    candidates.sort((a, b) => {
-      const av = a.includes('vercel.app') ? -1 : 1;
-      const bv = b.includes('vercel.app') ? -1 : 1;
-      return av - bv;
-    });
+    const vercelOnly = candidates.filter(c => c.includes('vercel.app'));
+    if (vercelOnly.length > 0) {
+      return [...new Set(vercelOnly)];
+    }
   }
 
   const cached = _getCachedServerUrl();

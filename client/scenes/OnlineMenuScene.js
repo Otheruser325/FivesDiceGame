@@ -42,8 +42,20 @@ export default class OnlineMenuScene extends Phaser.Scene {
         this.add.text(600, 60, t('ONLINE_MENU_TITLE', 'Online Mode'), { fontSize: 48 }).setOrigin(0.5);
 
         // Initialize socket connection
-        const socket = getSocket();
+        let socket = getSocket();
         const server = getServerUrl();
+
+        // Preflight: quickly pick a reachable production server before waiting on socket connect.
+        // This avoids waiting on a dead cached origin (for example api.fivesdicegame.com outage).
+        try {
+            const preflightOk = await probeHealth(700);
+            if (preflightOk) {
+                connectTo(getServerUrl());
+                socket = getSocket();
+            }
+        } catch (e) {
+            // ignore and continue with normal flow
+        }
         
         // Check if socket is already connected - if so, proceed immediately
         let socketReady = socket && socket.connected;
