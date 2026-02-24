@@ -1,1 +1,3 @@
+DEPLOYMENT.md
 server/.env
+server/.env.example

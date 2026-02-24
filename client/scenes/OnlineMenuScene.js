@@ -116,7 +116,7 @@ export default class OnlineMenuScene extends Phaser.Scene {
                     return;
                 }
                 
-                // Server is healthy but socket won't connect - might be Vercel timeout
+                // Server is healthy but socket still cannot connect - likely transient network/runtime startup delay.
                 this.add.text(600, 150, t('ONLINE_CONNECTION_SLOW_TITLE', 'Connection Slow'), {
                     fontSize: 32, color: "#ffaa00"
                 }).setOrigin(0.5);

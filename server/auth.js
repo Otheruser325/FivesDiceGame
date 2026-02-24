@@ -56,6 +56,112 @@ function publicUser(u) {
   return safe;
 }
 
+function normalizeOrigin(origin) {
+  if (!origin || typeof origin !== 'string') return null;
+  try {
+    const parsed = new URL(origin);
+    return `${parsed.protocol}//${parsed.host}`.toLowerCase();
+  } catch (e) {
+    return null;
+  }
+}
+
+function getConfiguredClientOrigins() {
+  if (!process.env.CLIENT_ORIGINS) return [];
+  return process.env.CLIENT_ORIGINS
+    .split(',')
+    .map((origin) => normalizeOrigin(origin.trim()))
+    .filter(Boolean);
+}
+
+function getPublicServerOrigin() {
+  const explicit = process.env.PUBLIC_SERVER_URL || process.env.RENDER_EXTERNAL_URL;
+  const normalizedExplicit = normalizeOrigin(explicit);
+  if (normalizedExplicit) return normalizedExplicit;
+
+  if (process.env.NODE_ENV === 'production') {
+    const host = process.env.HOST ? String(process.env.HOST).trim() : '';
+    if (host) {
+      const normalizedHost = normalizeOrigin(`https://${host}`);
+      if (normalizedHost) return normalizedHost;
+    }
+
+    return 'https://fivesapi.onrender.com';
+  }
+
+  const localPort = process.env.PORT || 8080;
+  return `http://localhost:${localPort}`;
+}
+
+const PUBLIC_SERVER_ORIGIN = getPublicServerOrigin();
+const DISCORD_CALLBACK_URL = process.env.DISCORD_CALLBACK_URL || `${PUBLIC_SERVER_ORIGIN}/auth/discord/callback`;
+
+function isAllowedAuthOrigin(origin) {
+  const normalized = normalizeOrigin(origin);
+  if (!normalized) return false;
+
+  const configured = getConfiguredClientOrigins();
+  if (configured.includes(normalized)) return true;
+
+  try {
+    const hostname = new URL(normalized).hostname.toLowerCase();
+    if (hostname === 'localhost' || hostname === '127.0.0.1') return true;
+    if (hostname.endsWith('.vercel.app')) return true;
+    if (hostname.endsWith('.onrender.com')) return true;
+    if (hostname === 'fivesdicegame.com' || hostname.endsWith('.fivesdicegame.com')) return true;
+  } catch (e) {
+    return false;
+  }
+
+  return false;
+}
+
+function applyAuthCorsHeaders(req, res) {
+  const origin = req.headers.origin;
+  if (!isAllowedAuthOrigin(origin)) return false;
+
+  res.header('Access-Control-Allow-Origin', origin);
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.header('Vary', 'Origin');
+  return true;
+}
+
+function getClientRedirectBase(req) {
+  const explicit = process.env.AUTH_SUCCESS_REDIRECT_URL || process.env.GAME_CLIENT_URL;
+  if (explicit) return explicit;
+
+  const requestOrigin = normalizeOrigin(req?.headers?.origin);
+  if (requestOrigin && isAllowedAuthOrigin(requestOrigin)) {
+    return requestOrigin;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    return 'https://play.fivesdicegame.com';
+  }
+
+  return 'http://localhost:8080';
+}
+
+function buildPostAuthRedirect(req, provider) {
+  const base = getClientRedirectBase(req);
+  const params = new URLSearchParams({
+    auth: 'success',
+    provider,
+    timestamp: String(Date.now())
+  });
+
+  if (/^https?:\/\//i.test(base)) {
+    const url = new URL(base);
+    params.forEach((value, key) => url.searchParams.set(key, value));
+    return url.toString();
+  }
+
+  const separator = base.includes('?') ? '&' : '?';
+  return `${base}${separator}${params.toString()}`;
+}
+
 // ----------------- GOOGLE OAUTH -----------------
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   passport.use(
@@ -94,27 +200,8 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 
 // ----------------- DISCORD OAUTH -----------------
 if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
-  // ⚠️ CRITICAL: Discord OAuth requires absolute HTTPS URL
-  // Determine the correct callback URL based on environment
-  let discordCallbackURL;
-  
-  if (process.env.DISCORD_CALLBACK_URL) {
-    // Explicit override (highest priority)
-    discordCallbackURL = process.env.DISCORD_CALLBACK_URL;
-  } else if (process.env.VERCEL === '1') {
-    // Vercel production - use HTTPS and Vercel URL
-    const vercelUrl = process.env.VERCEL_URL || 'fivesapi.vercel.app';
-    discordCallbackURL = `https://${vercelUrl}/auth/discord/callback`;
-  } else if (process.env.NODE_ENV === 'production') {
-    // Other production - use HTTPS with host header
-    discordCallbackURL = `https://${process.env.HOST || 'localhost'}/auth/discord/callback`;
-  } else {
-    // Development - use HTTP localhost
-    discordCallbackURL = 'http://localhost:8080/auth/discord/callback';
-  }
-  
-  console.log('[Discord OAuth] Callback URL:', discordCallbackURL);
-  
+  console.log('[Discord OAuth] Callback URL:', DISCORD_CALLBACK_URL);
+
   passport.use(
     "discord",
     new OAuth2Strategy(
@@ -123,7 +210,7 @@ if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
         tokenURL: "https://discord.com/api/oauth2/token",
         clientID: process.env.DISCORD_CLIENT_ID,
         clientSecret: process.env.DISCORD_CLIENT_SECRET,
-        callbackURL: discordCallbackURL,
+        callbackURL: DISCORD_CALLBACK_URL,
         scope: ["identify"],
       },
       async (accessToken, refreshToken, params, done) => {
@@ -282,21 +369,14 @@ router.get(
       await saveUser(req.user);
     }
     if (req.query.state === "json") return res.json({ ok: true, user: publicUser(req.user) });
-    res.redirect("/FivesDiceGame");
+    res.redirect(buildPostAuthRedirect(req, 'google'));
   }
 );
 
 router.get("/discord",
   requireStrategy("discord", "Discord OAuth is not configured on this server. Please restart the server with DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET set."),
   (req, res, next) => {
-    // Set CORS headers for the authorize endpoint
-    const origin = req.headers.origin;
-    if (origin && (origin.includes('vercel.app') || origin.includes('localhost'))) {
-      res.header('Access-Control-Allow-Origin', origin);
-      res.header('Access-Control-Allow-Credentials', 'true');
-      res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-    }
+    applyAuthCorsHeaders(req, res);
     
     passport.authenticate("discord", {
       state: req.query.redirect === "json" ? "json" : undefined,
@@ -309,9 +389,7 @@ router.get("/discord/authorize", (req, res) => {
   try {
     // Generate OAuth parameters dynamically
     const client_id = process.env.DISCORD_CLIENT_ID;
-    const redirect_uri = process.env.NODE_ENV === 'production'
-      ? `https://${process.env.VERCEL_URL || 'fivesapi.vercel.app'}/auth/discord/callback`
-      : 'http://localhost:8080/auth/discord/callback';
+    const redirect_uri = DISCORD_CALLBACK_URL;
     const scope = 'identify';
     const state = 'json'; // Use JSON response for client-side handling
     const response_type = 'code';
@@ -331,14 +409,7 @@ router.get("/discord/authorize", (req, res) => {
     
     console.log('[Discord] Authorize proxy redirecting to:', discordUrl.toString());
     
-    // Set CORS headers
-    const origin = req.headers.origin;
-    if (origin && (origin.includes('vercel.app') || origin.includes('localhost'))) {
-      res.header('Access-Control-Allow-Origin', origin);
-      res.header('Access-Control-Allow-Credentials', 'true');
-      res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-    }
+    applyAuthCorsHeaders(req, res);
     
     // Redirect to Discord OAuth
     res.redirect(302, discordUrl.toString());
@@ -350,12 +421,7 @@ router.get("/discord/authorize", (req, res) => {
 
 // Handle OPTIONS preflight for Discord callback
 router.options("/discord/callback", (req, res) => {
-  const origin = req.headers.origin;
-  if (origin && (origin.includes('vercel.app') || origin.includes('localhost'))) {
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-    res.header('Access-Control-Allow-Credentials', 'true');
+  if (applyAuthCorsHeaders(req, res)) {
     res.header('Access-Control-Max-Age', '86400'); // 24 hours
   }
   res.status(200).end();
@@ -363,12 +429,7 @@ router.options("/discord/callback", (req, res) => {
 
 // Handle OPTIONS preflight for Discord authorize proxy
 router.options("/discord/authorize", (req, res) => {
-  const origin = req.headers.origin;
-  if (origin && (origin.includes('vercel.app') || origin.includes('localhost'))) {
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-    res.header('Access-Control-Allow-Credentials', 'true');
+  if (applyAuthCorsHeaders(req, res)) {
     res.header('Access-Control-Max-Age', '86400'); // 24 hours
   }
   res.status(200).end();
@@ -379,15 +440,8 @@ router.get(
   requireStrategy("discord", "Discord OAuth is not configured"),
   (req, res, next) => {
     // Set comprehensive CORS headers for the callback
-    const origin = req.headers.origin;
-    if (origin && (origin.includes('vercel.app') || origin.includes('localhost'))) {
-      res.header('Access-Control-Allow-Origin', origin);
-      res.header('Access-Control-Allow-Credentials', 'true');
-      res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-      
+    if (applyAuthCorsHeaders(req, res)) {
       // Set additional headers to help with cross-site cookie issues
-      res.header('Vary', 'Origin');
       res.header('Access-Control-Expose-Headers', 'Set-Cookie');
       res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.header('Pragma', 'no-cache');
@@ -495,7 +549,7 @@ router.get(
             });
           }
           
-          const redirectUrl = "/FivesDiceGame?auth=success&provider=discord&timestamp=" + Date.now();
+          const redirectUrl = buildPostAuthRedirect(req, 'discord');
           console.log('[Discord callback] Redirecting to:', redirectUrl);
           res.redirect(redirectUrl);
         });

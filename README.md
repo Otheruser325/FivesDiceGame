@@ -150,18 +150,18 @@ See `server/.env.example` for all options.
 
 ## 🌐 Production Deployment
 
-### Option 1: Vercel (Recommended)
-1. Push to GitHub
-2. Import project to Vercel
-3. Set environment variables
-4. Configure custom domains
-5. Done! Auto-deploys on each push
+### Option 1: Render (Recommended for server)
+1. Create a Render Web Service with root directory `server`
+2. Set Build Command to `npm ci` and Start Command to `npm start`
+3. Set environment variables (see `server/.env.example`)
+4. Set Health Check Path to `/health`
+5. Deploy and verify `/socket.io` and `/health` endpoints
 
-### Option 2: DigitalOcean App Platform
-1. Connect GitHub
-2. Create App
-3. Configure environment
-4. Assign custom domain
+### Option 2: Static + API split
+1. Deploy `client/` and `web/` to static hosting (Vercel/Netlify/etc)
+2. Deploy `server/` to Render or another persistent Node host
+3. Set `CLIENT_ORIGINS` to include your client domain(s)
+4. Keep API URL pointed at your server host
 
 ### Option 3: Self-Hosted
 1. Deploy to VPS/Dedicated Server
@@ -232,4 +232,3 @@ Contributions welcome! Please feel free to submit Pull Requests.
 ---
 
 **Made with ❤️ for dice game lovers everywhere!**
-

@@ -14,12 +14,14 @@ import LeaderboardManager from './utils/leaderboardManager.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const IS_SERVERLESS = process.env.VERCEL === '1' || !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.NOW_REGION;
+const SERVER_RUNTIME = IS_SERVERLESS ? 'serverless' : 'persistent';
+const DEFAULT_RENDER_API_ORIGIN = 'https://fivesapi.onrender.com';
 
 const app = express();
 const server = createServer(app);
 
-// Trust reverse proxies (Vercel/NGINX) so secure cookies and client IP work correctly.
-if (process.env.NODE_ENV === 'production' || process.env.VERCEL === '1') {
+// Trust reverse proxies in production so secure cookies and client IP work correctly.
+if (process.env.NODE_ENV === 'production') {
   app.set('trust proxy', 1);
 }
 
@@ -38,6 +40,7 @@ app.get('/health', (req, res) => {
 
   res.json({
     status: 'healthy',
+    runtime: SERVER_RUNTIME,
     timestamp: new Date().toISOString(),
     redis: redisClient ? 'connected' : 'not connected',
     uptime: process.uptime()
@@ -59,19 +62,27 @@ if (process.env.NODE_ENV === 'production') {
 function getConfiguredOrigins() {
   // If environment variable is set, use it
   if (process.env.CLIENT_ORIGINS) {
-    return process.env.CLIENT_ORIGINS.split(',').map(o => o.trim());
+    return process.env.CLIENT_ORIGINS.split(',').map(o => o.trim()).filter(Boolean);
   }
 
   // Default origins based on environment
   if (process.env.NODE_ENV === 'production') {
-    return [
+    const defaults = [
+      DEFAULT_RENDER_API_ORIGIN,            // Render production API
       'https://play.fivesdicegame.com',    // Main game domain
       'https://fivesdicegame.com',          // Base domain
       'https://www.fivesdicegame.com',      // WWW variant
+      'https://api.fivesdicegame.com',      // Custom API domain
       'https://fivesapi.vercel.app',        // Vercel fallback
       'https://fivesdicegame.vercel.app',  // Alternative Vercel domain
       'https://fivesweb.vercel.app'  // Another alternative Vercel domain
     ];
+
+    if (process.env.RENDER_EXTERNAL_URL) {
+      defaults.push(process.env.RENDER_EXTERNAL_URL);
+    }
+
+    return defaults;
   }
 
   // Development origins
@@ -117,8 +128,9 @@ function isAllowedOrigin(origin) {
   try {
     const hostname = new URL(normalized).hostname.toLowerCase();
 
-    // Accept vercel preview/production domains and custom game domains.
+    // Accept preview/production domains and custom game domains.
     if (hostname.endsWith('.vercel.app')) return true;
+    if (hostname.endsWith('.onrender.com')) return true;
     if (hostname === 'fivesdicegame.com' || hostname.endsWith('.fivesdicegame.com')) return true;
   } catch (e) {
     return false;
@@ -137,7 +149,7 @@ function socketCorsOrigin(origin, callback) {
 
 const isServerlessSocket = IS_SERVERLESS;
 
-// Socket.IO is tuned differently for Vercel/serverless:
+// Socket.IO is tuned differently for serverless runtimes:
 // - polling only (no websocket upgrade)
 // - shorter ping cycle so polling requests complete promptly
 // - lower payload cap and no heavy compression on serverless
@@ -170,7 +182,7 @@ let sessionStore = null;
 
 async function initializeRedis() {
   // Redis introduces network latency per request and can stall serverless invocations.
-  // In Vercel/serverless mode we use in-memory session storage.
+  // In serverless mode we use in-memory session storage.
   if (IS_SERVERLESS) {
     console.log('[Session] Serverless mode: skipping Redis session store');
     return false;
@@ -231,7 +243,7 @@ async function initializeSession() {
     resave: false,
     saveUninitialized: false,
     rolling: !IS_SERVERLESS,
-    proxy: process.env.NODE_ENV === 'production' || process.env.VERCEL === '1',
+    proxy: process.env.NODE_ENV === 'production',
     cookie: {
       secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
@@ -495,11 +507,12 @@ if (!IS_SERVERLESS) {
   server.listen(PORT, '0.0.0.0', () => {
     console.log('[Server] Fives Dice Game Server running on port ' + PORT);
     console.log('[Server] Environment: ' + (process.env.NODE_ENV || 'development'));
+    console.log('[Server] Runtime: ' + SERVER_RUNTIME);
     console.log('[Server] Socket.io transports: ' + io.engine.opts.transports.join(', '));
     console.log('[Server] Health check: http://localhost:' + PORT + '/health');
   });
 } else {
-  console.log('[Server] Running in serverless mode (Vercel-compatible request handler)');
+  console.log('[Server] Runtime: ' + SERVER_RUNTIME + ' (request-handler mode)');
 }
 
 export { app, server, io };

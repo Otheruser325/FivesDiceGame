@@ -12,7 +12,8 @@ const MODE = _detectMode();
 
 const DEFAULT_PORTS = [8080, 8081, 8082, 8083, 8084, 8085];
 
-const VERCEL_API_SERVER = 'https://fivesapi.vercel.app';
+const RENDER_API_SERVER = 'https://fivesapi.onrender.com';
+const LEGACY_VERCEL_API_SERVER = 'https://fivesapi.vercel.app';
 const CUSTOM_API_SERVER = 'https://api.fivesdicegame.com';
 
 const MAX_CONNECTION_RETRIES = 8;            // Keep retries finite for faster fallback UX
@@ -75,24 +76,53 @@ function _shouldUseCustomApi() {
   }
 }
 
+function _shouldAllowLegacyVercelFallback() {
+  try {
+    if (typeof window === 'undefined') return false;
+
+    if (window.__FIVES_ENABLE_LEGACY_VERCEL_FALLBACK__ === true) return true;
+
+    const qp = new URLSearchParams(window.location.search || '');
+    return qp.get('legacyVercel') === '1';
+  } catch (e) {
+    return false;
+  }
+}
+
+function _getExplicitServerOverride() {
+  try {
+    if (typeof window === 'undefined') return null;
+
+    const fromWindow = window.__FIVES_API_SERVER__;
+    if (typeof fromWindow === 'string' && fromWindow.trim()) {
+      return _norm(fromWindow.trim());
+    }
+
+    const qp = new URLSearchParams(window.location.search || '');
+    const fromQuery = qp.get('server');
+    if (fromQuery) {
+      return _norm(fromQuery);
+    }
+  } catch (e) {
+    // ignore
+  }
+  return null;
+}
+
 function _getProductionCandidates() {
-  const candidates = [VERCEL_API_SERVER];
+  const candidates = [RENDER_API_SERVER];
   if (_shouldUseCustomApi()) {
     candidates.unshift(CUSTOM_API_SERVER);
   }
-  const normalizedCandidates = candidates.map(_norm);
+  if (_shouldAllowLegacyVercelFallback()) {
+    candidates.push(LEGACY_VERCEL_API_SERVER);
+  }
 
-  const host = (typeof window !== 'undefined' && window.location?.hostname)
-    ? window.location.hostname
-    : '';
+  const normalizedCandidates = [...new Set(candidates.map(_norm))];
 
-  // On vercel.app host, prioritize and restrict to Vercel API to avoid noisy
-  // cross-origin failures against custom domains that may be offline.
-  if (host.includes('vercel.app')) {
-    const vercelOnly = normalizedCandidates.filter(c => c.includes('vercel.app'));
-    if (vercelOnly.length > 0) {
-      return [...new Set(vercelOnly)];
-    }
+  const explicit = _getExplicitServerOverride();
+  if (explicit) {
+    return [explicit, ...normalizedCandidates.filter(c => c !== explicit)];
   }
 
   const cached = _getCachedServerUrl();
@@ -104,8 +134,8 @@ function _getProductionCandidates() {
 }
 
 function _buildSocketOptions(server) {
-  const isVercel = String(server).includes('vercel.app');
-  const transports = isVercel ? ['polling'] : ['websocket', 'polling'];
+  const isServerlessEndpoint = String(server).includes('vercel.app');
+  const transports = isServerlessEndpoint ? ['polling'] : ['websocket', 'polling'];
   return {
     autoConnect: true,
     transports,
@@ -114,11 +144,11 @@ function _buildSocketOptions(server) {
     reconnectionDelay: INITIAL_RECONNECT_DELAY,
     reconnectionDelayMax: MAX_RECONNECT_DELAY,
     reconnectionAttempts: MAX_CONNECTION_RETRIES,
-    upgrade: !isVercel,
-    upgradeTimeout: isVercel ? 1000 : 10000,
+    upgrade: !isServerlessEndpoint,
+    upgradeTimeout: isServerlessEndpoint ? 1000 : 10000,
     rememberUpgrade: false,
-    pingInterval: isVercel ? 10000 : 20000,
-    pingTimeout: isVercel ? 20000 : 10000,
+    pingInterval: isServerlessEndpoint ? 10000 : 20000,
+    pingTimeout: isServerlessEndpoint ? 20000 : 10000,
     path: '/socket.io',
     query: {},
     randomizationFactor: 0.5,
@@ -216,13 +246,11 @@ export async function probeHealth(timeoutMs = 600) {
 function _initialServerCandidate() {
   if (_serverUrl) return _serverUrl;
 
-  try {
-    if (typeof window !== 'undefined') {
-      const qp = new URLSearchParams(window.location.search);
-      const s = qp.get('server');
-      if (s) { _serverUrl = _norm(s); return _serverUrl; }
-    }
-  } catch (e) { /* ignore */ }
+  const explicit = _getExplicitServerOverride();
+  if (explicit) {
+    _serverUrl = explicit;
+    return _serverUrl;
+  }
 
   // Default based on MODE: production uses candidate list, development uses localhost.
   if (MODE === 'development') {
@@ -428,9 +456,9 @@ function _attachSocketHandlers(sock, server) {
         forceNewConnection();
       }, 100); // Small delay to avoid rapid reconnection loops
     } else if (isTransportError) {
-      console.info('[Socket] Transport error (normal on Vercel), reconnecting...', {
+      console.info('[Socket] Transport error, reconnecting...', {
         retries: _connectionRetries + 1,
-        note: 'Polling transport retry'
+        note: 'Socket transport retry'
       });
     } else {
       console.warn('[Socket] connect_error:', errMsg);
@@ -544,14 +572,14 @@ export function getSocket() {
   // initial server to connect to (query string or default)
   const server = _initialServerCandidate();
 
-  // Determine transports based on server (Vercel doesn't support WebSocket)
-  const isVercel = server.includes('vercel.app');
+  // Determine transports based on endpoint runtime capabilities.
+  const isServerlessEndpoint = server.includes('vercel.app');
   
-  if (isVercel) {
-    console.info('[Socket] Connecting to Vercel (' + server + ') — using polling only');
+  if (isServerlessEndpoint) {
+    console.info('[Socket] Connecting to serverless endpoint (' + server + ') - using polling only');
   }
 
-  // create socket with optimized config for Vercel polling
+  // Create socket with endpoint-appropriate transport configuration.
   OnlineSocket = _createSocket(server);
 
   // attach default handlers
