@@ -1,12 +1,10 @@
 import GlobalLocalization from './LocalizationManager.js';
 
 class AlertManager {
-  constructor() {
-    this._scene = null;
-    this._container = null;
-    this._timer = null;
-    this._escHandler = null;
-  }
+  static _scene = null;
+  static _container = null;
+  static _timer = null;
+  static _escHandler = null;
 
   /**
    * Show a modal alert
@@ -14,7 +12,7 @@ class AlertManager {
    * @param {string} message
    * @param {'warning'|'error'|'success'|'info'} type
    */
-  show(scene, message, type = 'warning') {
+  static show(scene, message, type = 'warning') {
     if (!scene || !scene.add) return;
 
     this.hide();
@@ -81,7 +79,7 @@ class AlertManager {
     scene.events.once('destroy', () => this.hide());
   }
 
-  getTypeConfig(type) {
+  static getTypeConfig(type) {
     switch (type) {
       case 'error':
         return { title: GlobalLocalization.t('ALERT_ERROR_TITLE', 'ERROR'), color: 0xff4444, hex: '#ff4444' };
@@ -95,7 +93,7 @@ class AlertManager {
     }
   }
 
-  fadeOut() {
+  static fadeOut() {
     if (!this._scene || !this._container) return;
 
     this._scene.tweens.add({
@@ -106,7 +104,7 @@ class AlertManager {
     });
   }
 
-  hide() {
+  static hide() {
     if (this._scene && this._escHandler) {
       this._scene.input.keyboard.off('keydown-ESC', this._escHandler);
       this._escHandler = null;
@@ -126,5 +124,5 @@ class AlertManager {
   }
 }
 
-const GlobalAlerts = new AlertManager();
+const GlobalAlerts = AlertManager;
 export default GlobalAlerts;

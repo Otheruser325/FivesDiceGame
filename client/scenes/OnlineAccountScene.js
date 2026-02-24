@@ -15,7 +15,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
     this.passwordInput = null;
     this.loginUserInput = null;
     this.loginPassInput = null;
-    this.debugger = new DebugManager(this, { namespace: 'OnlineAccountScene' });
+    this.debugger = DebugManager.create(this, { namespace: 'OnlineAccountScene' });
     this.debug = this.debugger.enabled;
   }
 
@@ -628,3 +628,4 @@ export default class OnlineAccountScene extends Phaser.Scene {
     this._destroyDomInputs();
   }
 }
+

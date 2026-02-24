@@ -4,16 +4,14 @@ const DEFAULTS = {
   visualEffects: true,    // combo FX / overlays
   shuffleTrack: false,    // shuffle music tracks
   trackIndex: 0,          // which music track
-  language: 'English',    // UI language
+  language: 'English'     // UI language
 };
 
 class SettingsManager {
-  constructor(storageKey = 'fives_settings') {
-    this.storageKey = storageKey;
-  }
+  static storageKey = 'fives_settings';
 
   // Read from registry if present, otherwise load from localStorage and merge defaults.
-  get(scene) {
+  static get(scene) {
     if (!scene || !scene.registry) {
       // defensive: return defaults if no scene available
       return { ...DEFAULTS };
@@ -34,7 +32,7 @@ class SettingsManager {
   }
 
   // Force reload from localStorage into registry (useful at boot)
-  loadInto(scene) {
+  static loadInto(scene) {
     if (!scene || !scene.registry) return this.get(scene);
     const ls = this._loadFromLocal();
     const settings = { ...DEFAULTS, ...(ls || {}) };
@@ -43,7 +41,7 @@ class SettingsManager {
   }
 
   // Persist registry -> localStorage
-  save(scene) {
+  static save(scene) {
     if (!scene || !scene.registry) return;
     const settings = scene.registry.get('settings') || { ...DEFAULTS };
     try {
@@ -54,7 +52,7 @@ class SettingsManager {
   }
 
   // Convenience to set single key and persist
-  set(scene, key, value, { save = true } = {}) {
+  static set(scene, key, value, { save = true } = {}) {
     if (!scene || !scene.registry) return;
     const settings = this.get(scene);
     settings[key] = value;
@@ -63,7 +61,7 @@ class SettingsManager {
     return settings;
   }
 
-  toggle(scene, key, { save = true } = {}) {
+  static toggle(scene, key, { save = true } = {}) {
     const settings = this.get(scene);
     settings[key] = !settings[key];
     scene.registry.set('settings', settings);
@@ -72,14 +70,14 @@ class SettingsManager {
   }
 
   // Helper for track index clamped
-  setTrackIndex(scene, idx, { save = true, trackCount = 3 } = {}) {
+  static setTrackIndex(scene, idx, { save = true, trackCount = 3 } = {}) {
     const safe = ((typeof idx === 'number' && isFinite(idx)) ? Math.floor(idx) : 0) % Math.max(1, trackCount);
     this.set(scene, 'trackIndex', safe, { save });
     return safe;
   }
 
   // internal
-  _loadFromLocal() {
+  static _loadFromLocal() {
     try {
       const raw = localStorage.getItem(this.storageKey);
       if (!raw) return null;
@@ -91,5 +89,5 @@ class SettingsManager {
   }
 }
 
-const GlobalSettings = new SettingsManager();
+const GlobalSettings = SettingsManager;
 export default GlobalSettings;

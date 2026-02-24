@@ -1,22 +1,20 @@
 class BackgroundManager {
-  constructor() {
-    this._scene = null;
-    this._bg = null;
-    this._opts = {};
-  }
+  static _scene = null;
+  static _bg = null;
+  static _opts = {};
 
   /**
    * Register a scene to attach the global background to.
    * opts = { key: 'bg' (asset key), width, height, padding, tint, useImageIfAvailable (true) }
    */
-  registerScene(scene, opts = {}) {
+  static registerScene(scene, opts = {}) {
     if (!scene || !scene.add) return;
-    if (this._scene === scene) return;
+    if (BackgroundManager._scene === scene) return;
 
-    this.unregisterScene();
+    BackgroundManager.unregisterScene();
 
-    this._scene = scene;
-    this._opts = { ...(opts || {}) };
+    BackgroundManager._scene = scene;
+    BackgroundManager._opts = { ...(opts || {}) };
 
     const cam = scene.cameras.main;
     const w = cam ? cam.width : scene.scale?.width;
@@ -62,7 +60,7 @@ class BackgroundManager {
       }
 
       try { img.setScrollFactor(0); } catch (e) {}
-      this._bg = img;
+      BackgroundManager._bg = img;
     } else {
       const pad = (typeof opts.padding === 'number') ? opts.padding : 28;
       const panelW = opts.width || Math.max(800, (w ? w : 800) - (pad * 2));
@@ -80,49 +78,49 @@ class BackgroundManager {
         container.list.forEach(c => c.setScrollFactor?.(0));
       } catch (e) {}
 
-      this._bg = container;
+      BackgroundManager._bg = container;
     }
 
     try {
-      if (this._bg && this._bg.setScrollFactor) this._bg.setScrollFactor(0);
-      if (this._bg && this._bg.list) {
-        this._bg.list.forEach(c => c.setScrollFactor?.(0));
+      if (BackgroundManager._bg && BackgroundManager._bg.setScrollFactor) BackgroundManager._bg.setScrollFactor(0);
+      if (BackgroundManager._bg && BackgroundManager._bg.list) {
+        BackgroundManager._bg.list.forEach(c => c.setScrollFactor?.(0));
       }
     } catch (e) {}
 
     if (scene.events && typeof scene.events.once === 'function') {
-      scene.events.once('shutdown', () => this.unregisterScene(scene));
-      scene.events.once('destroy', () => this.unregisterScene(scene));
+      scene.events.once('shutdown', () => BackgroundManager.unregisterScene(scene));
+      scene.events.once('destroy', () => BackgroundManager.unregisterScene(scene));
     }
   }
 
-  unregisterScene(scene = null) {
-    if (scene && this._scene !== scene) return;
+  static unregisterScene(scene = null) {
+    if (scene && BackgroundManager._scene !== scene) return;
     try {
-      if (this._bg) {
-        if (this._bg.destroy) this._bg.destroy(true);
-        this._bg = null;
+      if (BackgroundManager._bg) {
+        if (BackgroundManager._bg.destroy) BackgroundManager._bg.destroy(true);
+        BackgroundManager._bg = null;
       }
     } catch (e) {
       console.warn('[BackgroundManager] cleanup error', e);
     }
-    this._scene = null;
-    this._opts = {};
+    BackgroundManager._scene = null;
+    BackgroundManager._opts = {};
   }
 
   // Backwards compatible
-  createBackgroundPanel(scene, opts = {}) {
-    this.registerScene(scene, { ...opts, useImageIfAvailable: !!opts.useImageIfAvailable });
-    if (!this._bg) return { outer: null, panel: null };
-    if (this._bg.list) {
-      const outer = this._bg.list[0] || null;
-      const panel = this._bg.list[1] || null;
+  static createBackgroundPanel(scene, opts = {}) {
+    BackgroundManager.registerScene(scene, { ...opts, useImageIfAvailable: !!opts.useImageIfAvailable });
+    if (!BackgroundManager._bg) return { outer: null, panel: null };
+    if (BackgroundManager._bg.list) {
+      const outer = BackgroundManager._bg.list[0] || null;
+      const panel = BackgroundManager._bg.list[1] || null;
       return { outer, panel };
     } else {
-      return { outer: null, panel: this._bg };
+      return { outer: null, panel: BackgroundManager._bg };
     }
   }
 }
 
-const GlobalBackground = new BackgroundManager();
+const GlobalBackground = BackgroundManager;
 export default GlobalBackground;

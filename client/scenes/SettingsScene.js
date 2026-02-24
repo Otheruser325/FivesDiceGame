@@ -16,7 +16,7 @@ export default class SettingsScene extends Phaser.Scene {
         ErrorHandler.setScene(this);
         this.jukeboxOpen = false;
         this.jukeboxElements = null;
-        this.add.text(600, 80, t('SETTINGS_TITLE', 'Settings'), {
+        this.titleText = this.add.text(600, 80, t('SETTINGS_TITLE', 'Settings'), {
             fontSize: 48
         }).setOrigin(0.5);
 
@@ -158,6 +158,9 @@ export default class SettingsScene extends Phaser.Scene {
 
     refreshLabels() {
         const settings = GlobalSettings.get(this);
+        if (this.titleText) {
+            this.titleText.setText(t('SETTINGS_TITLE', 'Settings'));
+        }
         if (this.audioText) {
             this.audioText.setText(tf('SET_SOUND', 'Sound Effects: {0}', onOff(settings.audio)));
         }

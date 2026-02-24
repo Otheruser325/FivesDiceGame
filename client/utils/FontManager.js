@@ -1,51 +1,49 @@
 class FontManager {
-  constructor({ perFontTimeout = 1000 } = {}) {
-    this._loaded = new Set();
-    this.perFontTimeout = perFontTimeout;
-  }
+  static _loaded = new Set();
+  static perFontTimeout = 1000;
 
   /**
    * defs: [{ family, url, weight }]
    * options: { timeout } optional per-call override (ms)
    */
-  async init(defs = [], options = {}) {
+  static async init(defs = [], options = {}) {
     if (!Array.isArray(defs) || defs.length === 0) return;
-    const timeout = options.timeout ?? this.perFontTimeout;
+    const timeout = options.timeout ?? FontManager.perFontTimeout;
 
-    const tasks = defs.map(def => this._loadFont(def, timeout));
+    const tasks = defs.map(def => FontManager._loadFont(def, timeout));
     await Promise.all(tasks);
   }
 
-  isLoaded(family, weight = '400') {
-    return this._loaded.has(`${family}::${weight}`);
+  static isLoaded(family, weight = '400') {
+    return FontManager._loaded.has(`${family}::${weight}`);
   }
 
   // ---------- internals ----------
-  async _loadFont(def = {}, timeoutMs = 1000) {
+  static async _loadFont(def = {}, timeoutMs = 1000) {
     const family = def.family || 'Unknown';
     const weight = String(def.weight || '400');
     const cacheKey = `${family}::${weight}`;
-    if (this._loaded.has(cacheKey)) return true;
+    if (FontManager._loaded.has(cacheKey)) return true;
 
-    const fontFaceOk = await this._loadWithFontFace(def, timeoutMs);
+    const fontFaceOk = await FontManager._loadWithFontFace(def, timeoutMs);
     if (fontFaceOk) {
-      try { await this._waitForDocumentFontsLoad(def, timeoutMs); } catch (e) {}
-      this._loaded.add(cacheKey);
+      try { await FontManager._waitForDocumentFontsLoad(def, timeoutMs); } catch (e) {}
+      FontManager._loaded.add(cacheKey);
       return true;
     }
 
     try {
-      this._injectCSSFallback(def);
-      await this._waitForDocumentFontsLoad(def, timeoutMs);
+      FontManager._injectCSSFallback(def);
+      await FontManager._waitForDocumentFontsLoad(def, timeoutMs);
     } catch (e) {
       console.warn('[FontManager] fallback wait failed for', def, e);
     }
 
-    this._loaded.add(cacheKey);
+    FontManager._loaded.add(cacheKey);
     return true;
   }
 
-  _loadWithFontFace(def = {}, timeoutMs = 1000) {
+  static _loadWithFontFace(def = {}, timeoutMs = 1000) {
     return new Promise(resolve => {
       if (typeof FontFace === 'undefined') return resolve(false);
 
@@ -74,7 +72,7 @@ class FontManager {
     });
   }
 
-  _injectCSSFallback(def = {}) {
+  static _injectCSSFallback(def = {}) {
     try {
       const cssFamily = (def.family || 'Unknown').replace(/["']/g, '');
       const weight = def.weight || '400';
@@ -98,7 +96,7 @@ class FontManager {
     }
   }
 
-  _waitForDocumentFontsLoad(def = {}, timeoutMs = 1000) {
+  static _waitForDocumentFontsLoad(def = {}, timeoutMs = 1000) {
     return new Promise(resolve => {
       try {
         if (!document.fonts || typeof document.fonts.load !== 'function') {
@@ -122,5 +120,5 @@ class FontManager {
   }
 }
 
-export const GlobalFonts = new FontManager({ perFontTimeout: 1000 });
+export const GlobalFonts = FontManager;
 export default GlobalFonts;

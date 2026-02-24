@@ -1,7 +1,7 @@
 import { getSocket, emitAuthUser } from '../utils/SocketManager.js';
 import GlobalAudio from '../utils/AudioManager.js';
 import { animateDiceRoll } from '../utils/AnimationManager.js';
-import { checkCombo, showComboText, playComboFX } from '../utils/ComboManager.js';
+import ComboManager from '../utils/ComboManager.js';
 import ErrorHandler from '../utils/ErrorManager.js';
 import SyncManager from '../utils/SyncManager.js';
 import GlobalLocalization from '../utils/LocalizationManager.js';
@@ -67,7 +67,7 @@ export default class OnlineGameScene extends Phaser.Scene {
     ErrorHandler.setScene(this);
     this.exitLocked = true;
     this.exitModal = null;
-    this.debugger = new DebugManager(this, { namespace: 'OnlineGameScene' });
+    this.debugger = DebugManager.create(this, { namespace: 'OnlineGameScene' });
     this.debug = this.debugger.enabled;
 
     if (this.debug) console.log('[OnlineGameScene] create() room=', this.roomCode);
@@ -569,9 +569,9 @@ export default class OnlineGameScene extends Phaser.Scene {
     // Show combo fx (client-side visual)
     if (combo && this.comboRulesEnabled()) {
       try {
-        playComboFX(this, combo.key);
+        ComboManager.playComboFX(this, combo.key);
         const comboLabel = this.getComboLabel(combo);
-        showComboText(this, comboLabel, combo.intensity || 1, combo.key);
+        ComboManager.showComboText(this, comboLabel, combo.intensity || 1, combo.key);
         if (GlobalAudio && combo.key && typeof GlobalAudio.comboSFX === 'function') {
           GlobalAudio.comboSFX(this, combo.key);
         }
@@ -985,7 +985,7 @@ export default class OnlineGameScene extends Phaser.Scene {
 
   applyBonus(dice, baseScore) {
     if (!this.comboRulesEnabled()) return baseScore;
-    const combo = checkCombo(dice);
+    const combo = ComboManager.checkCombo(dice);
     if (combo) return Math.floor(baseScore * (combo.multiplier || 1));
     return baseScore;
   }
@@ -998,7 +998,7 @@ export default class OnlineGameScene extends Phaser.Scene {
     }
 
     const base = this.getBaseScore(dice);
-    const combo = checkCombo(dice);
+    const combo = ComboManager.checkCombo(dice);
 
     const lines = [];
     lines.push(tf('SCORE_ROLLED', 'Rolled: {0}', dice.join(', ')));
@@ -1199,3 +1199,4 @@ export default class OnlineGameScene extends Phaser.Scene {
     this.cleanupHotkeys();
   }
 }
+

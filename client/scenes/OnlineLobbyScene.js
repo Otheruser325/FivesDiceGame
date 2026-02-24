@@ -17,7 +17,7 @@ export default class OnlineLobbyScene extends Phaser.Scene {
         this.host = false;
         this.rulesPanel = null;
         this.teamPanel = null;
-        this.debugger = new DebugManager(this, { namespace: 'OnlineLobbyScene' });
+        this.debugger = DebugManager.create(this, { namespace: 'OnlineLobbyScene' });
         this.debug = this.debugger.enabled;
     }
 
@@ -438,3 +438,4 @@ export default class OnlineLobbyScene extends Phaser.Scene {
         return str || `${guestLabel}${String(id).substring(0, 6)}`;
     }
 }
+

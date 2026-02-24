@@ -1,6 +1,6 @@
 import GlobalLocalization from './LocalizationManager.js';
 
-class ErrorManager {
+class ErrorManagerCore {
     constructor() {
         this.errors = [];
         this._scene = null;
@@ -732,8 +732,20 @@ class ErrorManager {
     }
 }
 
-const ErrorHandler = new ErrorManager();
-export default ErrorHandler;
+const core = new ErrorManagerCore();
+
+export default class ErrorManager {
+    static setScene(...args) { return core.setScene(...args); }
+    static registerRecoveryHandler(...args) { return core.registerRecoveryHandler(...args); }
+    static logError(...args) { return core.logError(...args); }
+    static getErrorType(...args) { return core.getErrorType(...args); }
+    static getErrorConfig(...args) { return core.getErrorConfig(...args); }
+    static displayError(...args) { return core.displayError(...args); }
+    static fadeOut(...args) { return core.fadeOut(...args); }
+    static hide(...args) { return core.hide(...args); }
+    static getErrors(...args) { return core.getErrors(...args); }
+    static clearErrors(...args) { return core.clearErrors(...args); }
+}
 
 
 

@@ -150,7 +150,6 @@ class LocalizationManager {
     out = out.replace(/\uFEFF/g, '');
     out = out.replace(/\u00A0/g, ' ');
     out = out.replace(/\t/g, ' ');
-    // normalize punctuation that often breaks pixel fonts
     out = out.replace(/[\u2018\u2019]/g, "'");
     out = out.replace(/[\u201C\u201D]/g, '"');
     out = out.replace(/[\u2013\u2014]/g, '-');

@@ -23,7 +23,7 @@ export default class OnlineConfigScene extends Phaser.Scene {
         this.createLobbyBtn = null;
         this.creatingLobby = false;
         this.boundHandlers = {};
-        this.debugger = new DebugManager(this, { namespace: 'OnlineConfigScene' });
+        this.debugger = DebugManager.create(this, { namespace: 'OnlineConfigScene' });
         this.debug = this.debugger.enabled;
     }
 
@@ -460,3 +460,4 @@ export default class OnlineConfigScene extends Phaser.Scene {
         });
     }
 }
+

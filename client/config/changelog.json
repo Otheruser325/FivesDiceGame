@@ -2,6 +2,20 @@
   "title": "Fives - Changelog",
   "entries": [
     {
+      "version": "1.2.1",
+      "date": "24/02/2026",
+      "tags": [
+        "Release",
+        "Updates",
+        "Fixes"
+      ],
+      "changes": [
+        "Improved utility managers for better performance and stability.",
+        "Localisation fixes and changes.",
+        "Online mode fixes and improvements for a more stable experience."
+      ]
+    },
+    {
       "version": "1.2.0",
       "date": "13/02/2026",
       "tags": [

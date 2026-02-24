@@ -18,7 +18,7 @@ export default class OnlineMenuScene extends Phaser.Scene {
         this.lobbyUIElements = [];
         this.signInText = null;
         this._onAuthUpdated = null;
-        this.debugger = new DebugManager(this, { namespace: 'OnlineMenuScene' });
+        this.debugger = DebugManager.create(this, { namespace: 'OnlineMenuScene' });
         this.debug = this.debugger.enabled;
     }
 
@@ -41,49 +41,62 @@ export default class OnlineMenuScene extends Phaser.Scene {
 
         this.add.text(600, 60, t('ONLINE_MENU_TITLE', 'Online Mode'), { fontSize: 48 }).setOrigin(0.5);
 
-        // Initialize socket connection
-        let socket = getSocket();
-        const server = getServerUrl();
-
-        // Preflight: quickly pick a reachable production server before waiting on socket connect.
-        // This avoids waiting on a dead cached origin (for example api.fivesdicegame.com outage).
-        try {
-            const preflightOk = await probeHealth(700);
-            if (preflightOk) {
-                connectTo(getServerUrl());
-                socket = getSocket();
+        const waitForSocketConnection = (sock, timeoutMs = 12000) => new Promise((resolve) => {
+            if (!sock) {
+                resolve(false);
+                return;
             }
+            if (sock.connected) {
+                resolve(true);
+                return;
+            }
+
+            const timeout = setTimeout(() => {
+                console.warn(`[OnlineMenuScene] Socket connection timeout after ${Math.floor(timeoutMs / 1000)} seconds`);
+                sock.off('connect', onConnect);
+                sock.off('connect_error', onError);
+                resolve(false);
+            }, timeoutMs);
+
+            const onConnect = () => {
+                clearTimeout(timeout);
+                sock.off('connect', onConnect);
+                sock.off('connect_error', onError);
+                resolve(true);
+            };
+
+            // Keep waiting on transient connect_error events; Vercel polling can recover.
+            const onError = () => {};
+
+            sock.on('connect', onConnect);
+            sock.on('connect_error', onError);
+        });
+
+        // Preflight first, then connect once to the selected healthy server.
+        try {
+            await probeHealth(900);
         } catch (e) {
-            // ignore and continue with normal flow
+            // ignore and continue with default candidate
         }
-        
-        // Check if socket is already connected - if so, proceed immediately
-        let socketReady = socket && socket.connected;
-        
-        // If not connected, wait for connection with extended timeout for Vercel polling delays
+
+        const server = getServerUrl();
+        connectTo(server);
+        let socket = getSocket();
+
+        let socketReady = !!(socket && socket.connected);
         if (!socketReady && socket) {
-            socketReady = await new Promise((resolve) => {
-                const timeout = setTimeout(() => {
-                    console.warn('[OnlineMenuScene] Socket connection timeout after 8 seconds');
-                    resolve(false);
-                }, 8000);
-                
-                const onConnect = () => {
-                    clearTimeout(timeout);
-                    socket.off('connect', onConnect);
-                    resolve(true);
-                };
-                
-                const onError = () => {
-                    clearTimeout(timeout);
-                    socket.off('connect', onConnect);
-                    socket.off('connect_error', onError);
-                    resolve(false);
-                };
-                
-                socket.on('connect', onConnect);
-                socket.on('connect_error', onError);
-            });
+            socketReady = await waitForSocketConnection(socket, 12000);
+        }
+
+        // One fast retry against current selected origin before rendering unavailable state.
+        if (!socketReady) {
+            try {
+                connectTo(getServerUrl());
+            } catch (e) {
+                // ignore
+            }
+            socket = getSocket();
+            socketReady = await waitForSocketConnection(socket, 6000);
         }
 
         if (!socketReady) {
@@ -129,9 +142,6 @@ export default class OnlineMenuScene extends Phaser.Scene {
             }
         }
 
-        // Socket is ready, establish connection to ensure session is current
-        connectTo(server);
-        
         // Wait for socket to actually connect before trying to refresh auth
         const socketToUse = getSocket();
         if (socketToUse && !socketToUse.connected) {
@@ -613,3 +623,4 @@ export default class OnlineMenuScene extends Phaser.Scene {
         this.scene.pause();
     }
 }
+

@@ -12,16 +12,13 @@ const MODE = _detectMode();
 
 const DEFAULT_PORTS = [8080, 8081, 8082, 8083, 8084, 8085];
 
-// Production server URLs - supports both Vercel deployment and custom domain
-const PRODUCTION_SERVERS = [
-  'https://api.fivesdicegame.com',     // Primary: Custom domain API
-  'https://fivesapi.vercel.app'        // Fallback: Vercel deployment
-];
+const VERCEL_API_SERVER = 'https://fivesapi.vercel.app';
+const CUSTOM_API_SERVER = 'https://api.fivesdicegame.com';
 
-const MAX_CONNECTION_RETRIES = 15;           // Allow more retries for network resilience
+const MAX_CONNECTION_RETRIES = 10;           // Keep retries finite for faster fallback UX
 const INITIAL_RECONNECT_DELAY = 300;          // 300ms initial delay
 const MAX_RECONNECT_DELAY = 8000;             // 8s max delay
-const CONNECTION_TIMEOUT = 15000;             // 15s timeout for initial connection
+const CONNECTION_TIMEOUT = 10000;             // 10s timeout for initial connection
 
 function _isLocalHost(hostname) {
   return hostname === 'localhost' || hostname === '127.0.0.1';
@@ -60,8 +57,30 @@ function _cacheServerUrl(url) {
   }
 }
 
+function _shouldUseCustomApi() {
+  try {
+    if (typeof window === 'undefined') return false;
+
+    // Manual override for staged rollouts.
+    if (window.__FIVES_ENABLE_CUSTOM_API__ === true) return true;
+
+    const qp = new URLSearchParams(window.location.search || '');
+    if (qp.get('useCustomApi') === '1') return true;
+
+    // If the game is hosted directly on the custom domain, allow same-domain API.
+    const host = window.location?.hostname || '';
+    return host === 'fivesdicegame.com' || host === 'www.fivesdicegame.com';
+  } catch (e) {
+    return false;
+  }
+}
+
 function _getProductionCandidates() {
-  const candidates = PRODUCTION_SERVERS.map(_norm);
+  const candidates = [VERCEL_API_SERVER];
+  if (_shouldUseCustomApi()) {
+    candidates.unshift(CUSTOM_API_SERVER);
+  }
+  const normalizedCandidates = candidates.map(_norm);
 
   const host = (typeof window !== 'undefined' && window.location?.hostname)
     ? window.location.hostname
@@ -70,18 +89,18 @@ function _getProductionCandidates() {
   // On vercel.app host, prioritize and restrict to Vercel API to avoid noisy
   // cross-origin failures against custom domains that may be offline.
   if (host.includes('vercel.app')) {
-    const vercelOnly = candidates.filter(c => c.includes('vercel.app'));
+    const vercelOnly = normalizedCandidates.filter(c => c.includes('vercel.app'));
     if (vercelOnly.length > 0) {
       return [...new Set(vercelOnly)];
     }
   }
 
   const cached = _getCachedServerUrl();
-  if (cached && candidates.includes(cached)) {
-    return [cached, ...candidates.filter(c => c !== cached)];
+  if (cached && normalizedCandidates.includes(cached)) {
+    return [cached, ...normalizedCandidates.filter(c => c !== cached)];
   }
 
-  return candidates;
+  return normalizedCandidates;
 }
 
 function _buildSocketOptions(server) {
@@ -103,6 +122,7 @@ function _buildSocketOptions(server) {
     path: '/socket.io/',
     query: {},
     randomizationFactor: 0.5,
+    timeout: CONNECTION_TIMEOUT,
     connectTimeout: CONNECTION_TIMEOUT,
     forceNew: false,
     forceJSONP: false,

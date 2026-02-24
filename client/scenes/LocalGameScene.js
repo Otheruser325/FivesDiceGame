@@ -1,6 +1,6 @@
 import GlobalAudio from '../utils/AudioManager.js';
 import { animateDiceRoll } from '../utils/AnimationManager.js';
-import { checkCombo, showComboText, playComboFX } from '../utils/ComboManager.js';
+import ComboManager from '../utils/ComboManager.js';
 import Dice from '../utils/DiceManager.js';
 import ErrorHandler from '../utils/ErrorManager.js';
 import GlobalLocalization from '../utils/LocalizationManager.js';
@@ -69,7 +69,7 @@ export default class LocalGameScene extends Phaser.Scene {
 
     create() {
         ErrorHandler.setScene(this);
-        this.debugger = new DebugManager(this, { namespace: 'LocalGameScene' });
+        this.debugger = DebugManager.create(this, { namespace: 'LocalGameScene' });
         this.exitLocked = true;
         this.exitModal = null;
         this._hasRolledThisTurn = false;
@@ -404,7 +404,7 @@ export default class LocalGameScene extends Phaser.Scene {
         await animateDiceRoll(this, dice);
 
         const base = this.getBaseScore(dice);
-        const combo = checkCombo(dice);
+        const combo = ComboManager.checkCombo(dice);
         const scored = this.applyBonus(dice, base);
 
         if (this.debugger) {
@@ -423,8 +423,8 @@ export default class LocalGameScene extends Phaser.Scene {
 
             if (this.comboRules) {
                 const comboLabel = this.getComboLabel(combo);
-                playComboFX(this, combo.key);
-                showComboText(this, comboLabel, combo.intensity || 1, combo.key);
+                ComboManager.playComboFX(this, combo.key);
+                ComboManager.showComboText(this, comboLabel, combo.intensity || 1, combo.key);
                 if (GlobalAudio && combo.key && typeof GlobalAudio.comboSFX === 'function') {
                     GlobalAudio.comboSFX(this, combo.key);
                 }
@@ -566,7 +566,7 @@ export default class LocalGameScene extends Phaser.Scene {
 
     updateDiceScoreDisplay(dice, scored) {
         const base = this.getBaseScore(dice);
-        const combo = checkCombo(dice);
+        const combo = ComboManager.checkCombo(dice);
 
         const lines = [];
         lines.push(tf('SCORE_ROLLED', 'Rolled: {0}', dice.join(', ')));
@@ -641,7 +641,7 @@ export default class LocalGameScene extends Phaser.Scene {
         let score = baseScore;
 
         // ==== COMBO MANAGER CHECK ====
-        const combo = checkCombo(dice);
+        const combo = ComboManager.checkCombo(dice);
 
         if (combo) {
             score = baseScore * combo.multiplier;
