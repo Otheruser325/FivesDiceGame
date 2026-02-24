@@ -165,16 +165,31 @@ async function _probeHealthOrigin(server, timeoutMs = 600) {
 
 export async function probeHealth(timeoutMs = 600) {
   const candidates = _buildCandidates();
-  for (const server of candidates) {
-    if (!server) continue;
+  const validCandidates = candidates.filter(Boolean);
+  if (validCandidates.length === 0) return false;
+
+  const checks = validCandidates.map(async (server) => {
     const healthy = await _probeHealthOrigin(server, timeoutMs);
-    if (healthy) {
-      _serverUrl = _norm(server);
-      _cacheServerUrl(_serverUrl);
-      return true;
-    }
+    return { server, healthy };
+  });
+
+  // Resolve as soon as any candidate is healthy.
+  try {
+    const firstHealthy = await Promise.any(
+      checks.map(async (p) => {
+        const result = await p;
+        if (!result.healthy) throw new Error('unhealthy');
+        return result;
+      })
+    );
+
+    _serverUrl = _norm(firstHealthy.server);
+    _cacheServerUrl(_serverUrl);
+    return true;
+  } catch (e) {
+    // No healthy candidates found.
+    return false;
   }
-  return false;
 }
 
 // Resolve server URL if explicitly set (query param or window var) or cached

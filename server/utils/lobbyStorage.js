@@ -22,11 +22,46 @@ const DEFAULT_EXPIRE_MS = 1000 * 60 * 60 * 3;
 // In-memory cache for lobbies (needed for Vercel read-only filesystem)
 const lobbyMemoryCache = new Map();
 const isVercel = process.env.VERCEL === '1';
+const SUPABASE_OPERATION_TIMEOUT_MS = Number(process.env.SUPABASE_OPERATION_TIMEOUT_MS || 1200);
 
 // try to create supabase client (optional)
 const SUPA_URL = process.env.SUPABASE_URL;
 const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 let supabase = null;
+
+function _withTimeout(promise, timeoutMs, operationName = 'Supabase operation') {
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${operationName} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
+
+async function _runSupabaseStartupCheck() {
+  if (!supabase) return;
+  try {
+    const { error } = await _withTimeout(
+      supabase.from('lobbies').select('code', { head: true, count: 'exact' }).limit(1),
+      SUPABASE_OPERATION_TIMEOUT_MS,
+      'Supabase lobbies startup health check'
+    );
+
+    if (error) {
+      console.error('[lobbyStorage] ⚠️ Startup health check failed:', error.message);
+      console.error('[lobbyStorage] Error details:', { code: error.code, message: error.message });
+      return;
+    }
+
+    console.log('[lobbyStorage] ✅ Supabase connection verified (startup check)');
+  } catch (healthErr) {
+    console.warn('[lobbyStorage] Startup health check timeout/error:', healthErr?.message || healthErr);
+  }
+}
 
 // ⚠️ CRITICAL: Log Supabase initialization status on startup
 console.log('[lobbyStorage] Supabase initialization:');
@@ -37,20 +72,12 @@ if (SUPA_URL && SUPA_KEY) {
   try {
     supabase = createClient(SUPA_URL, SUPA_KEY);
     console.log('[lobbyStorage] ✅ Supabase client created successfully');
-    console.log('[lobbyStorage] Attempting initial health check...');
-    
-    // Test connection immediately
-    try {
-      const { data, error } = await supabase.from('lobbies').select('count');
-      if (error) {
-        console.error('[lobbyStorage] ⚠️ Health check failed:', error.message);
-        console.error('[lobbyStorage] Error details:', { code: error.code, message: error.message });
-      } else {
-        console.log('[lobbyStorage] ✅ Supabase connection verified, table accessible');
-      }
-    } catch (healthErr) {
-      console.error('[lobbyStorage] Health check error:', healthErr?.message || healthErr);
-    }
+    console.log('[lobbyStorage] Scheduling non-blocking startup health check...');
+    queueMicrotask(() => {
+      _runSupabaseStartupCheck().catch(err => {
+        console.warn('[lobbyStorage] Startup check failed:', err?.message || err);
+      });
+    });
   } catch (err) {
     console.error('[lobbyStorage] ❌ Supabase client initialization failed:', err?.message || err);
     console.error('[lobbyStorage] Falling back to local DB only');
@@ -193,7 +220,11 @@ export async function loadLobbies() {
       // This reduces network payload and speeds up queries significantly,
       // especially as the table grows (10x faster for large tables)
       const columns = 'code,hostsocketid,hostuserid,players,config,created_at,updated_at,updated_user';
-      const { data, error } = await supabase.from('lobbies').select(columns);
+      const { data, error } = await _withTimeout(
+        supabase.from('lobbies').select(columns),
+        SUPABASE_OPERATION_TIMEOUT_MS,
+        'Supabase loadLobbies'
+      );
       
       // Check for common Supabase errors indicating missing/empty schema
       if (error) {
@@ -204,11 +235,19 @@ export async function loadLobbies() {
           console.warn('[lobbyStorage] ⚠️ Supabase schema cache outdated for lobbies table');
           // Try to refresh schema by querying information_schema
           try {
-            await supabase.rpc('pg_reload_schema_cache', {});
+            await _withTimeout(
+              supabase.rpc('pg_reload_schema_cache', {}),
+              SUPABASE_OPERATION_TIMEOUT_MS,
+              'Supabase schema cache refresh'
+            );
             console.info('[lobbyStorage] ✅ Schema cache refresh attempted');
             // Retry the query with optimized column selection
             const columns = 'code,hostsocketid,hostuserid,players,config,created_at,updated_at,updated_user';
-            const { data: retryData, error: retryError } = await supabase.from('lobbies').select(columns);
+            const { data: retryData, error: retryError } = await _withTimeout(
+              supabase.from('lobbies').select(columns),
+              SUPABASE_OPERATION_TIMEOUT_MS,
+              'Supabase loadLobbies retry'
+            );
             if (!retryError && retryData) {
               const map = {};
               (retryData || []).forEach(r => {
@@ -305,10 +344,14 @@ export async function saveLobby(lobby) {
   if (supabase) {
     try {
       // ⚠️ Upsert with proper data serialization
-      const { data, error } = await supabase
-        .from('lobbies')
-        .upsert([row], { onConflict: 'code' })
-        .select();
+      const { data, error } = await _withTimeout(
+        supabase
+          .from('lobbies')
+          .upsert([row], { onConflict: 'code' })
+          .select(),
+        SUPABASE_OPERATION_TIMEOUT_MS,
+        'Supabase saveLobby'
+      );
       
       // Check for RLS/policy errors vs table errors
       if (error) {
@@ -410,10 +453,14 @@ export async function saveLobbies(lobbies) {
       if (arr.length === 0) return {};
       
       // ⚠️ Upsert with proper data serialization
-      const { data, error } = await supabase
-        .from('lobbies')
-        .upsert(arr, { onConflict: 'code' })
-        .select();
+      const { data, error } = await _withTimeout(
+        supabase
+          .from('lobbies')
+          .upsert(arr, { onConflict: 'code' })
+          .select(),
+        SUPABASE_OPERATION_TIMEOUT_MS,
+        'Supabase saveLobbies'
+      );
       
       // Check for RLS/policy errors vs table errors
       if (error) {
@@ -551,10 +598,14 @@ export async function deleteSupabaseLobby(code) {
   }
 
   try {
-    const { error } = await supabase
-      .from('lobbies')
-      .delete()
-      .eq('code', String(code).trim().toUpperCase());
+    const { error } = await _withTimeout(
+      supabase
+        .from('lobbies')
+        .delete()
+        .eq('code', String(code).trim().toUpperCase()),
+      SUPABASE_OPERATION_TIMEOUT_MS,
+      'Supabase deleteSupabaseLobby'
+    );
     if (error) throw error;
   } catch (err) {
     throw err;

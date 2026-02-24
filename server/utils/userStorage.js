@@ -21,11 +21,46 @@ const LOCAL_DB_PATH = usersFile;
 // In-memory cache for users (needed for Vercel read-only filesystem)
 const userMemoryCache = new Map();
 const isVercel = process.env.VERCEL === '1';
+const SUPABASE_OPERATION_TIMEOUT_MS = Number(process.env.SUPABASE_OPERATION_TIMEOUT_MS || 1200);
 
 // Supabase client (optional)
 const SUPA_URL = process.env.SUPABASE_URL;
 const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 let supabase = null;
+
+function _withTimeout(promise, timeoutMs, operationName = 'Supabase operation') {
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${operationName} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
+
+async function _runSupabaseStartupCheck() {
+  if (!supabase) return;
+  try {
+    const { error } = await _withTimeout(
+      supabase.from('users').select('id', { head: true, count: 'exact' }).limit(1),
+      SUPABASE_OPERATION_TIMEOUT_MS,
+      'Supabase users startup health check'
+    );
+
+    if (error) {
+      console.error('[userStorage] ⚠️ Startup health check failed:', error.message);
+      console.error('[userStorage] Error details:', { code: error.code, message: error.message });
+      return;
+    }
+
+    console.log('[userStorage] ✅ Supabase connection verified (startup check)');
+  } catch (healthErr) {
+    console.warn('[userStorage] Startup health check timeout/error:', healthErr?.message || healthErr);
+  }
+}
 
 // ⚠️ CRITICAL: Log Supabase initialization status on startup
 console.log('[userStorage] Supabase initialization:');
@@ -36,27 +71,12 @@ if (SUPA_URL && SUPA_KEY) {
   try {
     supabase = createClient(SUPA_URL, SUPA_KEY);
     console.log('[userStorage] ✅ Supabase client created successfully');
-    console.log('[userStorage] Attempting initial health check...');
-    
-    // Test connection immediately
-    try {
-      const { data, error } = await supabase.from('users').select('count');
-      if (error) {
-        console.error('[userStorage] ⚠️ Health check failed:', error.message);
-        console.error('[userStorage] Error details:', { code: error.code, message: error.message });
-        
-        // Provide specific guidance for common errors
-        if (error.code === '42P01' || error.message?.includes('does not exist')) {
-          console.error('[userStorage] ❌ TABLE MISSING: Run "npm run migrate" to create the users table');
-        } else if (error.code === 'PGRST116') {
-          console.error('[userStorage] ❌ RLS POLICY ISSUE: Check Supabase RLS policies');
-        }
-      } else {
-        console.log('[userStorage] ✅ Supabase connection verified, table accessible');
-      }
-    } catch (healthErr) {
-      console.error('[userStorage] Health check error:', healthErr?.message || healthErr);
-    }
+    console.log('[userStorage] Scheduling non-blocking startup health check...');
+    queueMicrotask(() => {
+      _runSupabaseStartupCheck().catch(err => {
+        console.warn('[userStorage] Startup check failed:', err?.message || err);
+      });
+    });
   } catch (err) {
     console.error('[userStorage] ❌ Supabase client initialization failed:', err?.message || err);
     console.error('[userStorage] Falling back to local DB only');
@@ -148,7 +168,11 @@ export async function loadUsers() {
   if (supabase) {
     try {
       // ✅ FIX: Attempt to load and auto-populate schema cache if needed
-      const { data, error } = await supabase.from('users').select('*');
+      const { data, error } = await _withTimeout(
+        supabase.from('users').select('*'),
+        SUPABASE_OPERATION_TIMEOUT_MS,
+        'Supabase loadUsers'
+      );
       
       // Check for common Supabase errors indicating missing/empty schema
       if (error) {
@@ -159,10 +183,18 @@ export async function loadUsers() {
           console.warn('[userStorage] ⚠️ Supabase schema cache outdated, attempting refresh...');
           // Try to refresh schema by querying information_schema
           try {
-            await supabase.rpc('pg_reload_schema_cache', {});
+            await _withTimeout(
+              supabase.rpc('pg_reload_schema_cache', {}),
+              SUPABASE_OPERATION_TIMEOUT_MS,
+              'Supabase schema cache refresh'
+            );
             console.info('[userStorage] ✅ Schema cache refreshed');
             // Retry the query
-            const { data: retryData, error: retryError } = await supabase.from('users').select('*');
+            const { data: retryData, error: retryError } = await _withTimeout(
+              supabase.from('users').select('*'),
+              SUPABASE_OPERATION_TIMEOUT_MS,
+              'Supabase loadUsers retry'
+            );
             if (!retryError && retryData) {
               const map = {};
               (retryData || []).forEach(r => {
@@ -235,10 +267,14 @@ export async function saveUsers(users) {
   if (supabase) {
     try {
       // ⚠️ Upsert with proper data serialization
-      const { data, error } = await supabase
-        .from('users')
-        .upsert(rows, { onConflict: 'id' })
-        .select();
+      const { data, error } = await _withTimeout(
+        supabase
+          .from('users')
+          .upsert(rows, { onConflict: 'id' })
+          .select(),
+        SUPABASE_OPERATION_TIMEOUT_MS,
+        'Supabase saveUsers'
+      );
       
       // Check for RLS/policy errors vs table errors
       if (error) {
@@ -309,7 +345,11 @@ export async function loadUser(id) {
 
   if (supabase) {
     try {
-      const { data, error } = await supabase.from('users').select('*').eq('id', id).limit(1);
+      const { data, error } = await _withTimeout(
+        supabase.from('users').select('*').eq('id', id).limit(1),
+        SUPABASE_OPERATION_TIMEOUT_MS,
+        'Supabase loadUser'
+      );
       
       // Check for schema/table errors
       if (error) {
@@ -373,10 +413,14 @@ export async function saveUser(user) {
       // ⚠️ Upsert with proper data serialization
       // Supabase expects all fields including id, and will use RLS policies
       // Service role key bypasses RLS, so this should always work if table exists
-      const { data, error } = await supabase
-        .from('users')
-        .upsert([row], { onConflict: 'id' })
-        .select();
+      const { data, error } = await _withTimeout(
+        supabase
+          .from('users')
+          .upsert([row], { onConflict: 'id' })
+          .select(),
+        SUPABASE_OPERATION_TIMEOUT_MS,
+        'Supabase saveUser'
+      );
       
       // Check for RLS/policy errors vs table errors
       if (error) {
