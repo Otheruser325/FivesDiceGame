@@ -119,7 +119,7 @@ function _buildSocketOptions(server) {
     rememberUpgrade: false,
     pingInterval: isVercel ? 10000 : 20000,
     pingTimeout: isVercel ? 20000 : 10000,
-    path: '/socket.io/',
+    path: '/socket.io',
     query: {},
     randomizationFactor: 0.5,
     timeout: CONNECTION_TIMEOUT,

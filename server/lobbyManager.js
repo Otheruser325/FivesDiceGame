@@ -528,6 +528,8 @@ export default class LobbyManager {
         totalRounds: game.totalRounds,
         room: code,
         currentPlayerIndex: game.currentIndex,
+        currentPlayerHasRolled: !!game.players[game.currentIndex]?.hasRolled,
+        currentPlayerRolling: !!game.rollInProgress,
         timeLimitSeconds: game.timeLimitSeconds,
         config: game.config,
         turnExpiresAt: game.turnExpiresAt || null
@@ -676,6 +678,7 @@ export default class LobbyManager {
           multiplexEnabled: !!lobby.config?.multiplex,
           turnTimer: null,
           turnExpiresAt: null,
+          rollInProgress: false,
           timeLimitSeconds: lobby.config?.timeLimitSeconds || 30,
           createdAt: Date.now(),
           updatedAt: Date.now()
@@ -696,6 +699,8 @@ export default class LobbyManager {
           totalRounds: game.totalRounds,
           room: code,
           currentPlayerIndex: game.currentIndex,
+          currentPlayerHasRolled: !!game.players[game.currentIndex]?.hasRolled,
+          currentPlayerRolling: !!game.rollInProgress,
           timeLimitSeconds: game.timeLimitSeconds,
           turnExpiresAt: game.turnExpiresAt || null
         };
@@ -743,36 +748,49 @@ export default class LobbyManager {
 
       // ensure this socket is the active player
       if (player.id !== socket.data.user?.id) return;
+      if (game.rollInProgress) return;
+      game.rollInProgress = true;
 
       // announce rolling
-      this.io.to(codeU).emit("player-rolling", { playerIndex });
+      this.io.to(codeU).emit("player-rolling", { playerIndex, currentPlayerRolling: true });
 
       if (game.turnTimer) { clearTimeout(game.turnTimer); game.turnTimer = null; }
 
       setTimeout(() => {
-        const dice = rollDice(5);
-        const { points, combo } = calculateScore(dice, game.combosEnabled, game.multiplexEnabled);
+        const liveGame = this.activeGames[codeU];
+        if (!liveGame || liveGame !== game) return;
 
-        player.score += points;
-        if (combo && combo.key) player.comboStats[combo.key] = (player.comboStats[combo.key] || 0) + 1;
-        player.hasRolled = true;
+        try {
+          const dice = rollDice(5);
+          const { points, combo } = calculateScore(dice, game.combosEnabled, game.multiplexEnabled);
 
-        const graceMs = 10_000;
-        game.turnExpiresAt = Date.now() + graceMs;
+          player.score += points;
+          if (combo && combo.key) player.comboStats[combo.key] = (player.comboStats[combo.key] || 0) + 1;
+          player.hasRolled = true;
 
-        this.io.to(codeU).emit("turn-result", {
-          playerIndex,
-          dice,
-          scored: points,
-          combo: combo || null,
-          scores: game.players.map(p => p.score),
-          comboStats: game.players.map(p => p.comboStats),
-          round: game.round,
-          turnExpiresAt: game.turnExpiresAt
-        });
+          const graceMs = 10_000;
+          game.turnExpiresAt = Date.now() + graceMs;
+          game.rollInProgress = false;
 
-        if (game.turnTimer) { clearTimeout(game.turnTimer); game.turnTimer = null; }
-        game.turnTimer = setTimeout(() => this.advanceTurn(codeU), graceMs);
+          this.io.to(codeU).emit("turn-result", {
+            playerIndex,
+            dice,
+            scored: points,
+            combo: combo || null,
+            scores: game.players.map(p => p.score),
+            comboStats: game.players.map(p => p.comboStats),
+            round: game.round,
+            currentPlayerHasRolled: true,
+            currentPlayerRolling: false,
+            turnExpiresAt: game.turnExpiresAt
+          });
+
+          if (game.turnTimer) { clearTimeout(game.turnTimer); game.turnTimer = null; }
+          game.turnTimer = setTimeout(() => this.advanceTurn(codeU), graceMs);
+        } catch (err) {
+          game.rollInProgress = false;
+          console.error('[LobbyManager] player-roll processing failed:', err);
+        }
       }, 700);
     });
 
@@ -1173,6 +1191,8 @@ export default class LobbyManager {
       totalRounds: game.totalRounds,
       room: code,
       currentPlayerIndex: game.currentIndex,
+      currentPlayerHasRolled: !!game.players[game.currentIndex]?.hasRolled,
+      currentPlayerRolling: !!game.rollInProgress,
       timeLimitSeconds: game.timeLimitSeconds,
       config: game.config // Include game config so client can display rounds, players, etc.
     };
@@ -1204,8 +1224,8 @@ export default class LobbyManager {
     const playerIndex = game.currentIndex;
     const player = game.players[playerIndex];
     if (!player) return;
-
     player.hasRolled = false;
+    game.rollInProgress = false;
 
     const timeLimitSeconds = typeof game.timeLimitSeconds === 'number' ? game.timeLimitSeconds : 30;
     game.turnExpiresAt = Date.now() + (timeLimitSeconds * 1000);
@@ -1213,6 +1233,8 @@ export default class LobbyManager {
     this.io.to(code).emit("turn-start", {
       playerIndex,
       currentPlayerIndex: playerIndex,
+      currentPlayerHasRolled: false,
+      currentPlayerRolling: false,
       round: game.round,
       timeLimitSeconds,
       scores: game.players.map(p => p.score),
@@ -1252,6 +1274,8 @@ export default class LobbyManager {
       scores: game.players.map(p => p.score),
       comboStats: game.players.map(p => p.comboStats),
       round: game.round,
+      currentPlayerHasRolled: true,
+      currentPlayerRolling: false,
       turnExpiresAt: game.turnExpiresAt
     });
 

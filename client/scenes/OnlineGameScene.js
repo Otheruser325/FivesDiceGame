@@ -57,6 +57,9 @@ export default class OnlineGameScene extends Phaser.Scene {
     this.comboStats = [];
     this.waitingForRoll = [];
     this._hasRolledThisTurn = false;
+    this._isRollInFlight = false;
+    this._endTurnUnlockAt = null;
+    this._endTurnEnableTimer = null;
 
     // timer (client side mirror only)
     this.turnTimer = null;
@@ -449,6 +452,33 @@ export default class OnlineGameScene extends Phaser.Scene {
     getSocket().emit('request-game-state', { code: this.roomCode });
   }
 
+  clearEndTurnEnableTimer() {
+    if (this._endTurnEnableTimer) {
+      this._endTurnEnableTimer.remove(false);
+      this._endTurnEnableTimer = null;
+    }
+  }
+
+  scheduleEndTurnEnable(delayMs, expectedPlayerIndex) {
+    this.clearEndTurnEnableTimer();
+    const safeDelayMs = Math.max(0, Number(delayMs) || 0);
+    const expected = typeof expectedPlayerIndex === 'number'
+      ? expectedPlayerIndex
+      : this.currentPlayerIndex;
+
+    this._endTurnEnableTimer = this.time.delayedCall(safeDelayMs, () => {
+      this._endTurnEnableTimer = null;
+      this._endTurnUnlockAt = null;
+
+      if (this.currentPlayerIndex !== expected) return;
+      if (this.localPlayerIndex !== expected) return;
+      if (!this._hasRolledThisTurn || this._isRollInFlight) return;
+
+      this.endTurnBtn.setInteractive();
+      this.endTurnBtn.setStyle({ color: '#ff4444' });
+    });
+  }
+
   // -----------------------
   // Turn lifecycle
   // -----------------------
@@ -465,13 +495,23 @@ export default class OnlineGameScene extends Phaser.Scene {
 
     const round = typeof payload.round === 'number' ? payload.round : this.currentRound;
     const timeLimitSeconds = typeof payload.timeLimitSeconds === 'number' ? payload.timeLimitSeconds : this.turnTimeoutSeconds;
+    const authoritativeHasRolled = typeof payload.currentPlayerHasRolled === 'boolean'
+      ? payload.currentPlayerHasRolled
+      : (typeof payload.hasRolled === 'boolean' ? payload.hasRolled : null);
+    const authoritativeRolling = typeof payload.currentPlayerRolling === 'boolean'
+      ? payload.currentPlayerRolling
+      : (typeof payload.isRolling === 'boolean' ? payload.isRolling : null);
 
     // clear previous client timer
     this.clearTurnTimer();
 
-    // FIX: Check if this is a NEW turn BEFORE updating currentPlayerIndex
     const previousPlayerIndex = this.currentPlayerIndex;
     const isNewTurn = previousPlayerIndex !== playerIndex;
+    if (isNewTurn) {
+      this._isRollInFlight = false;
+      this._endTurnUnlockAt = null;
+      this.clearEndTurnEnableTimer();
+    }
 
     // update current player + round
     this.currentPlayerIndex = playerIndex;
@@ -486,27 +526,58 @@ export default class OnlineGameScene extends Phaser.Scene {
       this.debugger.turnStart({ playerIndex, playerName: name, round });
     }
 
-    // enable local controls only if this is our turn
     if (this.localPlayerIndex === playerIndex) {
-      // Only reset hasRolledThisTurn on a NEW turn, not on state syncs
-      if (isNewTurn || this._hasRolledThisTurn === undefined) {
+      if (authoritativeHasRolled !== null) {
+        this._hasRolledThisTurn = authoritativeHasRolled;
+        if (authoritativeHasRolled) {
+          this._isRollInFlight = false;
+        } else {
+          this._endTurnUnlockAt = null;
+          this.clearEndTurnEnableTimer();
+        }
+      } else if (isNewTurn || this._hasRolledThisTurn === undefined) {
         this._hasRolledThisTurn = false;
+        this._endTurnUnlockAt = null;
+        this.clearEndTurnEnableTimer();
       }
-      
+      if (authoritativeRolling !== null) {
+        this._isRollInFlight = authoritativeRolling && !this._hasRolledThisTurn;
+      }
+
       this.info.setText(t('GAME_YOUR_TURN', 'Your turn'));
-      // Don't re-enable roll button if we've already rolled this turn (sync doesn't reset state)
-      if (!this._hasRolledThisTurn) {
+
+      if (this._isRollInFlight && !this._hasRolledThisTurn) {
+        this.rollBtn.setText(t('UI_ROLLING', 'Rolling...')).setStyle({ color: '#c4c70bd2' }).disableInteractive();
+        this.endTurnBtn.disableInteractive();
+        this.endTurnBtn.setStyle({ color: '#888888' });
+      } else if (!this._hasRolledThisTurn) {
         this.rollBtn.setText(t('UI_ROLL_DICE', 'Roll Dice')).setStyle({ color: '#66ff66' }).setInteractive();
+        this.endTurnBtn.disableInteractive();
+        this.endTurnBtn.setStyle({ color: '#888888' });
       } else {
         this.rollBtn.setText(t('UI_ROLLED', 'Rolled')).setStyle({ color: '#ffaa44' }).disableInteractive();
+        const now = Date.now();
+        if (typeof this._endTurnUnlockAt === 'number' && this._endTurnUnlockAt > now) {
+          this.endTurnBtn.disableInteractive();
+          this.endTurnBtn.setStyle({ color: '#888888' });
+          this.scheduleEndTurnEnable(this._endTurnUnlockAt - now, playerIndex);
+        } else {
+          this._endTurnUnlockAt = null;
+          this.clearEndTurnEnableTimer();
+          this.endTurnBtn.setInteractive();
+          this.endTurnBtn.setStyle({ color: '#ff4444' });
+        }
       }
-      this.endTurnBtn.disableInteractive();
-      this.endTurnBtn.setStyle({ color: '#888888' });
+
       this.startTurnTimer(timeLimitSeconds, payload?.turnExpiresAt || null);
     } else {
+      this._isRollInFlight = false;
+      this._endTurnUnlockAt = null;
+      this.clearEndTurnEnableTimer();
       this.info.setText(tf('GAME_TURN', "{0}'s turn", name));
       this.rollBtn.setText(t('UI_WAITING', 'Waiting...')).setStyle({ color: '#999999' }).disableInteractive();
       this.endTurnBtn.disableInteractive();
+      this.endTurnBtn.setStyle({ color: '#888888' });
       this.startTurnTimer(timeLimitSeconds, payload?.turnExpiresAt || null);
     }
   }
@@ -595,23 +666,22 @@ export default class OnlineGameScene extends Phaser.Scene {
     } else {
       this.info.setText(tf('GAME_ROLL_RESULT', "{0}'s roll", resultName));
     }
-    this.rollBtn.setText(t('UI_RESULTS', 'Results')).setStyle({ color: '#888888' });
+    this.rollBtn.setText(t('UI_RESULTS', 'Results')).setStyle({ color: '#888888' }).disableInteractive();
 
     this.updatePlayerBar();
 
     // If this was the local player's roll and NOT a timeout, allow End Turn after 3s
     if (!isTimeout && this.localPlayerIndex === playerIndex) {
+      this._isRollInFlight = false;
       this._hasRolledThisTurn = true;
+      this._endTurnUnlockAt = Date.now() + 3000;
       this.endTurnBtn.disableInteractive();
       this.endTurnBtn.setStyle({ color: '#888888' });
-
-      this.time.delayedCall(3000, () => {
-        if (this.currentPlayerIndex === playerIndex) {
-          this.endTurnBtn.setInteractive();
-          this.endTurnBtn.setStyle({ color: '#ff4444' });
-        }
-      });
+      this.scheduleEndTurnEnable(3000, playerIndex);
     } else {
+      if (this.localPlayerIndex === playerIndex) {
+        this._isRollInFlight = false;
+      }
       this.endTurnBtn.disableInteractive();
       this.endTurnBtn.setStyle({ color: '#888888' });
     }
@@ -649,6 +719,9 @@ export default class OnlineGameScene extends Phaser.Scene {
         playerName: this.playerSlots?.[this.localPlayerIndex]?.name
       });
     }
+    this._isRollInFlight = true;
+    this.clearEndTurnEnableTimer();
+    this._endTurnUnlockAt = null;
     getSocket().emit('player-roll', { code: this.roomCode, playerIndex: this.localPlayerIndex });
   }
 
@@ -780,13 +853,20 @@ export default class OnlineGameScene extends Phaser.Scene {
         playerIndex: cpIndex,
         round: this.currentRound,
         timeLimitSeconds: typeof payload.timeLimitSeconds === 'number' ? payload.timeLimitSeconds : this.turnTimeoutSeconds,
+        currentPlayerHasRolled: (typeof payload.currentPlayerHasRolled === 'boolean') ? payload.currentPlayerHasRolled : null,
+        currentPlayerRolling: (typeof payload.currentPlayerRolling === 'boolean') ? payload.currentPlayerRolling : null,
         turnExpiresAt: payload.turnExpiresAt ?? null
       });
     } else {
       // no current player index in payload - clear any transient controls
       this.currentPlayerIndex = null;
+      this._hasRolledThisTurn = false;
+      this._isRollInFlight = false;
+      this._endTurnUnlockAt = null;
+      this.clearEndTurnEnableTimer();
       this.rollBtn.setText(t('UI_ROLL_DICE', 'Roll Dice')).disableInteractive().setStyle({ color: '#999999' });
       this.endTurnBtn.disableInteractive();
+      this.endTurnBtn.setStyle({ color: '#888888' });
     }
   }
 
@@ -799,6 +879,9 @@ export default class OnlineGameScene extends Phaser.Scene {
 
     // If it's our own index, set the local Roll button to Rolling...
     if (rollingIndex === this.localPlayerIndex) {
+      this._isRollInFlight = true;
+      this.clearEndTurnEnableTimer();
+      this._endTurnUnlockAt = null;
       this.rollBtn.setText(t('UI_ROLLING', 'Rolling...')).setStyle({ color: '#c4c70bd2' }).disableInteractive();
       this.endTurnBtn.disableInteractive();
       this.endTurnBtn.setStyle({ color: '#888888' });
@@ -1199,6 +1282,9 @@ export default class OnlineGameScene extends Phaser.Scene {
       s.off('game-finished'); s.off('lobby-deleted'); s.off('game-over');
       s.off('player-rolling'); s.off('end-turn-failed');
     }
+    this.clearEndTurnEnableTimer();
+    this._endTurnUnlockAt = null;
+    this._isRollInFlight = false;
     this.clearTurnTimer();
     this.cleanupHotkeys();
   }

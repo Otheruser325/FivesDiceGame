@@ -25,6 +25,17 @@ if (process.env.NODE_ENV === 'production' || process.env.VERCEL === '1') {
 
 // Fast health/root responses before any auth/session middleware.
 app.get('/health', (req, res) => {
+  const origin = req.headers.origin;
+  if (isAllowedOrigin(origin)) {
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+    } else if (process.env.NODE_ENV !== 'production') {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
@@ -44,8 +55,8 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// Helper function to get allowed origins for CORS and Socket.io
-function getAllowedOrigins() {
+// Helper function to get configured origins for CORS and Socket.io
+function getConfiguredOrigins() {
   // If environment variable is set, use it
   if (process.env.CLIENT_ORIGINS) {
     return process.env.CLIENT_ORIGINS.split(',').map(o => o.trim());
@@ -74,6 +85,56 @@ function getAllowedOrigins() {
   ];
 }
 
+function normalizeOrigin(origin) {
+  if (!origin || typeof origin !== 'string') return null;
+  try {
+    const parsed = new URL(origin);
+    return `${parsed.protocol}//${parsed.host}`.toLowerCase();
+  } catch (e) {
+    return null;
+  }
+}
+
+function isAllowedOrigin(origin) {
+  // Requests without Origin are usually same-origin or non-browser requests.
+  if (!origin) return true;
+
+  if (process.env.NODE_ENV !== 'production') {
+    return true;
+  }
+
+  const normalized = normalizeOrigin(origin);
+  if (!normalized) return false;
+
+  const configured = getConfiguredOrigins()
+    .map(normalizeOrigin)
+    .filter(Boolean);
+
+  if (configured.includes(normalized)) {
+    return true;
+  }
+
+  try {
+    const hostname = new URL(normalized).hostname.toLowerCase();
+
+    // Accept vercel preview/production domains and custom game domains.
+    if (hostname.endsWith('.vercel.app')) return true;
+    if (hostname === 'fivesdicegame.com' || hostname.endsWith('.fivesdicegame.com')) return true;
+  } catch (e) {
+    return false;
+  }
+
+  return false;
+}
+
+function socketCorsOrigin(origin, callback) {
+  if (isAllowedOrigin(origin)) {
+    callback(null, origin || true);
+    return;
+  }
+  callback(new Error('Origin not allowed by CORS'));
+}
+
 const isServerlessSocket = IS_SERVERLESS;
 
 // Socket.IO is tuned differently for Vercel/serverless:
@@ -82,11 +143,11 @@ const isServerlessSocket = IS_SERVERLESS;
 // - lower payload cap and no heavy compression on serverless
 const io = new Server(server, {
   cors: {
-    origin: getAllowedOrigins(),
+    origin: socketCorsOrigin,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
   },
-  path: '/socket.io/',
+  path: '/socket.io',
   transports: isServerlessSocket ? ['polling'] : ['websocket', 'polling'],
   upgrade: !isServerlessSocket,
   rememberUpgrade: false,
@@ -211,24 +272,36 @@ if (!IS_SERVERLESS) {
 // CORS middleware
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  const allowedOrigins = getAllowedOrigins();
-  
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else if (process.env.NODE_ENV !== 'production') {
-    // In development, allow any origin
-    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  const allowed = isAllowedOrigin(origin);
+
+  if (allowed) {
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+    } else if (process.env.NODE_ENV !== 'production') {
+      // Development fallback for tools without Origin header.
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }
   }
-  
+
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  
+
   if (req.method === 'OPTIONS') {
+    if (!allowed && process.env.NODE_ENV === 'production') {
+      res.sendStatus(403);
+      return;
+    }
     res.sendStatus(200);
     return;
   }
-  
+
+  if (!allowed && process.env.NODE_ENV === 'production' && origin) {
+    res.status(403).json({ error: 'Origin not allowed by CORS policy' });
+    return;
+  }
+
   next();
 });
 
