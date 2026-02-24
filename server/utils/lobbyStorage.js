@@ -1,3 +1,4 @@
+import '../env.js';
 import { createClient } from '@supabase/supabase-js';
 import fs from 'fs/promises';
 import path from 'path';

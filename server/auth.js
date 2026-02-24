@@ -1,3 +1,4 @@
+import './env.js';
 import express from "express";
 import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";

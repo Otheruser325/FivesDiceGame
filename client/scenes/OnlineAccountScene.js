@@ -96,10 +96,13 @@ export default class OnlineAccountScene extends Phaser.Scene {
   // AUTH HANDLING
   // ----------------------------
   async refreshAuth() {
+    let serverResponded = false;
+
     // Try server auth (if available) then fallback to localStorage
     try {
       const server = getServerUrl();
       const res = await fetch(`${server.replace(/\/$/, '')}/auth/me`, { credentials: 'include' });
+      serverResponded = true;
       if (res.ok) {
         const text = await res.text();
         try {
@@ -119,12 +122,30 @@ export default class OnlineAccountScene extends Phaser.Scene {
             localStorage.setItem('fives_user', JSON.stringify(j.user));
             return;
           }
+
+          // Server explicitly says "not authenticated": clear stale local cache.
+          if (j && j.ok === false) {
+            this.user = null;
+            localStorage.removeItem('fives_user');
+            emitAuthUser(null);
+            return;
+          }
         } catch (err) {
           console.warn('/auth/me non-JSON:', text);
         }
       }
     } catch (err) {
       console.warn('Auth check failed (server):', err);
+    }
+
+    // If server responded but did not provide a valid authenticated user payload,
+    // do not trust stale client cache.
+    if (serverResponded) {
+      this.user = null;
+      localStorage.removeItem('fives_user');
+      emitAuthUser(null);
+      if (this.debugger) this.debugger.log('auth refresh: server responded without valid session');
+      return;
     }
 
     // Fallback: localStorage

@@ -7,8 +7,8 @@ let _lastConnectionId = null;
 let _serverResetDetected = false;
 let isAuthenticated = false;
 
-// Set to 'development' to connect to localhost, otherwise defaults to production server
-const MODE = 'production'; // Change to 'production' for production deployment
+const SERVER_CACHE_KEY = 'fives_server_url';
+const MODE = _detectMode();
 
 const DEFAULT_PORTS = [8080, 8081, 8082, 8083, 8084, 8085];
 
@@ -23,21 +23,158 @@ const INITIAL_RECONNECT_DELAY = 300;          // 300ms initial delay
 const MAX_RECONNECT_DELAY = 8000;             // 8s max delay
 const CONNECTION_TIMEOUT = 15000;             // 15s timeout for initial connection
 
+function _isLocalHost(hostname) {
+  return hostname === 'localhost' || hostname === '127.0.0.1';
+}
+
+function _detectMode() {
+  try {
+    if (typeof window !== 'undefined' && window.location?.hostname) {
+      return _isLocalHost(window.location.hostname) ? 'development' : 'production';
+    }
+  } catch (e) { /* ignore */ }
+  return 'production';
+}
+
 function _norm(url) {
   return String(url).replace(/\/+$/, '');
 }
 
-export async function probeHealth(timeoutMs = 600) {
-  const server = _initialServerCandidate();
+function _getCachedServerUrl() {
   try {
-    const ctrl = new AbortController();
-    const id = setTimeout(() => ctrl.abort(), timeoutMs);
-    const r = await fetch(`${server.replace(/\/$/, '')}/health`, { signal: ctrl.signal });
-    clearTimeout(id);
-    return r.ok;
+    if (typeof localStorage === 'undefined') return null;
+    const raw = localStorage.getItem(SERVER_CACHE_KEY);
+    return raw ? _norm(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function _cacheServerUrl(url) {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    if (!url) return;
+    localStorage.setItem(SERVER_CACHE_KEY, _norm(url));
+  } catch (e) {
+    // ignore cache errors
+  }
+}
+
+function _getProductionCandidates() {
+  const candidates = PRODUCTION_SERVERS.map(_norm);
+
+  const host = (typeof window !== 'undefined' && window.location?.hostname)
+    ? window.location.hostname
+    : '';
+
+  // Prefer Vercel API when running on a vercel.app game host.
+  if (host.includes('vercel.app')) {
+    candidates.sort((a, b) => {
+      const av = a.includes('vercel.app') ? -1 : 1;
+      const bv = b.includes('vercel.app') ? -1 : 1;
+      return av - bv;
+    });
+  }
+
+  const cached = _getCachedServerUrl();
+  if (cached && candidates.includes(cached)) {
+    return [cached, ...candidates.filter(c => c !== cached)];
+  }
+
+  return candidates;
+}
+
+function _buildSocketOptions(server) {
+  const isVercel = String(server).includes('vercel.app');
+  const transports = isVercel ? ['polling'] : ['websocket', 'polling'];
+  return {
+    autoConnect: true,
+    transports,
+    withCredentials: true,
+    reconnection: true,
+    reconnectionDelay: INITIAL_RECONNECT_DELAY,
+    reconnectionDelayMax: MAX_RECONNECT_DELAY,
+    reconnectionAttempts: MAX_CONNECTION_RETRIES,
+    upgrade: !isVercel,
+    upgradeTimeout: isVercel ? 1000 : 10000,
+    rememberUpgrade: false,
+    pingInterval: 20000,
+    pingTimeout: 10000,
+    path: '/socket.io/',
+    query: {},
+    randomizationFactor: 0.5,
+    connectTimeout: CONNECTION_TIMEOUT,
+    forceNew: false,
+    forceJSONP: false,
+    timestampRequests: true,
+    timestampParam: 't',
+    autoUnref: false,
+    closeOnBeforeunload: true
+  };
+}
+
+function _createSocket(server) {
+  // eslint-disable-next-line no-undef
+  return io(server, _buildSocketOptions(server));
+}
+
+function _switchServer(target) {
+  if (!target) return;
+  const normalized = _norm(target);
+  if (!normalized) return;
+  if (_serverUrl && _norm(_serverUrl) === normalized) return;
+
+  _serverUrl = normalized;
+  _cacheServerUrl(normalized);
+  _connectionRetries = 0;
+  _maintenanceMode = false;
+
+  if (OnlineSocket) {
+    try { OnlineSocket.removeAllListeners(); } catch (e) { /* ignore */ }
+    try { OnlineSocket.close(); } catch (e) { /* ignore */ }
+    OnlineSocket = null;
+  }
+
+  getSocket();
+}
+
+function _getFailoverTarget(currentServer) {
+  const current = _norm(currentServer || _serverUrl || '');
+  const candidates = _buildCandidates().map(_norm);
+  for (const candidate of candidates) {
+    if (candidate && candidate !== current) return candidate;
+  }
+  return null;
+}
+
+async function _probeHealthOrigin(server, timeoutMs = 600) {
+  const ctrl = new AbortController();
+  const id = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(`${_norm(server)}/health`, {
+      signal: ctrl.signal,
+      credentials: 'include'
+    });
+    return !!r?.ok;
   } catch (e) {
     return false;
+  } finally {
+    clearTimeout(id);
   }
+}
+
+export async function probeHealth(timeoutMs = 600) {
+  const candidates = _buildCandidates();
+  for (const server of candidates) {
+    if (!server) continue;
+    const healthy = await _probeHealthOrigin(server, timeoutMs);
+    if (healthy) {
+      _serverUrl = _norm(server);
+      _cacheServerUrl(_serverUrl);
+      return true;
+    }
+  }
+  return false;
 }
 
 // Resolve server URL if explicitly set (query param or window var) or cached
@@ -52,13 +189,13 @@ function _initialServerCandidate() {
     }
   } catch (e) { /* ignore */ }
 
-  // Default based on MODE: production connects to api.fivesdicegame.com, development to localhost
+  // Default based on MODE: production uses candidate list, development uses localhost.
   if (MODE === 'development') {
     const proto = (typeof window !== 'undefined' && window.location && window.location.protocol === 'https:') ? 'https' : 'http';
     _serverUrl = `${proto}://localhost:8080`;
   } else {
-    // production: use custom domain API server (with Vercel fallback)
-    _serverUrl = PRODUCTION_SERVERS[0];
+    const prodCandidates = _getProductionCandidates();
+    _serverUrl = prodCandidates[0];
   }
   return _serverUrl;
 }
@@ -153,7 +290,7 @@ async function _probeOrigin(origin, timeoutMs = 900) {
 function _buildCandidates() {
   // In production mode, don't probe localhost candidates
   if (MODE !== 'development') {
-    return [PRODUCTION_SERVER];
+    return _getProductionCandidates();
   }
 
   // Development mode: probe localhost candidates
@@ -190,6 +327,8 @@ function _attachSocketHandlers(sock, server) {
     console.info('[Socket] connected to', server, 'id=', sock.id);
     _connectionRetries = 0;  // Reset retries on successful connection
     _maintenanceMode = false; // Clear maintenance mode flag
+    _serverUrl = _norm(server);
+    _cacheServerUrl(_serverUrl);
     
     // ✅ FIX: Only treat as reset if we've been connected long enough
     // Normal reconnects always get new socket IDs - that's not a server reset!
@@ -257,6 +396,16 @@ function _attachSocketHandlers(sock, server) {
     if (!isSessionError && !isTransportError) {
       console.info('[Socket] reconnect attempt', _connectionRetries, 'of', MAX_CONNECTION_RETRIES);
     }
+
+    // Production failover: after a few failed attempts, switch to next configured origin.
+    if (_connectionRetries === 3) {
+      const fallback = _getFailoverTarget(server);
+      if (fallback) {
+        console.warn('[Socket] Switching to fallback server:', fallback);
+        _switchServer(fallback);
+        return;
+      }
+    }
     
     // If we've exceeded retries, trigger maintenance mode and stop reconnecting
     if (_connectionRetries >= MAX_CONNECTION_RETRIES) {
@@ -318,36 +467,7 @@ async function _backgroundProbeAndReconnect() {
       const ok = await _probeOrigin(c, 850);
       if (ok) {
         console.info('[SocketManager] discovered server at', c, '— switching');
-        // set new server and reconnect
-        _serverUrl = _norm(c);
-        if (OnlineSocket) {
-          try { OnlineSocket.close(); } catch (e) {}
-          OnlineSocket = null;
-        }
-        
-        // Determine transports based on server
-        const isVercel = c.includes('vercel.app');
-        const transports = isVercel ? ['polling'] : ['websocket', 'polling'];
-        
-        // create new socket to discovered server (sync) with optimized config
-        // eslint-disable-next-line no-undef
-        OnlineSocket = io(_serverUrl, { 
-          autoConnect: true, 
-          transports: transports,
-          withCredentials: true,
-          reconnection: true,
-          reconnectionDelay: INITIAL_RECONNECT_DELAY,
-          reconnectionDelayMax: MAX_RECONNECT_DELAY,
-          reconnectionAttempts: MAX_CONNECTION_RETRIES,
-          upgrade: true,
-          upgradeTimeout: 10000,
-          rememberUpgrade: false,
-          pingInterval: 20000,
-          pingTimeout: 10000,
-          path: '/socket.io/',
-          randomizationFactor: 0.5,
-        });
-        _attachSocketHandlers(OnlineSocket, _serverUrl);
+        _switchServer(c);
         break;
       }
     }
@@ -380,54 +500,13 @@ export function getSocket() {
 
   // Determine transports based on server (Vercel doesn't support WebSocket)
   const isVercel = server.includes('vercel.app');
-  const transports = isVercel ? ['polling'] : ['websocket', 'polling'];
   
   if (isVercel) {
     console.info('[Socket] Connecting to Vercel (' + server + ') — using polling only');
   }
 
-  // Calculate adaptive reconnection delays based on network conditions
-  // Start with shorter delays and gradually back off
-  const calculateDelay = (attempt) => {
-    return Math.min(
-      INITIAL_RECONNECT_DELAY * Math.pow(1.5, Math.min(attempt, 6)),
-      MAX_RECONNECT_DELAY
-    );
-  };
-
   // create socket with optimized config for Vercel polling
-  // eslint-disable-next-line no-undef
-  OnlineSocket = io(server, {
-    autoConnect: true,
-    // Vercel doesn't support WebSocket, use polling with fallback
-    transports: transports,
-    withCredentials: true,
-    reconnection: true,
-    reconnectionDelay: INITIAL_RECONNECT_DELAY,
-    reconnectionDelayMax: MAX_RECONNECT_DELAY,
-    reconnectionAttempts: MAX_CONNECTION_RETRIES,
-    // Polling-specific tuning for mobile/Ethernet/Wi-Fi resilience
-    upgrade: !isVercel,                      // Don't upgrade on Vercel (WebSocket not supported)
-    upgradeTimeout: isVercel ? 1000 : 10000, // Quick timeout on Vercel
-    rememberUpgrade: false,                  // Don't cache transport choice
-    // Ping/pong timing (critical for polling stability)
-    pingInterval: 20000,                     // Send ping every 20s (polling-friendly)
-    pingTimeout: 10000,                      // Wait 10s for pong
-    // HTTP polling specific config
-    path: '/socket.io/',
-    query: {},
-    randomizationFactor: 0.5,                // 50% randomization to prevent thundering herd
-    // Connection lifecycle
-    connectTimeout: CONNECTION_TIMEOUT,      // 15s timeout for initial connection
-    forceNew: false,                         // Reuse existing connection if available
-    // Session management improvements
-    forceJSONP: false,                       // Don't use JSONP (modern browsers support CORS)
-    timestampRequests: true,                 // Add timestamps to prevent caching issues
-    timestampParam: 't',                     // Parameter name for timestamp
-    // Additional stability improvements
-    autoUnref: false,                        // Keep connection alive in background
-    closeOnBeforeunload: true,               // Clean up on page unload
-  });
+  OnlineSocket = _createSocket(server);
 
   // attach default handlers
   _attachSocketHandlers(OnlineSocket, server);
@@ -475,12 +554,21 @@ export function forceNewConnection() {
  */
 export function emitAuthUser(user, force = false) {
     try {
+        const socket = getSocket && typeof getSocket === 'function' ? getSocket() : null;
+
         if (!user || !user.id) {
-            console.warn('[SocketManager] Invalid user data, cannot emit auth-user');
+            // Explicit de-auth path: clear local + server socket auth.
+            resetAuthStatus();
+            if (socket && socket.emit) {
+                socket.emit('clear-auth');
+                if (socket.data && socket.data.user) {
+                  delete socket.data.user;
+                }
+                socket.userId = null;
+            }
             return;
         }
 
-        const socket = getSocket && typeof getSocket === 'function' ? getSocket() : null;
         if (socket && socket.emit) {
             // Check if socket has auth data set by server
             const socketAuthenticated = socket.data?.user?.id ? true : false;
@@ -504,6 +592,9 @@ export function emitAuthUser(user, force = false) {
 
             console.log('[SocketManager] Emitting auth-user to socket:', userWithSocket, { force, socketAuth: socketAuthenticated });
             socket.emit('auth-user', userWithSocket);
+            if (!socket.data) socket.data = {};
+            socket.data.user = { id: userWithSocket.id, name: userWithSocket.name, type: userWithSocket.type };
+            socket.userId = userWithSocket.id;
             isAuthenticated = true; // Mark as authenticated
         }
     } catch (e) {

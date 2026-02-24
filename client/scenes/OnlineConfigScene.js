@@ -295,7 +295,13 @@ export default class OnlineConfigScene extends Phaser.Scene {
             if (this.debugger) this.debugger.warn('socket not authenticated, attempting auth');
 
             // Try to re-authenticate using cached user
-            const cachedUser = JSON.parse(localStorage.getItem('fives_user') || '{}');
+            let cachedUser = {};
+            try {
+                cachedUser = JSON.parse(localStorage.getItem('fives_user') || '{}');
+            } catch (e) {
+                console.warn('[OnlineConfigScene] Corrupt cached user data, clearing cache');
+                localStorage.removeItem('fives_user');
+            }
             if (cachedUser.id) {
                 let authTimeout = null;
                 

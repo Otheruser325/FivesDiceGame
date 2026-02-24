@@ -1,9 +1,9 @@
+import './env.js';
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import dotenv from 'dotenv';
 import session from 'express-session';
 import { createClient } from 'redis';
 import RedisStore from 'connect-redis';
@@ -11,14 +11,16 @@ import { authMiddleware, authRouter } from './auth.js';
 import LobbyManager from './lobbyManager.js';
 import LeaderboardManager from './utils/leaderboardManager.js';
 
-// Load environment variables
-dotenv.config();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
 const server = createServer(app);
+
+// Trust reverse proxies (Vercel/NGINX) so secure cookies and client IP work correctly.
+if (process.env.NODE_ENV === 'production' || process.env.VERCEL === '1') {
+  app.set('trust proxy', 1);
+}
 
 // Helper function to get allowed origins for CORS and Socket.io
 function getAllowedOrigins() {
@@ -129,6 +131,7 @@ async function initializeSession() {
     resave: false,
     saveUninitialized: false,
     rolling: true,
+    proxy: process.env.NODE_ENV === 'production' || process.env.VERCEL === '1',
     cookie: {
       secure: process.env.NODE_ENV === 'production',
       httpOnly: true,

@@ -501,26 +501,52 @@ export default class OnlineMenuScene extends Phaser.Scene {
 
     async refreshAuth() {
         const socketLibAvailable = (typeof io === 'function');
+        let serverResponded = false;
+
         if (socketLibAvailable) {
             try {
                 const server = getServerUrl();
                 const resp = await fetch(`${server.replace(/\/$/, '')}/auth/me`, { credentials: 'include' });
-                const data = await resp.json();
-                if (data?.ok && data.user) {
-                    this.user = data.user;
-                    delete this.user.socketId;
-                    emitAuthUser(this.user);
-                    if (this.debugger) this.debugger.log('auth refresh: server ok', { id: this.user.id, type: this.user.type });
-                    const socket = getSocket();
-                    if (socket && this.user && this.user.id) {
-                        socket.userId = this.user.id;
-                        console.log('[OnlineMenuScene] Set socket.userId from server auth:', socket.userId);
+                serverResponded = true;
+
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data?.ok && data.user) {
+                        this.user = data.user;
+                        delete this.user.socketId;
+                        emitAuthUser(this.user);
+                        if (this.debugger) this.debugger.log('auth refresh: server ok', { id: this.user.id, type: this.user.type });
+                        const socket = getSocket();
+                        if (socket && this.user && this.user.id) {
+                            socket.userId = this.user.id;
+                            console.log('[OnlineMenuScene] Set socket.userId from server auth:', socket.userId);
+                        }
+                        localStorage.setItem('fives_user', JSON.stringify(this.user));
+                        return;
                     }
-                    return;
+
+                    // Server explicitly says "not authenticated": clear stale local cache.
+                    if (data && data.ok === false) {
+                        localStorage.removeItem('fives_user');
+                        this.user = null;
+                        emitAuthUser(null);
+                        if (this.debugger) this.debugger.log('auth refresh: server says logged out');
+                        return;
+                    }
                 }
             } catch (err) {
                 console.warn('Auth check failed (server):', err);
             }
+        }
+
+        if (serverResponded) {
+            // Server responded but did not provide a valid auth payload.
+            // Avoid stale-login UI by clearing cache.
+            localStorage.removeItem('fives_user');
+            this.user = null;
+            emitAuthUser(null);
+            if (this.debugger) this.debugger.log('auth refresh: server response invalid for auth');
+            return;
         }
 
         // fallback: localStorage cached user

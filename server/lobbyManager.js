@@ -222,6 +222,13 @@ export default class LobbyManager {
       socket.emit('pong', { timestamp: Date.now() });
     });
 
+    socket.on('clear-auth', () => {
+      socket.data.user = null;
+      socket.data.authEmitted = false;
+      socket.emit('auth-cleared', { timestamp: Date.now() });
+      console.log(`[LobbyManager] Cleared socket auth for ${socket.id}`);
+    });
+
     // ---------- AUTH USER ----------
     socket.on("auth-user", async (user) => {
       try {
@@ -229,12 +236,13 @@ export default class LobbyManager {
         
         // ✅ CRITICAL: Proper null user handling
         if (!user) {
-          console.warn(`[LobbyManager] auth-user: received null user (attempt ${socket.data.authAttempts})`);
-          socket.emit('auth-failed', { 
-            reason: 'null_user',
-            message: 'User object is null',
+          socket.data.user = null;
+          socket.data.authEmitted = false;
+          socket.emit('auth-cleared', {
+            timestamp: Date.now(),
             attempt: socket.data.authAttempts
           });
+          console.log(`[LobbyManager] auth-user received null for ${socket.id}, auth state cleared`);
           return;
         }
 
@@ -254,6 +262,7 @@ export default class LobbyManager {
           name: (user.name && String(user.name).trim().substring(0, 32)) || `Guest${String(user.id).substring(0, 6)}`,
           type: (user.type && String(user.type).trim()) || 'guest'
         };
+        socket.data.authEmitted = true;
         
         socket.data.lastHeartbeat = Date.now();
         
@@ -268,6 +277,7 @@ export default class LobbyManager {
       } catch (err) {
         console.error(`[LobbyManager] Error in auth-user: ${err.message}`);
         socket.data.user = null;
+        socket.data.authEmitted = false;
         socket.emit('auth-failed', { 
           reason: 'error',
           message: err.message
