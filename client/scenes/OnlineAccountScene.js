@@ -29,6 +29,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
     this.oauthPopup = null;
     this.oauthPollTimer = null;
     this.oauthServerBase = null;
+    this.oauthExpectedProvider = null;
     this.debugger = DebugManager.create(this, { namespace: 'OnlineAccountScene' });
     this.debug = this.debugger.enabled;
   }
@@ -404,10 +405,12 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
     this.oauthPopup = null;
     this.oauthServerBase = null;
+    this.oauthExpectedProvider = null;
   }
 
   async _waitForOAuthSession(timeoutMs = 60000, pollIntervalMs = 700) {
     const server = (this.oauthServerBase || getServerUrl()).replace(/\/$/, '');
+    const expectedProvider = this.oauthExpectedProvider;
     const startedAt = Date.now();
 
     return new Promise((resolve, reject) => {
@@ -427,7 +430,8 @@ export default class OnlineAccountScene extends Phaser.Scene {
           if (!res.ok) return;
 
           const body = await res.json();
-          if (body?.ok && body.user) {
+          const userType = body?.user?.type || null;
+          if (body?.ok && body.user && (!expectedProvider || userType === expectedProvider)) {
             resolve(body.user);
           }
         } catch (err) {
@@ -441,6 +445,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
     const expectedPrimary = normalizeServerBase(this.oauthServerBase || getServerUrl());
     const expectedFallback = normalizeServerBase(RENDER_OAUTH_FALLBACK_SERVER);
     const allowedOrigins = new Set([expectedPrimary, expectedFallback].filter(Boolean));
+    const expectedProvider = this.oauthExpectedProvider;
 
     return new Promise((resolve, reject) => {
       let finished = false;
@@ -472,7 +477,9 @@ export default class OnlineAccountScene extends Phaser.Scene {
         const data = event?.data;
         if (!data || typeof data !== 'object') return;
         if (data.type !== 'fives-oauth-success') return;
+        if (expectedProvider && data.provider !== expectedProvider) return;
         if (!data.user || !data.user.id) return;
+        if (expectedProvider && data.user.type !== expectedProvider) return;
 
         succeed(data.user);
       };
@@ -494,6 +501,27 @@ export default class OnlineAccountScene extends Phaser.Scene {
   _appendPopupState(url) {
     if (/[?&]state=/.test(url)) return url;
     return `${url}${url.includes('?') ? '&' : '?'}state=popup`;
+  }
+
+  _expectedProviderForUrl(url) {
+    const value = String(url || '').toLowerCase();
+    if (value.includes('/auth/google')) return 'google';
+    if (value.includes('/auth/discord')) return 'discord';
+    return null;
+  }
+
+  async _resetAuthSession(serverBase) {
+    const base = normalizeServerBase(serverBase);
+    if (!base) return;
+
+    try {
+      await fetch(`${base}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+    } catch (e) {
+      // Best effort - continue OAuth flow even if pre-reset fails.
+    }
   }
 
   async _probeOAuthServer(serverBase, timeoutMs = 1200) {
@@ -550,9 +578,12 @@ export default class OnlineAccountScene extends Phaser.Scene {
     try {
       if (this.debugger) this.debugger.log('oauth login start', { url });
       this._clearOAuthState(true);
+      this.oauthExpectedProvider = this._expectedProviderForUrl(url);
 
       const server = await this._resolveOAuthServerBase();
       this.oauthServerBase = server;
+      await this._resetAuthSession(server);
+
       const popupUrlPath = this._appendPopupState(url);
       const popupUrl = `${server.replace(/\/$/, '')}${popupUrlPath.startsWith('/') ? '' : '/'}${popupUrlPath}`;
       const topLevelUrl = `${server.replace(/\/$/, '')}${url.startsWith('/') ? '' : '/'}${url}`;

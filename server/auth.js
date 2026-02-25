@@ -312,6 +312,26 @@ function completeOAuthSuccess(req, res, provider, user, logPrefix) {
   return res.redirect(redirectUrl);
 }
 
+async function saveOAuthUserOrThrow(user, providerField) {
+  if (!user || !user.id) {
+    throw new Error('Invalid OAuth user payload');
+  }
+
+  const saved = await saveUser(user);
+  const users = await loadUsers();
+
+  const persisted = Object.values(users || {}).find((u) => String(u?.id) === String(saved.id));
+  if (!persisted) {
+    throw new Error('OAuth user persistence verification failed');
+  }
+
+  if (providerField && saved[providerField] && persisted[providerField] !== saved[providerField]) {
+    throw new Error(`OAuth user persistence mismatch for ${providerField}`);
+  }
+
+  return persisted;
+}
+
 // ----------------- GOOGLE OAUTH -----------------
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   passport.use(
@@ -334,7 +354,13 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
               oauthGoogle: profile.id,
               avatar: profile.photos && profile.photos[0] ? profile.photos[0].value : null
             };
-            await saveUser(user);
+            user = await saveOAuthUserOrThrow(user, 'oauthGoogle');
+          } else {
+            // Ensure provider identity remains attached if stale/migrated record is missing it.
+            if (!user.oauthGoogle) {
+              user.oauthGoogle = profile.id;
+              user = await saveOAuthUserOrThrow(user, 'oauthGoogle');
+            }
           }
           done(null, user);
         } catch (err) {
@@ -394,7 +420,13 @@ if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
               avatar: discord.avatar ? `https://cdn.discordapp.com/avatars/${discord.id}/${discord.avatar}.png` : null
             };
             console.log('[Discord] Creating new user:', { id: user.id, name: user.name });
-            await saveUser(user);
+            user = await saveOAuthUserOrThrow(user, 'oauthDiscord');
+          } else {
+            // Ensure provider identity remains attached if stale/migrated record is missing it.
+            if (!user.oauthDiscord) {
+              user.oauthDiscord = discord.id;
+              user = await saveOAuthUserOrThrow(user, 'oauthDiscord');
+            }
           }
 
           console.log('[Discord] OAuth successful for user:', user.id);
