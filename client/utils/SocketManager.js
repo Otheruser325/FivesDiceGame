@@ -13,7 +13,6 @@ const MODE = _detectMode();
 const DEFAULT_PORTS = [8080, 8081, 8082, 8083, 8084, 8085];
 
 const RENDER_API_SERVER = 'https://fivesapi.onrender.com';
-const RENDER_API_SERVER_ALT = 'https://fivesdicegame.onrender.com';
 const LEGACY_VERCEL_API_SERVER = 'https://fivesapi.vercel.app';
 const CUSTOM_API_SERVER = 'https://api.fivesdicegame.com';
 
@@ -68,13 +67,10 @@ function _shouldUseCustomApi() {
 
     const qp = new URLSearchParams(window.location.search || '');
     if (qp.get('useCustomApi') === '1') return true;
-
-    // If the game is hosted directly on the custom domain, allow same-domain API.
-    const host = window.location?.hostname || '';
-    return host === 'fivesdicegame.com' || host === 'www.fivesdicegame.com';
   } catch (e) {
-    return false;
+    // ignore
   }
+  return false;
 }
 
 function _shouldAllowLegacyVercelFallback() {
@@ -111,7 +107,7 @@ function _getExplicitServerOverride() {
 }
 
 function _getProductionCandidates() {
-  const candidates = [RENDER_API_SERVER, RENDER_API_SERVER_ALT];
+  const candidates = [RENDER_API_SERVER];
   if (_shouldUseCustomApi()) {
     candidates.unshift(CUSTOM_API_SERVER);
   }

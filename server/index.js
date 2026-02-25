@@ -16,7 +16,6 @@ const __dirname = dirname(__filename);
 const IS_SERVERLESS = process.env.VERCEL === '1' || !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.NOW_REGION;
 const SERVER_RUNTIME = IS_SERVERLESS ? 'serverless' : 'persistent';
 const DEFAULT_RENDER_API_ORIGIN = 'https://fivesapi.onrender.com';
-const DEFAULT_RENDER_ALT_API_ORIGIN = 'https://fivesdicegame.onrender.com';
 const REDIS_CONNECT_TIMEOUT_MS = Number(process.env.REDIS_CONNECT_TIMEOUT_MS || 1500);
 const REDIS_CONNECT_MAX_RETRIES = Number(process.env.REDIS_CONNECT_MAX_RETRIES || 1);
 
@@ -72,7 +71,6 @@ function getConfiguredOrigins() {
   if (process.env.NODE_ENV === 'production') {
     const defaults = [
       DEFAULT_RENDER_API_ORIGIN,            // Render production API
-      DEFAULT_RENDER_ALT_API_ORIGIN,        // Alternate Render production API
       'https://play.fivesdicegame.com',    // Main game domain
       'https://fivesdicegame.com',          // Base domain
       'https://www.fivesdicegame.com',      // WWW variant
@@ -291,7 +289,8 @@ async function initializeSession() {
       secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      partitioned: process.env.NODE_ENV === 'production'
     },
     name: 'fives.sid'
   };
