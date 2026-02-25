@@ -77,7 +77,8 @@ function getConfiguredOrigins() {
       'https://api.fivesdicegame.com',      // Custom API domain
       'https://fivesapi.vercel.app',        // Vercel fallback
       'https://fivesdicegame.vercel.app',  // Alternative Vercel domain
-      'https://fivesweb.vercel.app'  // Another alternative Vercel domain
+      'https://fivesweb.vercel.app',  // Another alternative Vercel domain
+      'https://otheruser325.github.io'  // GitHub Pages fallback (for testing only)
     ];
 
     if (process.env.RENDER_EXTERNAL_URL) {

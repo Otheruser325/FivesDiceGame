@@ -7,6 +7,45 @@ import DebugManager from '../utils/DebugManager.js';
 
 const t = (key, fallback) => GlobalLocalization.t(key, fallback);
 const tf = (key, fallback, ...args) => GlobalLocalization.format(key, fallback, ...args);
+const ONLINE_ALLOWED_PRODUCTION_ORIGINS = new Set([
+    'https://play.fivesdicegame.com',
+    'https://fivesdicegame.com',
+    'https://www.fivesdicegame.com',
+    'https://fivesdicegame.vercel.app',
+    'https://fivesweb.vercel.app',
+    'https://otheruser325.github.io'
+]);
+
+function normalizeOrigin(origin) {
+    if (!origin || typeof origin !== 'string') return null;
+    try {
+        const parsed = new URL(origin);
+        return `${parsed.protocol}//${parsed.host}`.toLowerCase();
+    } catch (e) {
+        return null;
+    }
+}
+
+function isLocalhostHostname(hostname) {
+    return hostname === 'localhost' || hostname === '127.0.0.1';
+}
+
+function canUseOnlineModeOnCurrentOrigin() {
+    try {
+        if (typeof window === 'undefined' || !window.location) return true;
+        if (window.__FIVES_ALLOW_ONLINE_ANY_ORIGIN__ === true) return true;
+
+        const { origin, hostname } = window.location;
+        if (isLocalhostHostname(hostname)) return true;
+
+        const normalized = normalizeOrigin(origin);
+        if (!normalized) return false;
+
+        return ONLINE_ALLOWED_PRODUCTION_ORIGINS.has(normalized);
+    } catch (e) {
+        return false;
+    }
+}
 
 export default class OnlineMenuScene extends Phaser.Scene {
     constructor() {
@@ -40,6 +79,27 @@ export default class OnlineMenuScene extends Phaser.Scene {
         });
 
         this.add.text(600, 60, t('ONLINE_MENU_TITLE', 'Online Mode'), { fontSize: 48 }).setOrigin(0.5);
+
+        if (!canUseOnlineModeOnCurrentOrigin()) {
+            const currentOrigin = (typeof window !== 'undefined' && window.location?.origin) ? window.location.origin : 'unknown';
+            this.add.text(600, 150, t('ONLINE_MODE_UNAVAILABLE_TITLE', 'Online Mode Not Available'), {
+                fontSize: 32,
+                color: '#ff4444'
+            }).setOrigin(0.5);
+            this.add.text(600, 205, t('ONLINE_MODE_UNAVAILABLE_BODY1', 'This client URL is not approved for online play.'), {
+                fontSize: 20,
+                color: '#ffaa88'
+            }).setOrigin(0.5);
+            this.add.text(600, 250, tf('ONLINE_MODE_UNAVAILABLE_BODY2', 'Current URL: {0}', currentOrigin), {
+                fontSize: 16,
+                color: '#cccccc'
+            }).setOrigin(0.5);
+            this.add.text(600, 290, t('ONLINE_MODE_UNAVAILABLE_BODY3', 'Use the official Fives client URL to access multiplayer.'), {
+                fontSize: 16,
+                color: '#cccccc'
+            }).setOrigin(0.5);
+            return;
+        }
 
         const waitForSocketConnection = (sock, timeoutMs = 18000) => new Promise((resolve) => {
             if (!sock) {

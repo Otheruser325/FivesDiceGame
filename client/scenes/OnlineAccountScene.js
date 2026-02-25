@@ -15,6 +15,8 @@ export default class OnlineAccountScene extends Phaser.Scene {
     this.passwordInput = null;
     this.loginUserInput = null;
     this.loginPassInput = null;
+    this.oauthPopup = null;
+    this.oauthPollTimer = null;
     this.debugger = DebugManager.create(this, { namespace: 'OnlineAccountScene' });
     this.debug = this.debugger.enabled;
   }
@@ -379,72 +381,103 @@ export default class OnlineAccountScene extends Phaser.Scene {
     this.makeCancelButton();
   }
 
+  _clearOAuthState(closePopup = false) {
+    if (this.oauthPollTimer) {
+      clearInterval(this.oauthPollTimer);
+      this.oauthPollTimer = null;
+    }
+
+    if (closePopup && this.oauthPopup && !this.oauthPopup.closed) {
+      try { this.oauthPopup.close(); } catch (e) { /* ignore */ }
+    }
+
+    this.oauthPopup = null;
+  }
+
+  async _waitForOAuthSession(timeoutMs = 60000, pollIntervalMs = 700) {
+    const server = getServerUrl().replace(/\/$/, '');
+    const startedAt = Date.now();
+
+    return new Promise((resolve, reject) => {
+      this.oauthPollTimer = setInterval(async () => {
+        if (this.oauthPopup && this.oauthPopup.closed) {
+          this._clearOAuthState(false);
+          reject(new Error('OAuth popup closed before login finished'));
+          return;
+        }
+
+        if (Date.now() - startedAt >= timeoutMs) {
+          this._clearOAuthState(false);
+          reject(new Error('OAuth login timed out'));
+          return;
+        }
+
+        try {
+          const res = await fetch(`${server}/auth/me`, { credentials: 'include' });
+          if (!res.ok) return;
+
+          const body = await res.json();
+          if (body?.ok && body.user) {
+            this._clearOAuthState(true);
+            resolve(body.user);
+          }
+        } catch (err) {
+          // Keep polling while OAuth flow is in progress.
+        }
+      }, pollIntervalMs);
+    });
+  }
+
   async oauthLogin(url) {
     try {
       if (this.debugger) this.debugger.log('oauth login start', { url });
+      this._clearOAuthState(true);
+
       const server = getServerUrl();
       const fullUrl = `${server.replace(/\/$/, '')}${url.startsWith('/') ? '' : '/'}${url}`;
-      const resp = await fetch(fullUrl, { credentials: 'include' });
-      
-      // Check response status first
-      if (!resp.ok) {
-        const text = await resp.text();
-        console.error('[OAuth] Server returned error:', resp.status, text);
-        
-        // Try to parse as JSON if it looks like JSON
-        if (text.trim().startsWith('{')) {
-          try {
-            const errData = JSON.parse(text);
-            const reason = errData.error || t('ACCOUNT_ERROR_UNKNOWN', 'Unknown error');
-            alert(tf('ACCOUNT_OAUTH_ERROR', 'OAuth Error: {0}', reason));
-          } catch (e) {
-            alert(tf('ACCOUNT_OAUTH_STATUS', 'OAuth failed: Server error {0}', resp.status));
-          }
-        } else {
-          // HTML error page or redirect
-          alert(t('ACCOUNT_OAUTH_CONFIG', 'OAuth configuration issue on server. Please check server logs.'));
-        }
+      const popupFeatures = 'popup=yes,width=520,height=720,menubar=no,toolbar=no,status=no,resizable=yes,scrollbars=yes';
+      this.oauthPopup = window.open(fullUrl, 'fives_oauth', popupFeatures);
+
+      // Popup blocked: fallback to top-level redirect (required for OAuth on strict browsers).
+      if (!this.oauthPopup || typeof this.oauthPopup.closed === 'undefined') {
+        alert(t('ACCOUNT_OAUTH_POPUP_BLOCKED', 'Popup blocked. Redirecting to complete login...'));
+        window.location.assign(fullUrl);
         return;
       }
-      
-      // Try to parse response as JSON
-      let j;
-      const contentType = resp.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        j = await resp.json();
-      } else {
-        const text = await resp.text();
-        try {
-          j = JSON.parse(text);
-        } catch (e) {
-          console.error('[OAuth] Response is not JSON:', text.substring(0, 100));
-          alert(t('ACCOUNT_OAUTH_INVALID_RESPONSE', 'OAuth error: Server returned invalid response. Check that Discord/Google credentials are configured.'));
-          return;
-        }
-      }
-      
-      if (j.ok && j.user) {
-        localStorage.setItem('fives_user', JSON.stringify(j.user));
-        this.user = j.user;
-        if (this.debugger) this.debugger.log('oauth login success', { id: j.user?.id, type: j.user?.type });
 
-        // Inform socket
-        try {
-          emitAuthUser(j.user);
-        } catch (e) { /* ignore */ }
-
-        alert(tf('ACCOUNT_LOGIN_SUCCESS', 'Logged in as {0}', j.user.name));
-        this.game.events.emit('auth-updated');
-        this.scene.resume(this.returnTo);
-        this.scene.stop();
-      } else {
-        const reason = j.error || t('ACCOUNT_ERROR_UNKNOWN', 'Unknown error');
-        if (this.debugger) this.debugger.warn('oauth login failed', { reason });
-        alert(tf('ACCOUNT_OAUTH_FAILED', 'OAuth login failed: {0}', reason));
+      const user = await this._waitForOAuthSession(60000, 700);
+      if (!user) {
+        alert(t('ACCOUNT_OAUTH_FAILED_NO_USER', 'OAuth login failed: no user session found.'));
+        return;
       }
+
+      localStorage.setItem('fives_user', JSON.stringify(user));
+      this.user = user;
+      if (this.debugger) this.debugger.log('oauth login success', { id: user?.id, type: user?.type });
+
+      try {
+        emitAuthUser(user);
+      } catch (e) { /* ignore */ }
+
+      alert(tf('ACCOUNT_LOGIN_SUCCESS', 'Logged in as {0}', user.name || t('GENERIC_UNKNOWN', 'Unknown')));
+      this.game.events.emit('auth-updated');
+      this.scene.resume(this.returnTo);
+      this.scene.stop();
     } catch (err) {
+      this._clearOAuthState(true);
       console.error('[OAuth] Error during login:', err);
       if (this.debugger) this.debugger.error('oauth login error', { error: err?.message || String(err) });
+
+      const message = err?.message || '';
+      if (message.includes('popup closed')) {
+        alert(t('ACCOUNT_OAUTH_POPUP_CLOSED', 'OAuth window was closed before login finished.'));
+        return;
+      }
+      if (message.includes('timed out')) {
+        alert(t('ACCOUNT_OAUTH_TIMEOUT', 'OAuth login timed out. Please try again.'));
+        return;
+      }
+
       const msg = err.message || t('ACCOUNT_NETWORK_ERROR_FALLBACK', 'Could not connect to server');
       alert(tf('ACCOUNT_NETWORK_ERROR', 'Network error: {0}', msg));
     }
@@ -618,6 +651,8 @@ export default class OnlineAccountScene extends Phaser.Scene {
   // Cleanup
   // ----------------------------
   shutdown() {
+    this._clearOAuthState(true);
+
     // Remove auth listener
     if (this._onAuthUpdated) {
       this.game.events.off('auth-updated', this._onAuthUpdated);
