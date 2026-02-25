@@ -426,7 +426,6 @@ router.get("/google",
   (req, res, next) =>
     passport.authenticate("google", {
       scope: ["profile"],
-      state: req.query.redirect === "json" ? "json" : undefined,
     })(req, res, next)
 );
 
@@ -440,7 +439,6 @@ router.get(
       req.user.country = getCountryFromIP(req.ip || req.socket.remoteAddress);
       await saveUser(req.user);
     }
-    if (req.query.state === "json") return res.json({ ok: true, user: publicUser(req.user) });
     res.redirect(buildPostAuthRedirect(req, 'google'));
   }
 );
@@ -453,7 +451,6 @@ router.get("/discord",
     
     passport.authenticate("discord", {
       callbackURL,
-      state: req.query.redirect === "json" ? "json" : undefined,
     })(req, res, next);
   }
 );
@@ -465,7 +462,7 @@ router.get("/discord/authorize", (req, res) => {
     const client_id = process.env.DISCORD_CLIENT_ID;
     const redirect_uri = resolveDiscordCallbackUrl(req);
     const scope = 'identify';
-    const state = 'json'; // Use JSON response for client-side handling
+    const state = typeof req.query.state === 'string' ? req.query.state.trim() : '';
     const response_type = 'code';
     
     // Validate Discord configuration
@@ -478,7 +475,9 @@ router.get("/discord/authorize", (req, res) => {
     discordUrl.searchParams.set('client_id', client_id);
     discordUrl.searchParams.set('redirect_uri', redirect_uri);
     discordUrl.searchParams.set('scope', scope);
-    discordUrl.searchParams.set('state', state);
+    if (state) {
+      discordUrl.searchParams.set('state', state);
+    }
     discordUrl.searchParams.set('response_type', response_type);
     
     console.log('[Discord] Authorize proxy using callback URL:', redirect_uri);
@@ -616,16 +615,7 @@ router.get(
             });
           }
           
-          // Success - redirect with timestamp to prevent caching
-          if (req.query.state === "json") {
-            return res.json({
-              ok: true,
-              user: publicUser(user),
-              sessionId: req.sessionID,
-              timestamp: Date.now()
-            });
-          }
-          
+          // Success - always redirect back to client app.
           const redirectUrl = buildPostAuthRedirect(req, 'discord');
           console.log('[Discord callback] Redirecting to:', redirectUrl);
           res.redirect(redirectUrl);

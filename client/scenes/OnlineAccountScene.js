@@ -230,7 +230,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
         googleBtn.on('pointerdown', async () => {
           GlobalAudio.playButton(this);
-          await this.oauthLogin('/auth/google?redirect=json');
+          await this.oauthLogin('/auth/google');
         });
         yPos += 60;
       } else {
@@ -248,7 +248,6 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
         discordBtn.on('pointerdown', async () => {
           GlobalAudio.playButton(this);
-          // Use the new proxy endpoint to avoid CORS issues
           await this.oauthLogin('/auth/discord/authorize');
         });
       } else {
