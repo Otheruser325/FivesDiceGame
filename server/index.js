@@ -17,8 +17,8 @@ const IS_SERVERLESS = process.env.VERCEL === '1' || !!process.env.AWS_LAMBDA_FUN
 const SERVER_RUNTIME = IS_SERVERLESS ? 'serverless' : 'persistent';
 const DEFAULT_RENDER_API_ORIGIN = 'https://fivesapi.onrender.com';
 const DEFAULT_RENDER_ALT_API_ORIGIN = 'https://fivesdicegame.onrender.com';
-const REDIS_CONNECT_TIMEOUT_MS = Number(process.env.REDIS_CONNECT_TIMEOUT_MS || 4000);
-const REDIS_CONNECT_MAX_RETRIES = Number(process.env.REDIS_CONNECT_MAX_RETRIES || 3);
+const REDIS_CONNECT_TIMEOUT_MS = Number(process.env.REDIS_CONNECT_TIMEOUT_MS || 1500);
+const REDIS_CONNECT_MAX_RETRIES = Number(process.env.REDIS_CONNECT_MAX_RETRIES || 1);
 
 const app = express();
 const server = createServer(app);
@@ -199,6 +199,8 @@ async function initializeRedis() {
   }
 
   if (process.env.REDIS_URL) {
+    let connectPromise = null;
+    let connectTimeout = null;
     try {
       redisClient = createClient({
         url: process.env.REDIS_URL,
@@ -223,7 +225,20 @@ async function initializeRedis() {
         console.log('[Redis] Connected successfully');
       });
       
-      await redisClient.connect();
+      connectPromise = redisClient.connect();
+      await Promise.race([
+        connectPromise,
+        new Promise((_, reject) => {
+          connectTimeout = setTimeout(() => {
+            reject(new Error(`Redis connect timed out after ${REDIS_CONNECT_TIMEOUT_MS}ms`));
+          }, REDIS_CONNECT_TIMEOUT_MS);
+        })
+      ]);
+
+      if (!redisClient?.isReady) {
+        throw new Error('Redis client did not reach ready state');
+      }
+
       sessionStore = new RedisStore({ client: redisClient });
       console.log('[Session] Using Redis for session storage');
       return true;
@@ -237,8 +252,19 @@ async function initializeRedis() {
       } catch (closeErr) {
         console.warn('[Redis] Cleanup after failed connect:', closeErr?.message || closeErr);
       }
+      try {
+        if (connectPromise) {
+          await connectPromise.catch(() => null);
+        }
+      } catch (ignored) {
+        // ignored - we already fall back to memory store
+      }
       redisClient = null;
       return false;
+    } finally {
+      if (connectTimeout) {
+        clearTimeout(connectTimeout);
+      }
     }
   }
   
