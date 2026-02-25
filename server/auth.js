@@ -94,7 +94,78 @@ function getPublicServerOrigin() {
 }
 
 const PUBLIC_SERVER_ORIGIN = getPublicServerOrigin();
-const DISCORD_CALLBACK_URL = process.env.DISCORD_CALLBACK_URL || `${PUBLIC_SERVER_ORIGIN}/auth/discord/callback`;
+const DISCORD_CALLBACK_PATH = '/auth/discord/callback';
+const DISCORD_CALLBACK_FALLBACK_URL = `${PUBLIC_SERVER_ORIGIN}${DISCORD_CALLBACK_PATH}`;
+const DEFAULT_RENDER_DISCORD_CALLBACK_URL = 'https://fivesapi.onrender.com/auth/discord/callback';
+const DISCORD_CALLBACK_URL = process.env.DISCORD_CALLBACK_URL || DISCORD_CALLBACK_PATH;
+
+function normalizeAbsoluteUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  try {
+    return new URL(url).toString();
+  } catch (e) {
+    return null;
+  }
+}
+
+function getRequestOrigin(req) {
+  try {
+    const forwardedProtoRaw = req?.headers?.['x-forwarded-proto'];
+    const forwardedHostRaw = req?.headers?.['x-forwarded-host'];
+
+    const forwardedProto = Array.isArray(forwardedProtoRaw) ? forwardedProtoRaw[0] : forwardedProtoRaw;
+    const forwardedHost = Array.isArray(forwardedHostRaw) ? forwardedHostRaw[0] : forwardedHostRaw;
+
+    const proto = String(forwardedProto || req?.protocol || 'https').split(',')[0].trim();
+    const host = String(forwardedHost || req?.get?.('host') || '').split(',')[0].trim();
+    if (!host) return null;
+
+    return normalizeOrigin(`${proto}://${host}`);
+  } catch (e) {
+    return null;
+  }
+}
+
+function toAbsoluteCallbackUrl(candidate, req) {
+  if (!candidate || typeof candidate !== 'string') return null;
+  const trimmed = candidate.trim();
+  if (!trimmed) return null;
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return normalizeAbsoluteUrl(trimmed);
+  }
+
+  if (trimmed.startsWith('/')) {
+    const requestOrigin = getRequestOrigin(req);
+    const base = requestOrigin || PUBLIC_SERVER_ORIGIN;
+    const normalizedBase = normalizeOrigin(base);
+    if (!normalizedBase) return null;
+    return normalizeAbsoluteUrl(`${normalizedBase}${trimmed}`);
+  }
+
+  return null;
+}
+
+function resolveDiscordCallbackUrl(req) {
+  const requestOrigin = getRequestOrigin(req);
+  const requestHostCallback = requestOrigin ? `${requestOrigin}${DISCORD_CALLBACK_PATH}` : null;
+  const configuredCallback = toAbsoluteCallbackUrl(DISCORD_CALLBACK_URL, req);
+
+  // Prefer the currently active API host first, then configured fallback URLs.
+  const candidates = [
+    requestHostCallback,
+    configuredCallback,
+    normalizeAbsoluteUrl(DISCORD_CALLBACK_FALLBACK_URL),
+    normalizeAbsoluteUrl(DEFAULT_RENDER_DISCORD_CALLBACK_URL)
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeAbsoluteUrl(candidate);
+    if (normalized) return normalized;
+  }
+
+  return DEFAULT_RENDER_DISCORD_CALLBACK_URL;
+}
 
 function isAllowedAuthOrigin(origin) {
   const normalized = normalizeOrigin(origin);
@@ -200,7 +271,8 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 
 // ----------------- DISCORD OAUTH -----------------
 if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
-  console.log('[Discord OAuth] Callback URL:', DISCORD_CALLBACK_URL);
+  console.log('[Discord OAuth] Callback config:', DISCORD_CALLBACK_URL);
+  console.log('[Discord OAuth] Callback fallback:', DISCORD_CALLBACK_FALLBACK_URL);
 
   passport.use(
     "discord",
@@ -377,8 +449,10 @@ router.get("/discord",
   requireStrategy("discord", "Discord OAuth is not configured on this server. Please restart the server with DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET set."),
   (req, res, next) => {
     applyAuthCorsHeaders(req, res);
+    const callbackURL = resolveDiscordCallbackUrl(req);
     
     passport.authenticate("discord", {
+      callbackURL,
       state: req.query.redirect === "json" ? "json" : undefined,
     })(req, res, next);
   }
@@ -389,7 +463,7 @@ router.get("/discord/authorize", (req, res) => {
   try {
     // Generate OAuth parameters dynamically
     const client_id = process.env.DISCORD_CLIENT_ID;
-    const redirect_uri = DISCORD_CALLBACK_URL;
+    const redirect_uri = resolveDiscordCallbackUrl(req);
     const scope = 'identify';
     const state = 'json'; // Use JSON response for client-side handling
     const response_type = 'code';
@@ -407,6 +481,7 @@ router.get("/discord/authorize", (req, res) => {
     discordUrl.searchParams.set('state', state);
     discordUrl.searchParams.set('response_type', response_type);
     
+    console.log('[Discord] Authorize proxy using callback URL:', redirect_uri);
     console.log('[Discord] Authorize proxy redirecting to:', discordUrl.toString());
     
     applyAuthCorsHeaders(req, res);
@@ -439,6 +514,8 @@ router.get(
   "/discord/callback",
   requireStrategy("discord", "Discord OAuth is not configured"),
   (req, res, next) => {
+    const callbackURL = resolveDiscordCallbackUrl(req);
+
     // Set comprehensive CORS headers for the callback
     if (applyAuthCorsHeaders(req, res)) {
       // Set additional headers to help with cross-site cookie issues
@@ -449,7 +526,7 @@ router.get(
     }
     
     // Add custom error handler for Discord auth
-    passport.authenticate("discord", (err, user, info) => {
+    passport.authenticate("discord", { callbackURL }, (err, user, info) => {
       if (err) {
         console.error('[Discord callback] Authentication error:', err?.message || err);
         const errorMsg = encodeURIComponent(`Discord login failed: ${err?.message || 'Unknown error'}`);

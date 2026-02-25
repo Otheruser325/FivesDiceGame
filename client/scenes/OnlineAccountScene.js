@@ -6,6 +6,17 @@ import DebugManager from '../utils/DebugManager.js';
 
 const t = (key, fallback) => GlobalLocalization.t(key, fallback);
 const tf = (key, fallback, ...args) => GlobalLocalization.format(key, fallback, ...args);
+const RENDER_OAUTH_FALLBACK_SERVER = 'https://fivesapi.onrender.com';
+
+function normalizeServerBase(url) {
+  if (!url || typeof url !== 'string') return null;
+  try {
+    const parsed = new URL(url);
+    return `${parsed.protocol}//${parsed.host}`.toLowerCase();
+  } catch (e) {
+    return null;
+  }
+}
 
 export default class OnlineAccountScene extends Phaser.Scene {
   constructor() {
@@ -17,6 +28,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
     this.loginPassInput = null;
     this.oauthPopup = null;
     this.oauthPollTimer = null;
+    this.oauthServerBase = null;
     this.debugger = DebugManager.create(this, { namespace: 'OnlineAccountScene' });
     this.debug = this.debugger.enabled;
   }
@@ -392,10 +404,11 @@ export default class OnlineAccountScene extends Phaser.Scene {
     }
 
     this.oauthPopup = null;
+    this.oauthServerBase = null;
   }
 
   async _waitForOAuthSession(timeoutMs = 60000, pollIntervalMs = 700) {
-    const server = getServerUrl().replace(/\/$/, '');
+    const server = (this.oauthServerBase || getServerUrl()).replace(/\/$/, '');
     const startedAt = Date.now();
 
     return new Promise((resolve, reject) => {
@@ -428,12 +441,63 @@ export default class OnlineAccountScene extends Phaser.Scene {
     });
   }
 
+  async _probeOAuthServer(serverBase, timeoutMs = 1200) {
+    const normalized = normalizeServerBase(serverBase);
+    if (!normalized) return false;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(`${normalized}/health`, {
+        method: 'GET',
+        credentials: 'include',
+        signal: controller.signal
+      });
+      return !!res?.ok;
+    } catch (err) {
+      return false;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async _resolveOAuthServerBase() {
+    const primary = normalizeServerBase(getServerUrl()) || RENDER_OAUTH_FALLBACK_SERVER;
+    const fallback = RENDER_OAUTH_FALLBACK_SERVER;
+
+    if (primary === fallback) return fallback;
+
+    const primaryHost = (() => {
+      try { return new URL(primary).hostname.toLowerCase(); } catch (e) { return ''; }
+    })();
+
+    // Custom domain may be unavailable; verify it before OAuth redirect flow.
+    if (primaryHost === 'api.fivesdicegame.com') {
+      const customHealthy = await this._probeOAuthServer(primary, 1200);
+      if (customHealthy) return primary;
+      if (this.debugger) this.debugger.warn('oauth server fallback', { from: primary, to: fallback, reason: 'custom-domain-unreachable' });
+      return fallback;
+    }
+
+    const healthy = await this._probeOAuthServer(primary, 900);
+    if (healthy) return primary;
+
+    const fallbackHealthy = await this._probeOAuthServer(fallback, 1200);
+    if (fallbackHealthy) {
+      if (this.debugger) this.debugger.warn('oauth server fallback', { from: primary, to: fallback, reason: 'primary-unreachable' });
+      return fallback;
+    }
+
+    return primary;
+  }
+
   async oauthLogin(url) {
     try {
       if (this.debugger) this.debugger.log('oauth login start', { url });
       this._clearOAuthState(true);
 
-      const server = getServerUrl();
+      const server = await this._resolveOAuthServerBase();
+      this.oauthServerBase = server;
       const fullUrl = `${server.replace(/\/$/, '')}${url.startsWith('/') ? '' : '/'}${url}`;
       const popupFeatures = 'popup=yes,width=520,height=720,menubar=no,toolbar=no,status=no,resizable=yes,scrollbars=yes';
       this.oauthPopup = window.open(fullUrl, 'fives_oauth', popupFeatures);

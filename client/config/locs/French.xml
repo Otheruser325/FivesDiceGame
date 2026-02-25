@@ -169,6 +169,10 @@
       <T id="ONLINE_JOIN_TIMEOUT" l="0">La demande a expir&#233;. Veuillez r&#233;essayer.</T>
       <T id="ONLINE_JOIN_FAILED_SEND" l="0">Echec de l&apos;envoi de la demande. Veuillez r&#233;essayer.</T>
       <T id="ONLINE_JOIN_FAILED" l="0">Echec pour rejoindre le salon (code incorrect ou plein).</T>
+      <T id="ONLINE_MODE_UNAVAILABLE_TITLE" l="0">Mode en ligne indisponible</T>
+      <T id="ONLINE_MODE_UNAVAILABLE_BODY1" l="0">Cette URL client n&apos;est pas autorisee pour le jeu en ligne.</T>
+      <T id="ONLINE_MODE_UNAVAILABLE_BODY2" l="0">URL actuelle : {0}</T>
+      <T id="ONLINE_MODE_UNAVAILABLE_BODY3" l="0">Utilisez l&apos;URL client officielle de Fives pour le multijoueur.</T>
       <T id="ONLINE_SERVER_UNAVAILABLE_TITLE" l="0">Serveur indisponible</T>
       <T id="ONLINE_SERVER_UNAVAILABLE_BODY1" l="0">Le mode en ligne n&apos;est pas disponible.</T>
       <T id="ONLINE_SERVER_UNAVAILABLE_BODY2" l="0">Veuillez r&#233;essayer plus tard.</T>

@@ -169,6 +169,10 @@
       <T id="ONLINE_JOIN_TIMEOUT" l="0">La solicitud de uni&#243;n expir&#243;. Intenta de nuevo.</T>
       <T id="ONLINE_JOIN_FAILED_SEND" l="0">No se pudo enviar la solicitud de uni&#243;n. Intenta de nuevo.</T>
       <T id="ONLINE_JOIN_FAILED" l="0">No se pudo unir a la sala (c&#243;digo incorrecto o llena). Intenta de nuevo.</T>
+      <T id="ONLINE_MODE_UNAVAILABLE_TITLE" l="0">Modo en l&#237;nea no disponible</T>
+      <T id="ONLINE_MODE_UNAVAILABLE_BODY1" l="0">Esta URL del cliente no est&#225; autorizada para jugar en l&#237;nea.</T>
+      <T id="ONLINE_MODE_UNAVAILABLE_BODY2" l="0">URL actual: {0}</T>
+      <T id="ONLINE_MODE_UNAVAILABLE_BODY3" l="0">Usa la URL oficial de Fives para acceder al multijugador.</T>
       <T id="ONLINE_SERVER_UNAVAILABLE_TITLE" l="0">Servidor no disponible</T>
       <T id="ONLINE_SERVER_UNAVAILABLE_BODY1" l="0">El modo en l&#237;nea no est&#225; disponible.</T>
       <T id="ONLINE_SERVER_UNAVAILABLE_BODY2" l="0">Int&#233;ntalo m&#225;s tarde.</T>

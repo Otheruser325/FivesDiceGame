@@ -169,6 +169,10 @@
       <T id="ONLINE_JOIN_TIMEOUT" l="0">Daeth y cais i ymuno i ben. Ceisiwch eto.</T>
       <T id="ONLINE_JOIN_FAILED_SEND" l="0">Methu anfon cais ymuno. Ceisiwch eto.</T>
       <T id="ONLINE_JOIN_FAILED" l="0">Methu ymuno a'r lobi (cod anghywir neu'n llawn). Ceisiwch eto.</T>
+      <T id="ONLINE_MODE_UNAVAILABLE_TITLE" l="0">Modd ar-lein ddim ar gael</T>
+      <T id="ONLINE_MODE_UNAVAILABLE_BODY1" l="0">Nid yw URL y cleient hwn wedi'i gymeradwyo ar gyfer chwarae ar-lein.</T>
+      <T id="ONLINE_MODE_UNAVAILABLE_BODY2" l="0">URL presennol: {0}</T>
+      <T id="ONLINE_MODE_UNAVAILABLE_BODY3" l="0">Defnyddiwch URL cleient swyddogol Fives i gael mynediad i aml-chwaraewr.</T>
       <T id="ONLINE_SERVER_UNAVAILABLE_TITLE" l="0">Gweinydd ddim ar gael</T>
       <T id="ONLINE_SERVER_UNAVAILABLE_BODY1" l="0">Nid yw modd ar-lein ar gael.</T>
       <T id="ONLINE_SERVER_UNAVAILABLE_BODY2" l="0">Ceisiwch eto yn nes ymlaen.</T>

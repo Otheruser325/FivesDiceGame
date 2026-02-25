@@ -169,6 +169,10 @@
       <T id="ONLINE_JOIN_TIMEOUT" l="0">Join request timed out. Please try again.</T>
       <T id="ONLINE_JOIN_FAILED_SEND" l="0">Failed to send join request. Please try again.</T>
       <T id="ONLINE_JOIN_FAILED" l="0">Failed to join lobby (wrong code or full). Please try again.</T>
+      <T id="ONLINE_MODE_UNAVAILABLE_TITLE" l="0">Online Mode Not Available</T>
+      <T id="ONLINE_MODE_UNAVAILABLE_BODY1" l="0">This client URL is not approved for online play.</T>
+      <T id="ONLINE_MODE_UNAVAILABLE_BODY2" l="0">Current URL: {0}</T>
+      <T id="ONLINE_MODE_UNAVAILABLE_BODY3" l="0">Use the official Fives client URL to access multiplayer.</T>
       <T id="ONLINE_SERVER_UNAVAILABLE_TITLE" l="0">Server Unavailable</T>
       <T id="ONLINE_SERVER_UNAVAILABLE_BODY1" l="0">Online mode currently not available.</T>
       <T id="ONLINE_SERVER_UNAVAILABLE_BODY2" l="0">Please try again later.</T>
