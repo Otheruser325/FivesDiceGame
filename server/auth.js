@@ -200,8 +200,17 @@ function applyAuthCorsHeaders(req, res) {
 }
 
 function getClientRedirectBase(req) {
+  const PRODUCTION_CLIENT_FALLBACK = 'https://fivesdicegame.vercel.app';
+  const LEGACY_PLAY_CLIENT_URL = 'https://play.fivesdicegame.com';
+
   const explicit = process.env.AUTH_SUCCESS_REDIRECT_URL || process.env.GAME_CLIENT_URL;
-  if (explicit) return explicit;
+  if (explicit) {
+    const normalizedExplicit = normalizeOrigin(explicit);
+    if (process.env.NODE_ENV === 'production' && normalizedExplicit === LEGACY_PLAY_CLIENT_URL) {
+      return PRODUCTION_CLIENT_FALLBACK;
+    }
+    return explicit;
+  }
 
   const requestOrigin = normalizeOrigin(req?.headers?.origin);
   if (requestOrigin && isAllowedAuthOrigin(requestOrigin)) {
@@ -209,7 +218,7 @@ function getClientRedirectBase(req) {
   }
 
   if (process.env.NODE_ENV === 'production') {
-    return 'https://play.fivesdicegame.com';
+    return PRODUCTION_CLIENT_FALLBACK;
   }
 
   return 'http://localhost:8080';
