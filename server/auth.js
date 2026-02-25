@@ -242,6 +242,76 @@ function buildPostAuthRedirect(req, provider) {
   return `${base}${separator}${params.toString()}`;
 }
 
+function getOAuthState(req) {
+  const raw = typeof req?.query?.state === 'string' ? req.query.state.trim() : '';
+  if (!raw) return undefined;
+  // Keep state bounded so provider callbacks stay predictable.
+  return raw.slice(0, 128);
+}
+
+function isPopupOAuthState(req) {
+  return getOAuthState(req) === 'popup';
+}
+
+function sendOAuthPopupCompletionPage(req, res, provider, user) {
+  const redirectUrl = buildPostAuthRedirect(req, provider);
+  const payload = {
+    type: 'fives-oauth-success',
+    provider,
+    user: publicUser(user),
+    redirectUrl,
+    timestamp: Date.now()
+  };
+
+  const serializedPayload = JSON.stringify(payload).replace(/</g, '\\u003c');
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+
+  return res.status(200).send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OAuth Complete</title>
+  </head>
+  <body>
+    <p>Completing sign in...</p>
+    <script>
+      (function () {
+        var payload = ${serializedPayload};
+        try {
+          if (window.opener && !window.opener.closed) {
+            window.opener.postMessage(payload, '*');
+            window.close();
+            return;
+          }
+        } catch (e) {}
+
+        if (payload.redirectUrl) {
+          window.location.replace(payload.redirectUrl);
+          return;
+        }
+
+        document.body.textContent = 'Sign in complete. You can close this window.';
+      })();
+    </script>
+  </body>
+</html>`);
+}
+
+function completeOAuthSuccess(req, res, provider, user, logPrefix) {
+  if (isPopupOAuthState(req)) {
+    console.log(`${logPrefix} Popup flow completed; notifying opener`);
+    return sendOAuthPopupCompletionPage(req, res, provider, user);
+  }
+
+  const redirectUrl = buildPostAuthRedirect(req, provider);
+  console.log(`${logPrefix} Redirecting to:`, redirectUrl);
+  return res.redirect(redirectUrl);
+}
+
 // ----------------- GOOGLE OAUTH -----------------
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   passport.use(
@@ -432,10 +502,13 @@ router.post("/logout", (req, res) => {
 // ----------------- OAUTH ROUTES -----------------
 router.get("/google", 
   requireStrategy("google", "Google OAuth is not configured on this server. Please restart the server with GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET set."),
-  (req, res, next) =>
-    passport.authenticate("google", {
+  (req, res, next) => {
+    const state = getOAuthState(req);
+    return passport.authenticate("google", {
       scope: ["profile"],
-    })(req, res, next)
+      state
+    })(req, res, next);
+  }
 );
 
 router.get(
@@ -448,7 +521,7 @@ router.get(
       req.user.country = getCountryFromIP(req.ip || req.socket.remoteAddress);
       await saveUser(req.user);
     }
-    res.redirect(buildPostAuthRedirect(req, 'google'));
+    completeOAuthSuccess(req, res, 'google', req.user, '[Google callback]');
   }
 );
 
@@ -457,9 +530,11 @@ router.get("/discord",
   (req, res, next) => {
     applyAuthCorsHeaders(req, res);
     const callbackURL = resolveDiscordCallbackUrl(req);
+    const state = getOAuthState(req);
     
     passport.authenticate("discord", {
       callbackURL,
+      state
     })(req, res, next);
   }
 );
@@ -471,7 +546,7 @@ router.get("/discord/authorize", (req, res) => {
     const client_id = process.env.DISCORD_CLIENT_ID;
     const redirect_uri = resolveDiscordCallbackUrl(req);
     const scope = 'identify';
-    const state = typeof req.query.state === 'string' ? req.query.state.trim() : '';
+    const state = getOAuthState(req) || '';
     const response_type = 'code';
     
     // Validate Discord configuration
@@ -624,10 +699,8 @@ router.get(
             });
           }
           
-          // Success - always redirect back to client app.
-          const redirectUrl = buildPostAuthRedirect(req, 'discord');
-          console.log('[Discord callback] Redirecting to:', redirectUrl);
-          res.redirect(redirectUrl);
+          // Success - notify popup opener (if popup flow) or redirect main window.
+          completeOAuthSuccess(req, res, 'discord', user, '[Discord callback]');
         });
       });
     })(req, res, next);

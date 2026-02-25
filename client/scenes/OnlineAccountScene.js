@@ -413,13 +413,11 @@ export default class OnlineAccountScene extends Phaser.Scene {
     return new Promise((resolve, reject) => {
       this.oauthPollTimer = setInterval(async () => {
         if (this.oauthPopup && this.oauthPopup.closed) {
-          this._clearOAuthState(false);
           reject(new Error('OAuth popup closed before login finished'));
           return;
         }
 
         if (Date.now() - startedAt >= timeoutMs) {
-          this._clearOAuthState(false);
           reject(new Error('OAuth login timed out'));
           return;
         }
@@ -430,7 +428,6 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
           const body = await res.json();
           if (body?.ok && body.user) {
-            this._clearOAuthState(true);
             resolve(body.user);
           }
         } catch (err) {
@@ -438,6 +435,65 @@ export default class OnlineAccountScene extends Phaser.Scene {
         }
       }, pollIntervalMs);
     });
+  }
+
+  async _waitForOAuthPopupMessage(timeoutMs = 60000) {
+    const expectedPrimary = normalizeServerBase(this.oauthServerBase || getServerUrl());
+    const expectedFallback = normalizeServerBase(RENDER_OAUTH_FALLBACK_SERVER);
+    const allowedOrigins = new Set([expectedPrimary, expectedFallback].filter(Boolean));
+
+    return new Promise((resolve, reject) => {
+      let finished = false;
+      let timeoutId = null;
+      let closeWatchId = null;
+
+      const cleanup = () => {
+        if (finished) return;
+        finished = true;
+        if (timeoutId) clearTimeout(timeoutId);
+        if (closeWatchId) clearInterval(closeWatchId);
+        window.removeEventListener('message', onMessage);
+      };
+
+      const fail = (err) => {
+        cleanup();
+        reject(err);
+      };
+
+      const succeed = (user) => {
+        cleanup();
+        resolve(user);
+      };
+
+      const onMessage = (event) => {
+        const eventOrigin = normalizeServerBase(event?.origin || '');
+        if (!eventOrigin || !allowedOrigins.has(eventOrigin)) return;
+
+        const data = event?.data;
+        if (!data || typeof data !== 'object') return;
+        if (data.type !== 'fives-oauth-success') return;
+        if (!data.user || !data.user.id) return;
+
+        succeed(data.user);
+      };
+
+      window.addEventListener('message', onMessage);
+
+      timeoutId = setTimeout(() => {
+        fail(new Error('OAuth login timed out'));
+      }, timeoutMs);
+
+      closeWatchId = setInterval(() => {
+        if (this.oauthPopup && this.oauthPopup.closed) {
+          fail(new Error('OAuth popup closed before login finished'));
+        }
+      }, 250);
+    });
+  }
+
+  _appendPopupState(url) {
+    if (/[?&]state=/.test(url)) return url;
+    return `${url}${url.includes('?') ? '&' : '?'}state=popup`;
   }
 
   async _probeOAuthServer(serverBase, timeoutMs = 1200) {
@@ -497,22 +553,29 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
       const server = await this._resolveOAuthServerBase();
       this.oauthServerBase = server;
-      const fullUrl = `${server.replace(/\/$/, '')}${url.startsWith('/') ? '' : '/'}${url}`;
+      const popupUrlPath = this._appendPopupState(url);
+      const popupUrl = `${server.replace(/\/$/, '')}${popupUrlPath.startsWith('/') ? '' : '/'}${popupUrlPath}`;
+      const topLevelUrl = `${server.replace(/\/$/, '')}${url.startsWith('/') ? '' : '/'}${url}`;
       const popupFeatures = 'popup=yes,width=520,height=720,menubar=no,toolbar=no,status=no,resizable=yes,scrollbars=yes';
-      this.oauthPopup = window.open(fullUrl, 'fives_oauth', popupFeatures);
+      this.oauthPopup = window.open(popupUrl, 'fives_oauth', popupFeatures);
 
       // Popup blocked: fallback to top-level redirect (required for OAuth on strict browsers).
       if (!this.oauthPopup || typeof this.oauthPopup.closed === 'undefined') {
         alert(t('ACCOUNT_OAUTH_POPUP_BLOCKED', 'Popup blocked. Redirecting to complete login...'));
-        window.location.assign(fullUrl);
+        window.location.assign(topLevelUrl);
         return;
       }
 
-      const user = await this._waitForOAuthSession(60000, 700);
+      const user = await Promise.any([
+        this._waitForOAuthPopupMessage(60000),
+        this._waitForOAuthSession(60000, 700)
+      ]);
       if (!user) {
         alert(t('ACCOUNT_OAUTH_FAILED_NO_USER', 'OAuth login failed: no user session found.'));
         return;
       }
+
+      this._clearOAuthState(true);
 
       localStorage.setItem('fives_user', JSON.stringify(user));
       this.user = user;
@@ -531,7 +594,9 @@ export default class OnlineAccountScene extends Phaser.Scene {
       console.error('[OAuth] Error during login:', err);
       if (this.debugger) this.debugger.error('oauth login error', { error: err?.message || String(err) });
 
-      const message = err?.message || '';
+      const aggregateReasons = Array.isArray(err?.errors) ? err.errors : [];
+      const primaryReason = aggregateReasons.find(Boolean);
+      const message = String(primaryReason?.message || err?.message || '');
       if (message.includes('popup closed')) {
         alert(t('ACCOUNT_OAUTH_POPUP_CLOSED', 'OAuth window was closed before login finished.'));
         return;
@@ -726,4 +791,3 @@ export default class OnlineAccountScene extends Phaser.Scene {
     this._destroyDomInputs();
   }
 }
-
