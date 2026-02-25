@@ -13,6 +13,7 @@ const MODE = _detectMode();
 const DEFAULT_PORTS = [8080, 8081, 8082, 8083, 8084, 8085];
 
 const RENDER_API_SERVER = 'https://fivesapi.onrender.com';
+const RENDER_API_SERVER_ALT = 'https://fivesdicegame.onrender.com';
 const LEGACY_VERCEL_API_SERVER = 'https://fivesapi.vercel.app';
 const CUSTOM_API_SERVER = 'https://api.fivesdicegame.com';
 
@@ -110,7 +111,7 @@ function _getExplicitServerOverride() {
 }
 
 function _getProductionCandidates() {
-  const candidates = [RENDER_API_SERVER];
+  const candidates = [RENDER_API_SERVER, RENDER_API_SERVER_ALT];
   if (_shouldUseCustomApi()) {
     candidates.unshift(CUSTOM_API_SERVER);
   }
@@ -135,7 +136,8 @@ function _getProductionCandidates() {
 
 function _buildSocketOptions(server) {
   const isServerlessEndpoint = String(server).includes('vercel.app');
-  const transports = isServerlessEndpoint ? ['polling'] : ['websocket', 'polling'];
+  // Polling-first is more resilient on cold starts; Socket.IO will still upgrade to websocket when available.
+  const transports = isServerlessEndpoint ? ['polling'] : ['polling', 'websocket'];
   return {
     autoConnect: true,
     transports,
@@ -440,7 +442,7 @@ function _attachSocketHandlers(sock, server) {
   sock.on('connect_error', (err) => {
     const errMsg = err && err.message ? err.message : String(err);
     const isSessionError = errMsg.includes('Session ID unknown') || err?.data?.content?.includes?.('Session ID');
-    const isTransportError = errMsg.includes('transport error') || errMsg.includes('xhr poll error');
+    const isTransportError = errMsg.includes('transport error') || errMsg.includes('xhr poll error') || errMsg.includes('websocket error');
     
     // ⚠️ SUPPRESS: Session errors are NORMAL when clients reconnect with stale sessions
     // The server's new error handler now suppresses HTTP 400 for these, client just reconnects
@@ -456,8 +458,10 @@ function _attachSocketHandlers(sock, server) {
         forceNewConnection();
       }, 100); // Small delay to avoid rapid reconnection loops
     } else if (isTransportError) {
+      const activeTransport = sock?.io?.engine?.transport?.name || 'unknown';
       console.info('[Socket] Transport error, reconnecting...', {
         retries: _connectionRetries + 1,
+        transport: activeTransport,
         note: 'Socket transport retry'
       });
     } else {

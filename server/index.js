@@ -16,6 +16,9 @@ const __dirname = dirname(__filename);
 const IS_SERVERLESS = process.env.VERCEL === '1' || !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.NOW_REGION;
 const SERVER_RUNTIME = IS_SERVERLESS ? 'serverless' : 'persistent';
 const DEFAULT_RENDER_API_ORIGIN = 'https://fivesapi.onrender.com';
+const DEFAULT_RENDER_ALT_API_ORIGIN = 'https://fivesdicegame.onrender.com';
+const REDIS_CONNECT_TIMEOUT_MS = Number(process.env.REDIS_CONNECT_TIMEOUT_MS || 4000);
+const REDIS_CONNECT_MAX_RETRIES = Number(process.env.REDIS_CONNECT_MAX_RETRIES || 3);
 
 const app = express();
 const server = createServer(app);
@@ -42,7 +45,7 @@ app.get('/health', (req, res) => {
     status: 'healthy',
     runtime: SERVER_RUNTIME,
     timestamp: new Date().toISOString(),
-    redis: redisClient ? 'connected' : 'not connected',
+    redis: redisClient?.isReady ? 'connected' : 'not connected',
     uptime: process.uptime()
   });
 });
@@ -69,6 +72,7 @@ function getConfiguredOrigins() {
   if (process.env.NODE_ENV === 'production') {
     const defaults = [
       DEFAULT_RENDER_API_ORIGIN,            // Render production API
+      DEFAULT_RENDER_ALT_API_ORIGIN,        // Alternate Render production API
       'https://play.fivesdicegame.com',    // Main game domain
       'https://fivesdicegame.com',          // Base domain
       'https://www.fivesdicegame.com',      // WWW variant
@@ -199,16 +203,20 @@ async function initializeRedis() {
       redisClient = createClient({
         url: process.env.REDIS_URL,
         socket: {
-          connectTimeout: IS_SERVERLESS ? 1200 : 5000,
+          connectTimeout: REDIS_CONNECT_TIMEOUT_MS,
           reconnectStrategy: (retries) => {
             if (IS_SERVERLESS) return false;
-            return Math.min(retries * 50, 500);
+            if (retries >= REDIS_CONNECT_MAX_RETRIES) {
+              return false;
+            }
+            return Math.min((retries + 1) * 150, 1000);
           }
         }
       });
       
       redisClient.on('error', (err) => {
-        console.warn('[Redis] Connection error:', err.message);
+        const details = err?.message || err?.code || String(err);
+        console.warn('[Redis] Connection error:', details);
       });
       
       redisClient.on('connect', () => {
@@ -220,7 +228,16 @@ async function initializeRedis() {
       console.log('[Session] Using Redis for session storage');
       return true;
     } catch (error) {
-      console.warn('[Redis] Failed to connect, using memory store:', error.message);
+      const details = error?.message || error?.code || String(error);
+      console.warn('[Redis] Failed to connect, using memory store:', details);
+      try {
+        if (redisClient?.isOpen) {
+          await redisClient.disconnect();
+        }
+      } catch (closeErr) {
+        console.warn('[Redis] Cleanup after failed connect:', closeErr?.message || closeErr);
+      }
+      redisClient = null;
       return false;
     }
   }
@@ -517,4 +534,3 @@ if (!IS_SERVERLESS) {
 
 export { app, server, io };
 export default app;
-
