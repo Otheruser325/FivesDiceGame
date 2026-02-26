@@ -177,6 +177,103 @@ function _mergeMemoryUsers(usersMap) {
   return merged;
 }
 
+function _extractMissingUsersColumn(error) {
+  const message = String(error?.message || error || '');
+  const patterns = [
+    /column\s+"?([a-zA-Z0-9_]+)"?\s+of\s+relation\s+"?users"?\s+does\s+not\s+exist/i,
+    /Could not find the '([^']+)' column of 'users'/i,
+    /column\s+users\.([a-zA-Z0-9_]+)\s+does\s+not\s+exist/i,
+    /column\s+"?([a-zA-Z0-9_]+)"?\s+does\s+not\s+exist/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+
+  return null;
+}
+
+function _withoutUnsupportedUserColumn(row, columnName) {
+  if (!row || typeof row !== 'object' || !columnName) {
+    return { row, changed: false };
+  }
+
+  const normalizedColumn = String(columnName).trim();
+  if (!normalizedColumn) {
+    return { row, changed: false };
+  }
+
+  const camel = normalizedColumn.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+  const snake = normalizedColumn.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+
+  const candidates = new Set([
+    normalizedColumn,
+    normalizedColumn.toLowerCase(),
+    normalizedColumn.toUpperCase(),
+    camel,
+    camel.toLowerCase(),
+    snake,
+    snake.toLowerCase()
+  ]);
+
+  let changed = false;
+  const next = { ...row };
+  for (const key of Object.keys(next)) {
+    if (key === 'id') continue;
+    if (candidates.has(key) || candidates.has(key.toLowerCase())) {
+      delete next[key];
+      changed = true;
+    }
+  }
+
+  return { row: next, changed };
+}
+
+async function _upsertUsersWithColumnFallback(rows, operationName = 'Supabase saveUsers') {
+  let workingRows = (rows || []).map((row) => ({ ...row }));
+  const removedColumns = new Set();
+  const maxAttempts = 6;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const { data, error } = await _withTimeout(
+      supabase
+        .from('users')
+        .upsert(workingRows, { onConflict: 'id' })
+        .select(),
+      SUPABASE_OPERATION_TIMEOUT_MS,
+      operationName
+    );
+
+    if (!error) {
+      return { data, rows: workingRows, removedColumns };
+    }
+
+    const missingColumn = _extractMissingUsersColumn(error);
+    if (!missingColumn) {
+      throw error;
+    }
+
+    let changedAny = false;
+    workingRows = workingRows.map((row) => {
+      const result = _withoutUnsupportedUserColumn(row, missingColumn);
+      if (result.changed) changedAny = true;
+      return result.row;
+    });
+
+    if (!changedAny) {
+      throw error;
+    }
+
+    removedColumns.add(missingColumn);
+    console.warn(`[userStorage] Retrying user upsert without unsupported column "${missingColumn}"`);
+  }
+
+  throw new Error('[userStorage] Supabase user upsert failed after column fallback attempts');
+}
+
 // ----------------
 // Public API
 // ----------------

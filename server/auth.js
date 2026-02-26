@@ -4,7 +4,7 @@ import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import OAuth2Strategy from "passport-oauth2";
 import bcrypt from "bcryptjs";
-import { v4 as uuidv4 } from "uuid";
+import { v4 as uuidv4, v5 as uuidv5 } from "uuid";
 import geoip from "geoip-lite";
 import { loadUsers, saveUsers, loadUser, saveUser } from "./utils/userStorage.js";
 
@@ -98,6 +98,39 @@ const DISCORD_CALLBACK_PATH = '/auth/discord/callback';
 const DISCORD_CALLBACK_FALLBACK_URL = `${PUBLIC_SERVER_ORIGIN}${DISCORD_CALLBACK_PATH}`;
 const DEFAULT_RENDER_DISCORD_CALLBACK_URL = 'https://fivesapi.onrender.com/auth/discord/callback';
 const DISCORD_CALLBACK_URL = process.env.DISCORD_CALLBACK_URL || DISCORD_CALLBACK_PATH;
+const OAUTH_USER_ID_NAMESPACE = 'd6e3e4be-9493-47e9-ab88-46fbcfef5c4a';
+
+function normalizeOAuthProviderId(providerId) {
+  const normalized = String(providerId || '').trim();
+  return normalized || null;
+}
+
+function buildOAuthUserId(provider, providerId) {
+  const normalizedProvider = String(provider || 'oauth').trim().toLowerCase();
+  const normalizedProviderId = normalizeOAuthProviderId(providerId);
+  if (!normalizedProviderId) return null;
+  return uuidv5(`${normalizedProvider}:${normalizedProviderId}`, OAUTH_USER_ID_NAMESPACE);
+}
+
+async function findOAuthUser(providerField, providerName, providerId) {
+  const normalizedProviderId = normalizeOAuthProviderId(providerId);
+  if (!normalizedProviderId) return null;
+
+  // Primary lookup: deterministic user id from provider+providerId.
+  const deterministicId = buildOAuthUserId(providerName, normalizedProviderId);
+  if (deterministicId) {
+    const byDeterministicId = await loadUser(deterministicId);
+    if (byDeterministicId) return byDeterministicId;
+  }
+
+  // Backward-compatible lookup: legacy rows keyed by oauth field.
+  const users = await loadUsers();
+  return (
+    Object.values(users || {}).find(
+      (u) => String(u?.[providerField] || '') === normalizedProviderId
+    ) || null
+  );
+}
 
 function normalizeAbsoluteUrl(url) {
   if (!url || typeof url !== 'string') return null;
@@ -346,10 +379,13 @@ async function saveOAuthUserOrThrow(user, providerField) {
     const repaired = { ...persisted, [providerField]: saved[providerField] };
     await saveUser(repaired);
     const verified = await loadUser(saved.id);
-    if (!verified || verified[providerField] !== saved[providerField]) {
-      throw new Error(`OAuth user persistence mismatch for ${providerField}`);
+    if (verified && verified[providerField] === saved[providerField]) {
+      return verified;
     }
-    return verified;
+    console.warn(`[OAuth] Persisted user missing ${providerField}; continuing with deterministic OAuth ID`, {
+      userId: saved.id
+    });
+    return verified || persisted;
   }
 
   return persisted;
@@ -366,23 +402,36 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       },
       async (accessToken, refreshToken, profile, done) => {
         try {
-          const users = await loadUsers();
-          let user = Object.values(users).find((u) => u.oauthGoogle === profile.id);
+          const googleId = normalizeOAuthProviderId(profile?.id);
+          if (!googleId) {
+            return done(new Error('Invalid Google profile id'), null);
+          }
+
+          const deterministicId = buildOAuthUserId('google', googleId) || uuidv4();
+          let user = await findOAuthUser('oauthGoogle', 'google', googleId);
 
           if (!user) {
             user = {
-              id: uuidv4(),
+              id: deterministicId,
               name: profile.displayName || `GoogleUser${Math.floor(Math.random() * 9999)}`,
               type: "google",
-              oauthGoogle: profile.id,
-              avatar: profile.photos && profile.photos[0] ? profile.photos[0].value : null
+              oauthGoogle: googleId,
+              oauthProvider: 'google',
+              oauthProviderId: googleId,
+              avatar: profile.photos && profile.photos[0] ? profile.photos[0].value : null,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
             };
             user = await saveOAuthUserOrThrow(user, 'oauthGoogle');
           } else {
-            // Ensure provider identity remains attached if stale/migrated record is missing it.
-            if (!user.oauthGoogle) {
-              user.oauthGoogle = profile.id;
-              user = await saveOAuthUserOrThrow(user, 'oauthGoogle');
+            const updates = {};
+            if (!user.oauthGoogle) updates.oauthGoogle = googleId;
+            if (!user.oauthProvider) updates.oauthProvider = 'google';
+            if (!user.oauthProviderId) updates.oauthProviderId = googleId;
+            if (user.type !== 'google') updates.type = 'google';
+
+            if (Object.keys(updates).length > 0) {
+              user = await saveOAuthUserOrThrow({ ...user, ...updates, updatedAt: new Date().toISOString() }, 'oauthGoogle');
             }
           }
           done(null, user);
@@ -431,24 +480,37 @@ if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
             return done(new Error('Invalid Discord user response'));
           }
 
-          const users = await loadUsers();
-          let user = Object.values(users).find((u) => u.oauthDiscord === discord.id);
+          const discordId = normalizeOAuthProviderId(discord.id);
+          if (!discordId) {
+            return done(new Error('Invalid Discord user response: missing id'), null);
+          }
+
+          const deterministicId = buildOAuthUserId('discord', discordId) || uuidv4();
+          let user = await findOAuthUser('oauthDiscord', 'discord', discordId);
 
           if (!user) {
             user = {
-              id: uuidv4(),
+              id: deterministicId,
               name: discord.username || `Discord${Math.floor(Math.random() * 9999)}`,
               type: "discord",
-              oauthDiscord: discord.id,
-              avatar: discord.avatar ? `https://cdn.discordapp.com/avatars/${discord.id}/${discord.avatar}.png` : null
+              oauthDiscord: discordId,
+              oauthProvider: 'discord',
+              oauthProviderId: discordId,
+              avatar: discord.avatar ? `https://cdn.discordapp.com/avatars/${discord.id}/${discord.avatar}.png` : null,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
             };
             console.log('[Discord] Creating new user:', { id: user.id, name: user.name });
             user = await saveOAuthUserOrThrow(user, 'oauthDiscord');
           } else {
-            // Ensure provider identity remains attached if stale/migrated record is missing it.
-            if (!user.oauthDiscord) {
-              user.oauthDiscord = discord.id;
-              user = await saveOAuthUserOrThrow(user, 'oauthDiscord');
+            const updates = {};
+            if (!user.oauthDiscord) updates.oauthDiscord = discordId;
+            if (!user.oauthProvider) updates.oauthProvider = 'discord';
+            if (!user.oauthProviderId) updates.oauthProviderId = discordId;
+            if (user.type !== 'discord') updates.type = 'discord';
+
+            if (Object.keys(updates).length > 0) {
+              user = await saveOAuthUserOrThrow({ ...user, ...updates, updatedAt: new Date().toISOString() }, 'oauthDiscord');
             }
           }
 
