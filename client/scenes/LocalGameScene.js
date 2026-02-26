@@ -140,11 +140,11 @@ export default class LocalGameScene extends Phaser.Scene {
             this.diceSprites.push(sprite);
         }
 
-        this.scoreBreakdown = this.add.text(600, 380, "", {
-            fontSize: 24,
+        this.scoreBreakdown = this.add.text(600, 420, "", {
+            fontSize: 20,
             color: '#ffffaa',
             align: 'center'
-        }).setOrigin(0.5).setAlpha(1);
+        }).setOrigin(0.5).setAlpha(0).setDepth(50);
 
         this.playerBar = [];
         this.createPlayerBar();

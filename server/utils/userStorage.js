@@ -167,6 +167,16 @@ function _userToRow(user) {
   return row;
 }
 
+function _mergeMemoryUsers(usersMap) {
+  const merged = { ...(usersMap || {}) };
+  for (const [id, row] of userMemoryCache.entries()) {
+    if (!merged[id]) {
+      merged[id] = _rowToUser(row);
+    }
+  }
+  return merged;
+}
+
 // ----------------
 // Public API
 // ----------------
@@ -210,7 +220,7 @@ export async function loadUsers() {
                 if (u && u.id) map[u.id] = u;
               });
               console.info('[userStorage] ✅ Loaded', Object.keys(map).length, 'users from Supabase after schema refresh');
-              return map;
+              return _mergeMemoryUsers(map);
             }
           } catch (refreshErr) {
             console.debug('[userStorage] Schema cache refresh not available, using fallback');
@@ -231,7 +241,7 @@ export async function loadUsers() {
       // Handle empty result set (valid response, just no data)
       if (!data || (Array.isArray(data) && data.length === 0)) {
         console.info('[userStorage] Supabase returned no users (table empty or just initialized)');
-        return {};
+        return _mergeMemoryUsers({});
       }
       
       // Successfully loaded data from Supabase
@@ -241,7 +251,7 @@ export async function loadUsers() {
         if (u && u.id) map[u.id] = u;
       });
       console.info('[userStorage] Loaded', Object.keys(map).length, 'users from Supabase');
-      return map;
+      return _mergeMemoryUsers(map);
     } catch (err) {
       console.warn('[userStorage] Supabase loadUsers failed, falling back to local DB:', err?.message || err);
     }
@@ -251,7 +261,7 @@ export async function loadUsers() {
   await usersDb.read();
   usersDb.data ||= {};
   usersDb.data.users ||= {};
-  return { ...(usersDb.data.users || {}) };
+  return _mergeMemoryUsers({ ...(usersDb.data.users || {}) });
 }
 
 export async function saveUsers(users) {

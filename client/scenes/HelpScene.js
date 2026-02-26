@@ -28,7 +28,7 @@ export default class HelpScene extends Phaser.Scene {
             'HELP_TEXT',
             'Fives is a simple but strategic dice game.\n\n' +
             '- You and your opponent each roll five dice per round.\n' +
-            '- Games can be 10-30 rounds (default: 20 rounds).\n' +
+            '- Games can be 5-30 rounds (default: 20 rounds).\n' +
             '- Your round score is the sum of all five dice.\n' +
             '- Your total score is the sum of all round scores.\n' +
             '- Optional: Multiplex rule multiplies the dice instead of adding.\n' +

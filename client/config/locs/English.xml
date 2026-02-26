@@ -76,7 +76,7 @@
 
       <T id="HELP_TITLE" l="0">Help</T>
       <T id="HELP_SUBTITLE" l="0">How to Play Fives</T>
-      <T id="HELP_TEXT" l="0">Fives is a simple but strategic dice game.\n\n- You and your opponent each roll five dice per round.\n- Games can be 10-30 rounds (default: 20 rounds).\n- Your round score is the sum of all five dice.\n- Your total score is the sum of all round scores.\n- Optional: Multiplex rule multiplies the dice instead of adding.\n- Optional: Combo rules add multipliers for special patterns.\n- Hotkeys: Space/R rolls, T ends your turn (your turn only).\n\nThe player with the highest total score at the end wins!</T>
+      <T id="HELP_TEXT" l="0">Fives is a simple but strategic dice game.\n\n- You and your opponent each roll five dice per round.\n- Games can be 5-30 rounds (default: 20 rounds).\n- Your round score is the sum of all five dice.\n- Your total score is the sum of all round scores.\n- Optional: Multiplex rule multiplies the dice instead of adding.\n- Optional: Combo rules add multipliers for special patterns.\n- Hotkeys: Space/R rolls, T ends your turn (your turn only).\n\nThe player with the highest total score at the end wins!</T>
       <T id="HELP_COMBO_BUTTON" l="0">Combo Rules</T>
       <T id="HELP_COMBO_TITLE" l="0">Combo Rules</T>
       <T id="HELP_COMBO_TEXT" l="0">Certain dice combinations award bonus multipliers:\n\n- Pair -&gt; x1.5 score\n- Two Pair -&gt; x2 score\n- Three of a Kind -&gt; x3 score\n- Full House -&gt; x4 score\n- Four of a Kind -&gt; x5 score\n- Five of a Kind -&gt; x10 score\n- Straights (1-5 or 2-6) -&gt; x2.5 or x3 score\n\nThese bonuses stack with your base score (or multiplex score if enabled).</T>

@@ -76,7 +76,7 @@
 
       <T id="HELP_TITLE" l="0">Cymorth</T>
       <T id="HELP_SUBTITLE" l="0">Sut i chwarae Fives</T>
-      <T id="HELP_TEXT" l="0">Mae Fives yn gem dis syml ond strategol.\n\n- Rydych chi a'ch gwrthwynebwr yn rholio pum dis bob rownd.\n- Gall gemau fod rhwng 10 a 30 rownd (diofyn: 20 rownd).\n- Sgor y rownd yw cyfanswm y pum dis.\n- Sgor cyfan yw cyfanswm pob rownd.\n- Dewisol: mae'r rheol multiplex yn lluosi'r dis yn lle adio.\n- Dewisol: mae rheolau combo yn ychwanegu lluosyddion ar gyfer patrymau arbennig.\n- Bysellau poeth: Bwlch/R yn rholio, T yn gorffen eich tro (eich tro yn unig).\n\nY chwaraewr sydd a'r sgor cyfan uchaf ar y diwedd sy'n ennill!</T>
+      <T id="HELP_TEXT" l="0">Mae Fives yn gem dis syml ond strategol.\n\n- Rydych chi a'ch gwrthwynebwr yn rholio pum dis bob rownd.\n- Gall gemau fod rhwng 5 a 30 rownd (diofyn: 20 rownd).\n- Sgor y rownd yw cyfanswm y pum dis.\n- Sgor cyfan yw cyfanswm pob rownd.\n- Dewisol: mae'r rheol multiplex yn lluosi'r dis yn lle adio.\n- Dewisol: mae rheolau combo yn ychwanegu lluosyddion ar gyfer patrymau arbennig.\n- Bysellau poeth: Bwlch/R yn rholio, T yn gorffen eich tro (eich tro yn unig).\n\nY chwaraewr sydd a'r sgor cyfan uchaf ar y diwedd sy'n ennill!</T>
       <T id="HELP_COMBO_BUTTON" l="0">Rheolau combo</T>
       <T id="HELP_COMBO_TITLE" l="0">Rheolau combo</T>
       <T id="HELP_COMBO_TEXT" l="0">Mae rhai cyfuniadau o ddis yn rhoi lluosyddion bonws:\n\n- Par -&gt; sgor x1.5\n- Dau par -&gt; sgor x2\n- Tri o'r un fath -&gt; sgor x3\n- Ty llawn -&gt; sgor x4\n- Pedwar o'r un fath -&gt; sgor x5\n- Pump o'r un fath -&gt; sgor x10\n- Straights (1-5 neu 2-6) -&gt; sgor x2.5 neu x3\n\nMae'r bonysau hyn yn cronni gyda'ch sgor sylfaenol (neu sgor multiplex os wedi'i alluogi).</T>

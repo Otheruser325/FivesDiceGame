@@ -167,7 +167,7 @@ for (let i = 0; i < this.selectedPlayers; i++) {
             fontSize: 28
         }).setOrigin(0.5);
 
-        const roundOptions = [1, 10, 15, 20, 25, 30];
+        const roundOptions = [5, 10, 15, 20, 25, 30];
 
         roundOptions.forEach((r, i) => {
             const btn = this.add.text(600, 400 + i * 40, tf('CONFIG_ROUNDS_LABEL', '{0} rounds', r), {

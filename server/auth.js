@@ -242,6 +242,25 @@ function buildPostAuthRedirect(req, provider) {
   return `${base}${separator}${params.toString()}`;
 }
 
+function buildPostAuthErrorRedirect(req, provider, message) {
+  const base = getClientRedirectBase(req);
+  const params = new URLSearchParams({
+    auth: 'error',
+    provider: provider || 'oauth',
+    error: String(message || 'OAuth login failed'),
+    timestamp: String(Date.now())
+  });
+
+  if (/^https?:\/\//i.test(base)) {
+    const url = new URL(base);
+    params.forEach((value, key) => url.searchParams.set(key, value));
+    return url.toString();
+  }
+
+  const separator = base.includes('?') ? '&' : '?';
+  return `${base}${separator}${params.toString()}`;
+}
+
 function getOAuthState(req) {
   const raw = typeof req?.query?.state === 'string' ? req.query.state.trim() : '';
   if (!raw) return undefined;
@@ -318,15 +337,19 @@ async function saveOAuthUserOrThrow(user, providerField) {
   }
 
   const saved = await saveUser(user);
-  const users = await loadUsers();
-
-  const persisted = Object.values(users || {}).find((u) => String(u?.id) === String(saved.id));
+  const persisted = await loadUser(saved.id);
   if (!persisted) {
     throw new Error('OAuth user persistence verification failed');
   }
 
   if (providerField && saved[providerField] && persisted[providerField] !== saved[providerField]) {
-    throw new Error(`OAuth user persistence mismatch for ${providerField}`);
+    const repaired = { ...persisted, [providerField]: saved[providerField] };
+    await saveUser(repaired);
+    const verified = await loadUser(saved.id);
+    if (!verified || verified[providerField] !== saved[providerField]) {
+      throw new Error(`OAuth user persistence mismatch for ${providerField}`);
+    }
+    return verified;
   }
 
   return persisted;
@@ -644,20 +667,20 @@ router.get(
     passport.authenticate("discord", { callbackURL }, (err, user, info) => {
       if (err) {
         console.error('[Discord callback] Authentication error:', err?.message || err);
-        const errorMsg = encodeURIComponent(`Discord login failed: ${err?.message || 'Unknown error'}`);
-        return res.redirect(`/?error=${errorMsg}`);
+        const errorMsg = `Discord login failed: ${err?.message || 'Unknown error'}`;
+        return res.redirect(buildPostAuthErrorRedirect(req, 'discord', errorMsg));
       }
       
       if (!user) {
         console.warn('[Discord callback] No user returned from strategy');
-        return res.redirect('/?error=Discord%20login%20failed');
+        return res.redirect(buildPostAuthErrorRedirect(req, 'discord', 'Discord login failed'));
       }
       
       req.login(user, async (loginErr) => {
         if (loginErr) {
           console.error('[Discord callback] Login error:', loginErr?.message || loginErr);
-          const errorMsg = encodeURIComponent(`Login failed: ${loginErr?.message || 'Unknown error'}`);
-          return res.redirect(`/?error=${errorMsg}`);
+          const errorMsg = `Login failed: ${loginErr?.message || 'Unknown error'}`;
+          return res.redirect(buildPostAuthErrorRedirect(req, 'discord', errorMsg));
         }
 
         // Update country if not set
@@ -701,8 +724,8 @@ router.get(
               });
             } catch (fallbackErr) {
               console.error('[Discord callback] All session save attempts failed:', fallbackErr?.message || fallbackErr);
-              const errorMsg = encodeURIComponent(`Session save failed: ${fallbackErr?.message || 'Unknown error'}`);
-              return res.redirect(`/?error=${errorMsg}`);
+              const errorMsg = `Session save failed: ${fallbackErr?.message || 'Unknown error'}`;
+              return res.redirect(buildPostAuthErrorRedirect(req, 'discord', errorMsg));
             }
           }
           

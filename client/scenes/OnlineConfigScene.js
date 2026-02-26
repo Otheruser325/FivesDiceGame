@@ -64,7 +64,7 @@ export default class OnlineConfigScene extends Phaser.Scene {
             fontSize: 28
         }).setOrigin(0.5);
 
-        const roundOptions = [10, 15, 20, 25, 30];
+        const roundOptions = [5, 10, 15, 20, 25, 30];
         roundOptions.forEach((r, i) => {
             const btn = this.add.text(600, 400 + i * 40, tf('CONFIG_ROUNDS_LABEL', '{0} rounds', r), {
                 fontSize: 24,
@@ -80,13 +80,13 @@ export default class OnlineConfigScene extends Phaser.Scene {
         });
 
         // COMBO RULES
-        this.add.text(600, 600, t('CONFIG_ADDITIONAL_RULES', 'Additional rules:'), {
+        this.add.text(600, 620, t('CONFIG_ADDITIONAL_RULES', 'Additional rules:'), {
             fontSize: 26
         }).setOrigin(0.5);
 
         this.comboBtn = this.add.text(
             600,
-            640,
+            660,
             tf('CONFIG_COMBO_RULES', 'More points for combos: {0}', onOff(this.comboRules)),
             { fontSize: 24, color: this.comboRules ? '#66aaff' : '#ff6666' }
         )
@@ -101,7 +101,7 @@ export default class OnlineConfigScene extends Phaser.Scene {
         // TEAMS MODE
         this.multiplexBtn = this.add.text(
             600,
-            680,
+            700,
             tf('CONFIG_MULTIPLEX_RULES', 'Multiplex scoring: {0}', onOff(this.multiplexRules)),
             { fontSize: 24, color: this.multiplexRules ? '#66aaff' : '#ff6666' }
         )
@@ -115,7 +115,7 @@ export default class OnlineConfigScene extends Phaser.Scene {
 
         this.teamsBtn = this.add.text(
             600,
-            720,
+            740,
             tf('CONFIG_TEAMS', 'Teams: {0}', onOff(this.teamsEnabled)),
             { fontSize: 24, color: this.teamsEnabled ? '#66aaff' : '#ff6666' }
         )
@@ -129,16 +129,16 @@ export default class OnlineConfigScene extends Phaser.Scene {
 
         // TEAM CONFIGURATION (only if teams enabled)
         if (this.teamsEnabled) {
-            this.add.text(600, 750, t('CONFIG_TEAM_ASSIGNMENT', 'Team Assignment:'), { fontSize: 22, color: "#ffaa44" }).setOrigin(0.5);
-            
-            let teamConfigY = 780;
+            this.add.text(980, 170, t('CONFIG_TEAM_ASSIGNMENT', 'Team Assignment:'), { fontSize: 22, color: "#ffaa44" }).setOrigin(0.5);
+
+            let teamConfigY = 210;
             for (let i = 0; i < this.selectedPlayers; i++) {
                 const team = this.playerTeams[i] || 'blue';
                 const teamColor = team === 'blue' ? '#66aaff' : '#ff6666';
                 
-                this.add.text(400, teamConfigY, tf('CONFIG_PLAYER_LABEL', 'Player {0}:', i + 1), { fontSize: 18 }).setOrigin(0.5);
+                this.add.text(900, teamConfigY, tf('CONFIG_PLAYER_LABEL', 'Player {0}:', i + 1), { fontSize: 18 }).setOrigin(0.5);
                 
-                const teamBtn = this.add.text(600, teamConfigY, teamLabel(team), {
+                const teamBtn = this.add.text(1060, teamConfigY, teamLabel(team), {
                     fontSize: 18,
                     color: teamColor,
                     backgroundColor: '#222222',
@@ -151,7 +151,7 @@ export default class OnlineConfigScene extends Phaser.Scene {
                     this.refreshScene();
                 });
                 
-                teamConfigY += 24;
+                teamConfigY += 44;
             }
         }
 
@@ -159,7 +159,7 @@ export default class OnlineConfigScene extends Phaser.Scene {
         this._labelCreateLobby = t('ONLINE_CONFIG_CREATE_LOBBY', 'Create Lobby!');
         this._labelCreatingLobby = t('ONLINE_CONFIG_CREATING_LOBBY', 'Creating Lobby...');
 
-        this.createLobbyBtn = this.add.text(600, 930, this._labelCreateLobby, {
+        this.createLobbyBtn = this.add.text(600, 790, this._labelCreateLobby, {
             fontSize: 32, 
             color: '#66ff66',
             backgroundColor: '#222222',
