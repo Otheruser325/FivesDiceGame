@@ -408,20 +408,44 @@ export default class OnlineAccountScene extends Phaser.Scene {
     this.oauthExpectedProvider = null;
   }
 
-  async _waitForOAuthSession(timeoutMs = 60000, pollIntervalMs = 700) {
+  async _waitForOAuthSession(timeoutMs = 60000, pollIntervalMs = 700, options = {}) {
     const server = (this.oauthServerBase || getServerUrl()).replace(/\/$/, '');
     const expectedProvider = this.oauthExpectedProvider;
+    const expectedUserId = options.expectedUserId ? String(options.expectedUserId) : null;
+    const ignorePopupClosed = !!options.ignorePopupClosed;
     const startedAt = Date.now();
 
     return new Promise((resolve, reject) => {
-      this.oauthPollTimer = setInterval(async () => {
-        if (this.oauthPopup && this.oauthPopup.closed) {
-          reject(new Error('OAuth popup closed before login finished'));
+      let finished = false;
+      const cleanup = () => {
+        if (finished) return;
+        finished = true;
+        if (pollTimer) {
+          clearInterval(pollTimer);
+        }
+        if (this.oauthPollTimer === pollTimer) {
+          this.oauthPollTimer = null;
+        }
+      };
+      const fail = (error) => {
+        cleanup();
+        reject(error);
+      };
+      const succeed = (user) => {
+        cleanup();
+        resolve(user);
+      };
+
+      const pollTimer = setInterval(async () => {
+        if (finished) return;
+
+        if (!ignorePopupClosed && this.oauthPopup && this.oauthPopup.closed) {
+          fail(new Error('OAuth popup closed before login finished'));
           return;
         }
 
         if (Date.now() - startedAt >= timeoutMs) {
-          reject(new Error('OAuth login timed out'));
+          fail(new Error('OAuth login timed out'));
           return;
         }
 
@@ -431,13 +455,21 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
           const body = await res.json();
           const userType = body?.user?.type || null;
-          if (body?.ok && body.user && (!expectedProvider || userType === expectedProvider)) {
-            resolve(body.user);
+          const userId = body?.user?.id ? String(body.user.id) : null;
+          if (
+            body?.ok &&
+            body.user &&
+            (!expectedProvider || userType === expectedProvider) &&
+            (!expectedUserId || userId === expectedUserId)
+          ) {
+            succeed(body.user);
           }
         } catch (err) {
           // Keep polling while OAuth flow is in progress.
         }
       }, pollIntervalMs);
+
+      this.oauthPollTimer = pollTimer;
     });
   }
 
@@ -536,20 +568,6 @@ export default class OnlineAccountScene extends Phaser.Scene {
     return null;
   }
 
-  async _resetAuthSession(serverBase) {
-    const base = normalizeServerBase(serverBase);
-    if (!base) return;
-
-    try {
-      await fetch(`${base}/auth/logout`, {
-        method: 'POST',
-        credentials: 'include'
-      });
-    } catch (e) {
-      // Best effort - continue OAuth flow even if pre-reset fails.
-    }
-  }
-
   async _probeOAuthServer(serverBase, timeoutMs = 1200) {
     const normalized = normalizeServerBase(serverBase);
     if (!normalized) return false;
@@ -608,7 +626,6 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
       const server = await this._resolveOAuthServerBase();
       this.oauthServerBase = server;
-      await this._resetAuthSession(server);
 
       const popupUrlPath = this._appendPopupState(url);
       const popupUrl = `${server.replace(/\/$/, '')}${popupUrlPath.startsWith('/') ? '' : '/'}${popupUrlPath}`;
@@ -623,26 +640,41 @@ export default class OnlineAccountScene extends Phaser.Scene {
         return;
       }
 
-      const user = await Promise.any([
+      const pendingUser = await Promise.any([
         this._waitForOAuthPopupMessage(60000),
         this._waitForOAuthSession(60000, 700)
       ]);
-      if (!user) {
+      if (!pendingUser) {
         alert(t('ACCOUNT_OAUTH_FAILED_NO_USER', 'OAuth login failed: no user session found.'));
+        return;
+      }
+
+      const confirmedUser = await this._waitForOAuthSession(8000, 350, {
+        expectedUserId: pendingUser?.id,
+        ignorePopupClosed: true
+      }).catch(() => null);
+
+      if (!confirmedUser) {
+        this.user = null;
+        localStorage.removeItem('fives_user');
+        try {
+          emitAuthUser(null);
+        } catch (e) { /* ignore */ }
+        alert(t('ACCOUNT_OAUTH_SESSION_MISSING', 'OAuth login did not finish correctly. Please try again.'));
         return;
       }
 
       this._clearOAuthState(true);
 
-      localStorage.setItem('fives_user', JSON.stringify(user));
-      this.user = user;
-      if (this.debugger) this.debugger.log('oauth login success', { id: user?.id, type: user?.type });
+      localStorage.setItem('fives_user', JSON.stringify(confirmedUser));
+      this.user = confirmedUser;
+      if (this.debugger) this.debugger.log('oauth login success', { id: confirmedUser?.id, type: confirmedUser?.type });
 
       try {
-        emitAuthUser(user);
+        emitAuthUser(confirmedUser);
       } catch (e) { /* ignore */ }
 
-      alert(tf('ACCOUNT_LOGIN_SUCCESS', 'Logged in as {0}', user.name || t('GENERIC_UNKNOWN', 'Unknown')));
+      alert(tf('ACCOUNT_LOGIN_SUCCESS', 'Logged in as {0}', confirmedUser.name || t('GENERIC_UNKNOWN', 'Unknown')));
       this.game.events.emit('auth-updated');
       this.scene.resume(this.returnTo);
       this.scene.stop();

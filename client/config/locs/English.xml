@@ -322,6 +322,7 @@
       <T id="ACCOUNT_OAUTH_INVALID_RESPONSE" l="0">OAuth error: Server returned invalid response. Check that Discord/Google credentials are configured.</T>
       <T id="ACCOUNT_LOGIN_SUCCESS" l="0">Logged in as {0}</T>
       <T id="ACCOUNT_OAUTH_FAILED" l="0">OAuth login failed: {0}</T>
+      <T id="ACCOUNT_OAUTH_SESSION_MISSING" l="0">OAuth login did not finish correctly. Please try again.</T>
       <T id="ACCOUNT_NETWORK_ERROR" l="0">Network error: {0}</T>
       <T id="ACCOUNT_NETWORK_ERROR_FALLBACK" l="0">Could not connect to server</T>
       <T id="ACCOUNT_NETWORK_ERROR_SHORT" l="0">Network error</T>

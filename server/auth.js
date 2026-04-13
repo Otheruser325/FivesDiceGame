@@ -217,7 +217,7 @@ function getRequestOrigin(req) {
   }
 }
 
-function toAbsoluteCallbackUrl(candidate, req) {
+function toAbsoluteCallbackUrl(candidate, req, preferredBase) {
   if (!candidate || typeof candidate !== 'string') return null;
   const trimmed = candidate.trim();
   if (!trimmed) return null;
@@ -227,8 +227,9 @@ function toAbsoluteCallbackUrl(candidate, req) {
   }
 
   if (trimmed.startsWith('/')) {
+    const normalizedPreferredBase = normalizeOrigin(preferredBase);
     const requestOrigin = getRequestOrigin(req);
-    const base = requestOrigin || PUBLIC_SERVER_ORIGIN;
+    const base = normalizedPreferredBase || requestOrigin || PUBLIC_SERVER_ORIGIN;
     const normalizedBase = normalizeOrigin(base);
     if (!normalizedBase) return null;
     return normalizeAbsoluteUrl(`${normalizedBase}${trimmed}`);
@@ -239,16 +240,27 @@ function toAbsoluteCallbackUrl(candidate, req) {
 
 function resolveDiscordCallbackUrl(req) {
   const requestOrigin = getRequestOrigin(req);
-  const requestHostCallback = requestOrigin ? `${requestOrigin}${DISCORD_CALLBACK_PATH}` : null;
-  const configuredCallback = toAbsoluteCallbackUrl(DISCORD_CALLBACK_URL, req);
+  const requestHostCallback = requestOrigin ? normalizeAbsoluteUrl(`${requestOrigin}${DISCORD_CALLBACK_PATH}`) : null;
+  const publicOriginCallback = normalizeAbsoluteUrl(`${PUBLIC_SERVER_ORIGIN}${DISCORD_CALLBACK_PATH}`);
+  const configuredCallback = toAbsoluteCallbackUrl(DISCORD_CALLBACK_URL, req, PUBLIC_SERVER_ORIGIN);
 
-  // Prefer the currently active API host first, then configured fallback URLs.
-  const candidates = [
-    requestHostCallback,
-    configuredCallback,
-    normalizeAbsoluteUrl(DISCORD_CALLBACK_FALLBACK_URL),
-    normalizeAbsoluteUrl(DEFAULT_RENDER_DISCORD_CALLBACK_URL)
-  ];
+  // Discord token exchange is strict about redirect_uri matching. In production
+  // we should stick to one stable callback instead of drifting with whichever
+  // host happened to serve the authorize request.
+  const candidates = process.env.NODE_ENV === 'production'
+    ? [
+        configuredCallback,
+        publicOriginCallback,
+        normalizeAbsoluteUrl(DISCORD_CALLBACK_FALLBACK_URL),
+        normalizeAbsoluteUrl(DEFAULT_RENDER_DISCORD_CALLBACK_URL)
+      ]
+    : [
+        requestHostCallback,
+        configuredCallback,
+        publicOriginCallback,
+        normalizeAbsoluteUrl(DISCORD_CALLBACK_FALLBACK_URL),
+        normalizeAbsoluteUrl(DEFAULT_RENDER_DISCORD_CALLBACK_URL)
+      ];
 
   for (const candidate of candidates) {
     const normalized = normalizeAbsoluteUrl(candidate);
