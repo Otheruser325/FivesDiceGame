@@ -394,6 +394,27 @@ function _buildCandidates() {
 // Attach standard handlers for socket (so reconnections keep behavior)
 function _attachSocketHandlers(sock, server) {
   if (!sock) return;
+
+  sock.on('auth-success', (payload = {}) => {
+    if (!sock.data) sock.data = {};
+    sock.data.user = payload.user || null;
+    sock.userId = payload.user?.id || null;
+    isAuthenticated = !!payload.user?.id;
+  });
+
+  sock.on('auth-failed', () => {
+    if (!sock.data) sock.data = {};
+    sock.data.user = null;
+    sock.userId = null;
+    isAuthenticated = false;
+  });
+
+  sock.on('auth-cleared', () => {
+    if (!sock.data) sock.data = {};
+    sock.data.user = null;
+    sock.userId = null;
+    isAuthenticated = false;
+  });
   
   sock.on('connect', async () => {
     console.info('[Socket] connected to', server, 'id=', sock.id);
@@ -668,10 +689,7 @@ export function emitAuthUser(user, force = false) {
 
             console.log('[SocketManager] Emitting auth-user to socket:', userWithSocket, { force, socketAuth: socketAuthenticated });
             socket.emit('auth-user', userWithSocket);
-            if (!socket.data) socket.data = {};
-            socket.data.user = { id: userWithSocket.id, name: userWithSocket.name, type: userWithSocket.type };
             socket.userId = userWithSocket.id;
-            isAuthenticated = true; // Mark as authenticated
         }
     } catch (e) {
         console.error('[SocketManager] Failed to emit auth-user:', e);
@@ -683,4 +701,10 @@ export function emitAuthUser(user, force = false) {
  */
 export function resetAuthStatus() {
     isAuthenticated = false;
+    if (OnlineSocket?.data) {
+      OnlineSocket.data.user = null;
+    }
+    if (OnlineSocket) {
+      OnlineSocket.userId = null;
+    }
 }

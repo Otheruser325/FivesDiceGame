@@ -63,10 +63,48 @@
       <T id="CONFIG_ROUNDS_LABEL" l="0">{0} rounds</T>
       <T id="CONFIG_ADDITIONAL_RULES" l="0">Additional rules:</T>
       <T id="CONFIG_COMBO_RULES" l="0">More points for combos: {0}</T>
+      <T id="CONFIG_GAMEPLAY_TABLE" l="0">Gameplay table:</T>
+      <T id="CONFIG_GAMEMODE" l="0">Gamemode</T>
+      <T id="CONFIG_GAMEMODE_TAP" l="0">Tap to choose</T>
+      <T id="CONFIG_GAMEMODE_LABEL" l="0">Gamemode</T>
+      <T id="CONFIG_GAMEMODE_HINT" l="0">Tap to switch tables</T>
+      <T id="CONFIG_SELECTED_MODE" l="0">Selected mode: {0}</T>
+      <T id="CONFIG_GAMEMODE_POPUP_TITLE" l="0">Choose Your Table</T>
+      <T id="CONFIG_GAMEMODE_POPUP_SUBTITLE" l="0">Pick a table style for this match. Teams can be added on top of any of them.</T>
+      <T id="CONFIG_GAMEMODE_CLASSIC_BODY" l="0">Standard Fives scoring with teams available if you want a shared side.</T>
+      <T id="CONFIG_GAMEMODE_COMBANITY_BODY" l="0">Combanity turns combo hits into the headline act.</T>
+      <T id="CONFIG_GAMEMODE_MULTIPLEX_BODY" l="0">Multiplex swaps addition for multiplication and makes every die matter.</T>
+      <T id="CONFIG_GAMEMODE_SELECTED" l="0">SELECTED</T>
+      <T id="CONFIG_GAMEMODE_SELECT" l="0">CHOOSE</T>
       <T id="CONFIG_MULTIPLEX_RULES" l="0">Multiplex scoring: {0}</T>
       <T id="CONFIG_TEAMS" l="0">Teams: {0}</T>
       <T id="CONFIG_TEAM_ASSIGNMENT" l="0">Team Assignment:</T>
       <T id="CONFIG_START_GAME" l="0">Start Game</T>
+      <T id="GAMEMODE_CLASSIC" l="0">Classic</T>
+      <T id="GAMEMODE_COMBANITY" l="0">Combanity</T>
+      <T id="GAMEMODE_MULTIPLEX" l="0">Multiplex</T>
+      <T id="GAMEMODE_CLASSIC_SUMMARY" l="0">Straight Fives totals for the cleanest match flow.</T>
+      <T id="GAMEMODE_COMBANITY_SUMMARY" l="0">Poker-style combo payouts with extra bite.</T>
+      <T id="GAMEMODE_MULTIPLEX_SUMMARY" l="0">Dice multiply instead of add for big swings.</T>
+      <T id="CONFIG_MODE_CLASSIC" l="0">Classic</T>
+      <T id="CONFIG_MODE_COMBANITY" l="0">Combanity</T>
+      <T id="CONFIG_MODE_MULTIPLEX" l="0">Multiplex</T>
+      <T id="CONFIG_MODE_DICEATHON" l="0">Diceathon</T>
+      <T id="CONFIG_MODE_CLASSIC_DESC" l="0">Straight Fives totals for the cleanest read on every turn.</T>
+      <T id="CONFIG_MODE_COMBANITY_DESC" l="0">Combo hits pay out and every round feels a little more dramatic.</T>
+      <T id="CONFIG_MODE_MULTIPLEX_DESC" l="0">Dice multiply instead of add, so every roll can spike hard.</T>
+      <T id="CONFIG_MODE_CLASSIC_BADGE" l="0">HOUSE TABLE</T>
+      <T id="CONFIG_MODE_COMBANITY_BADGE" l="0">ALL-IN</T>
+      <T id="CONFIG_MODE_MULTIPLEX_BADGE" l="0">JACKPOT</T>
+      <T id="CONFIG_MODE_SELECTED" l="0">Selected</T>
+      <T id="CONFIG_MODE_PICK" l="0">Pick this table</T>
+      <T id="CONFIG_MODE_POPUP_TITLE" l="0">Choose Your Table</T>
+      <T id="CONFIG_MODE_POPUP_SUBTITLE" l="0">Pick a table style for this match. Teams can be added on top of any of them.</T>
+      <T id="CONFIG_MODE_POPUP_NOTE" l="0">Diceathon is planned as Fives' official online event board.</T>
+      <T id="CONFIG_MODE_CLASSIC_POPUP" l="0">The standard table. Add your dice, keep the flow clean, and let teams do the rest if you want them.</T>
+      <T id="CONFIG_MODE_COMBANITY_POPUP" l="0">The old Combo Rules spirit, promoted into its own table where pairs, houses, straights, and kinds all matter.</T>
+      <T id="CONFIG_MODE_MULTIPLEX_POPUP" l="0">Every die multiplies the others instead of adding up. Smaller rolls can suddenly explode into huge swings.</T>
+      <T id="CONFIG_DICEATHON_TEASE" l="0">Diceathon is planned as Fives' official online event board.</T>
 
       <T id="AI_DIFFICULTY_BABY" l="0">Baby</T>
       <T id="AI_DIFFICULTY_EASY" l="0">Easy</T>
@@ -76,7 +114,8 @@
 
       <T id="HELP_TITLE" l="0">Help</T>
       <T id="HELP_SUBTITLE" l="0">How to Play Fives</T>
-      <T id="HELP_TEXT" l="0">Fives is a simple but strategic dice game.\n\n- You and your opponent each roll five dice per round.\n- Games can be 5-30 rounds (default: 20 rounds).\n- Your round score is the sum of all five dice.\n- Your total score is the sum of all round scores.\n- Optional: Multiplex rule multiplies the dice instead of adding.\n- Optional: Combo rules add multipliers for special patterns.\n- Hotkeys: Space/R rolls, T ends your turn (your turn only).\n\nThe player with the highest total score at the end wins!</T>
+      <T id="HELP_TEXT" l="0">Fives is a simple but strategic dice game.\n\n- You and your opponent each roll five dice per round.\n- Games can be 5-30 rounds (default: 20 rounds).\n- Classic is the standard table with straight Fives totals.\n- Combanity is the successor to Combo Rules and pays out on special patterns.\n- Multiplex multiplies the dice instead of adding them for bigger swings.\n- Teams can be used in all three gamemodes if you want side-based play.\n- Diceathon is planned as the official online event system, with special tables appearing there over time.\n- Hotkeys: Space/R rolls, T ends your turn (your turn only).\n\nThe highest total at the end wins the table.</T>
+      <T id="HELP_TEXT_V13" l="0">Fives is a simple but strategic dice game.\n\n- You and your opponent each roll five dice per round.\n- Games can be 5-30 rounds (default: 20 rounds).\n- Classic is the standard table with straight Fives totals.\n- Combanity is the successor to Combo Rules and pays out on special patterns.\n- Multiplex multiplies the dice instead of adding them for bigger swings.\n- Teams can be used in all three gamemodes if you want side-based play.\n- Diceathon is planned as the official online event system, with special tables appearing there over time.\n- Hotkeys: Space/R rolls, T ends your turn (your turn only).\n\nThe highest total at the end wins the table.</T>
       <T id="HELP_COMBO_BUTTON" l="0">Combo Rules</T>
       <T id="HELP_COMBO_TITLE" l="0">Combo Rules</T>
       <T id="HELP_COMBO_TEXT" l="0">Certain dice combinations award bonus multipliers:\n\n- Pair -&gt; x1.5 score\n- Two Pair -&gt; x2 score\n- Three of a Kind -&gt; x3 score\n- Full House -&gt; x4 score\n- Four of a Kind -&gt; x5 score\n- Five of a Kind -&gt; x10 score\n- Straights (1-5 or 2-6) -&gt; x2.5 or x3 score\n\nThese bonuses stack with your base score (or multiplex score if enabled).</T>
@@ -163,6 +202,11 @@
       <T id="ONLINE_JOIN_LOBBY" l="0">Join Lobby</T>
       <T id="ONLINE_JOINING_LOBBY" l="0">Joining Lobby...</T>
       <T id="ONLINE_LEADERBOARD" l="0">Leaderboard</T>
+      <T id="ONLINE_DICEATHON_EYEBROW" l="0">Official Event</T>
+      <T id="ONLINE_DICEATHON_TITLE" l="0">Diceathon</T>
+      <T id="ONLINE_DICEATHON_STATUS" l="0">Silhouette</T>
+      <T id="ONLINE_DICEATHON_BODY" l="0">Fives events will live here once official online event support is ready. Expect special tables, rotating rules, and prize-focused runs.</T>
+      <T id="ONLINE_DICEATHON_FOOTER" l="0">Sign-in spotted. Event board stays dark for now.</T>
       <T id="ONLINE_CONN_LOST" l="0">Connection lost. Please reconnect and try again.</T>
       <T id="ONLINE_INVALID_CODE" l="0">Please enter a valid lobby code (4-6 characters, letters and numbers only).</T>
       <T id="ONLINE_AUTH_ERROR" l="0">Authentication error: Could not get your user ID. Please refresh and try again.</T>
@@ -205,6 +249,7 @@
       <T id="ONLINE_LOBBY_RULES_PLAYERS" l="0">Players: {0}</T>
       <T id="ONLINE_LOBBY_RULES_ROUNDS" l="0">Rounds: {0}</T>
       <T id="ONLINE_LOBBY_RULES_COMBOS" l="0">Combos: {0}</T>
+      <T id="ONLINE_LOBBY_RULES_GAMEMODE" l="0">Mode: {0}</T>
       <T id="ONLINE_LOBBY_RULES_MULTIPLEX" l="0">Multiplex: {0}</T>
       <T id="ONLINE_LOBBY_RULES_TEAMS" l="0">Teams: {0}</T>
       <T id="ONLINE_LOBBY_TEAMS_TITLE" l="0">Team Assignment:</T>

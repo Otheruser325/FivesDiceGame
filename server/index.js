@@ -7,7 +7,7 @@ import { dirname, join } from 'path';
 import session from 'express-session';
 import { createClient } from 'redis';
 import RedisStore from 'connect-redis';
-import { authMiddleware, authRouter } from './auth.js';
+import { authMiddleware, authRouter, passport } from './auth.js';
 import LobbyManager from './lobbyManager.js';
 import LeaderboardManager from './utils/leaderboardManager.js';
 
@@ -18,6 +18,7 @@ const SERVER_RUNTIME = IS_SERVERLESS ? 'serverless' : 'persistent';
 const DEFAULT_RENDER_API_ORIGIN = 'https://fivesapi.onrender.com';
 const REDIS_CONNECT_TIMEOUT_MS = Number(process.env.REDIS_CONNECT_TIMEOUT_MS || 1500);
 const REDIS_CONNECT_MAX_RETRIES = Number(process.env.REDIS_CONNECT_MAX_RETRIES || 1);
+const DEV_SESSION_SECRET = 'fives-dev-session-secret';
 
 const app = express();
 const server = createServer(app);
@@ -62,12 +63,10 @@ if (process.env.NODE_ENV === 'production') {
 
 // Helper function to get configured origins for CORS and Socket.io
 function getConfiguredOrigins() {
-  // If environment variable is set, use it
-  if (process.env.CLIENT_ORIGINS) {
-    return process.env.CLIENT_ORIGINS.split(',').map(o => o.trim()).filter(Boolean);
-  }
+  const configured = process.env.CLIENT_ORIGINS
+    ? process.env.CLIENT_ORIGINS.split(',').map(o => o.trim()).filter(Boolean)
+    : [];
 
-  // Default origins based on environment
   if (process.env.NODE_ENV === 'production') {
     const defaults = [
       DEFAULT_RENDER_API_ORIGIN,            // Render production API
@@ -85,18 +84,17 @@ function getConfiguredOrigins() {
       defaults.push(process.env.RENDER_EXTERNAL_URL);
     }
 
-    return defaults;
+    return [...new Set([...defaults, ...configured])];
   }
 
-  // Development origins
-  return [
+  return [...new Set([
     'http://localhost:8080',
     'http://localhost:3000',
     'http://localhost:5173',
     'https://localhost:8080',
     'http://127.0.0.1:8080',
     'http://127.0.0.1:3000'
-  ];
+  ].concat(configured))];
 }
 
 function normalizeOrigin(origin) {
@@ -131,9 +129,6 @@ function isAllowedOrigin(origin) {
   try {
     const hostname = new URL(normalized).hostname.toLowerCase();
 
-    // Accept preview/production domains and custom game domains.
-    if (hostname.endsWith('.vercel.app')) return true;
-    if (hostname.endsWith('.onrender.com')) return true;
     if (hostname === 'fivesdicegame.com' || hostname.endsWith('.fivesdicegame.com')) return true;
   } catch (e) {
     return false;
@@ -278,10 +273,16 @@ async function initializeRedis() {
 // Initialize session storage
 async function initializeSession() {
   const redisAvailable = await initializeRedis();
+  const configuredSecret = typeof process.env.SESSION_SECRET === 'string' ? process.env.SESSION_SECRET.trim() : '';
+  if (!configuredSecret && process.env.NODE_ENV === 'production') {
+    throw new Error('SESSION_SECRET is required in production');
+  }
+
+  const sessionSecret = configuredSecret || DEV_SESSION_SECRET;
   
   const sessionConfig = {
     store: sessionStore,
-    secret: process.env.SESSION_SECRET || 'fives-dice-game-secret-key',
+    secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
     rolling: !IS_SERVERLESS,
@@ -290,8 +291,7 @@ async function initializeSession() {
       secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      partitioned: process.env.NODE_ENV === 'production'
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
     },
     name: 'fives.sid'
   };
@@ -316,13 +316,10 @@ app.use(sessionMiddleware);
 // Initialize auth middleware (Passport)
 authMiddleware(app);
 
-// Share HTTP session with Socket.IO only outside serverless.
-// In serverless polling mode we rely on explicit `auth-user` payloads from client.
-if (!IS_SERVERLESS) {
-  io.use((socket, next) => {
-    sessionMiddleware(socket.request, {}, next);
-  });
-}
+const wrapSocketMiddleware = (middleware) => (socket, next) => middleware(socket.request, {}, next);
+io.use(wrapSocketMiddleware(sessionMiddleware));
+io.use(wrapSocketMiddleware(passport.initialize()));
+io.use(wrapSocketMiddleware(passport.session()));
 
 // CORS middleware
 app.use((req, res, next) => {

@@ -249,7 +249,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
         discordBtn.on('pointerdown', async () => {
           GlobalAudio.playButton(this);
-          await this.oauthLogin('/auth/discord/authorize');
+          await this.oauthLogin('/auth/discord');
         });
       } else {
         this.add.text(640, yPos, t('ACCOUNT_DISCORD_UNAVAILABLE', 'Discord OAuth (not configured)'), {
@@ -500,7 +500,33 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
   _appendPopupState(url) {
     if (/[?&]state=/.test(url)) return url;
-    return `${url}${url.includes('?') ? '&' : '?'}state=popup`;
+
+    let clientOrigin = null;
+    try {
+      clientOrigin = window?.location?.origin || null;
+    } catch (e) {
+      clientOrigin = null;
+    }
+
+    const payload = {
+      popup: true,
+      clientOrigin,
+      timestamp: Date.now()
+    };
+
+    let encodedState = 'popup';
+    try {
+      const raw = JSON.stringify(payload);
+      const base64 = btoa(unescape(encodeURIComponent(raw)))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/g, '');
+      encodedState = `popup.${base64}`;
+    } catch (e) {
+      encodedState = 'popup';
+    }
+
+    return `${url}${url.includes('?') ? '&' : '?'}state=${encodeURIComponent(encodedState)}`;
   }
 
   _expectedProviderForUrl(url) {
@@ -586,7 +612,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
       const popupUrlPath = this._appendPopupState(url);
       const popupUrl = `${server.replace(/\/$/, '')}${popupUrlPath.startsWith('/') ? '' : '/'}${popupUrlPath}`;
-      const topLevelUrl = `${server.replace(/\/$/, '')}${url.startsWith('/') ? '' : '/'}${url}`;
+      const topLevelUrl = popupUrl;
       const popupFeatures = 'popup=yes,width=520,height=720,menubar=no,toolbar=no,status=no,resizable=yes,scrollbars=yes';
       this.oauthPopup = window.open(popupUrl, 'fives_oauth', popupFeatures);
 

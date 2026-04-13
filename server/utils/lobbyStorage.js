@@ -106,6 +106,64 @@ function enqueueWrite(fn) {
   return _writeLock;
 }
 
+function normalizeGameMode(mode, combosFallback = false, multiplexFallback = false) {
+  const normalized = String(mode || '').trim().toLowerCase();
+  if (normalized === 'combanity') return 'combanity';
+  if (normalized === 'multiplex') return 'multiplex';
+  if (normalized === 'classic') {
+    if (multiplexFallback && !combosFallback) return 'multiplex';
+    if (combosFallback) return 'combanity';
+    return 'classic';
+  }
+  if (multiplexFallback && !combosFallback) return 'multiplex';
+  return combosFallback ? 'combanity' : 'classic';
+}
+
+function getRuleFlags(mode, combosFallback = false, multiplexFallback = false, allowCombined = false) {
+  const gameMode = normalizeGameMode(mode, combosFallback, multiplexFallback);
+  return {
+    gameMode,
+    combos: gameMode === 'combanity' || (allowCombined && !!combosFallback),
+    multiplex: gameMode === 'multiplex' || (allowCombined && !!multiplexFallback)
+  };
+}
+
+function isDiceathonConfig(config = {}) {
+  const eventMode = String(config.eventMode ?? config.eventType ?? config.eventKey ?? '').trim().toLowerCase();
+  return !!config.diceathon || eventMode === 'diceathon';
+}
+
+function normalizeLobbyConfig(config = {}) {
+  const players = Math.min(6, Math.max(2, Number(config.players) || 2));
+  const rounds = Math.min(30, Math.max(5, Number(config.rounds) || 20));
+  const rules = getRuleFlags(
+    config.gamemode ?? config.gameMode,
+    !!config.combos,
+    !!config.multiplex,
+    isDiceathonConfig(config)
+  );
+  const teamsEnabled = !!config.teamsEnabled;
+  const teams = teamsEnabled
+    ? Array.from({ length: players }, (_, index) => {
+        const team = Array.isArray(config.teams) ? config.teams[index] : null;
+        if (team === 'red' || team === 'blue') return team;
+        return index % 2 === 0 ? 'blue' : 'red';
+      })
+    : [];
+
+  return {
+    ...config,
+    players,
+    rounds,
+    gamemode: rules.gameMode,
+    gameMode: rules.gameMode,
+    combos: rules.combos,
+    multiplex: rules.multiplex,
+    teamsEnabled,
+    teams
+  };
+}
+
 async function _safeLocalWrite() {
   // On Vercel/serverless, filesystem is read-only, so skip writes
   if (isVercel) {
@@ -170,7 +228,7 @@ function _rowToLobby(row) {
     hostSocketId: finalHostSocketId,
     hostUserId: finalHostUserId,
     players: Array.isArray(players) ? players : (players || []),
-    config: config ?? { players: 2, rounds: 20, combos: false, multiplex: false },
+    config: normalizeLobbyConfig(config ?? {}),
     createdAt: finalCreatedAt,
     updatedAt: finalUpdatedAt,
     updated_user: updated_user || null,
@@ -205,7 +263,7 @@ function _lobbyToRow(lobby) {
     hostsocketid: hostSocketId ?? null,  // ✅ Map to lowercase database column
     hostuserid: hostUserId ?? null,      // ✅ Map to lowercase database column
     players: Array.isArray(players) ? players : (players || []),
-    config: config ?? { players: 2, rounds: 20, combos: false, multiplex: false },
+    config: normalizeLobbyConfig(config ?? {}),
     created_at: toISOString(createdAt),
     updated_at: toISOString(updatedAt),
     updated_user: updated_user || null,

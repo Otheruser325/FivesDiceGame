@@ -11,6 +11,26 @@ import { loadUsers, saveUsers, loadUser, saveUser } from "./utils/userStorage.js
 export const router = express.Router();
 router.use(express.json());
 
+const DEFAULT_PRODUCTION_CLIENT_ORIGINS = [
+  'https://play.fivesdicegame.com',
+  'https://fivesdicegame.com',
+  'https://www.fivesdicegame.com',
+  'https://fivesdicegame.vercel.app',
+  'https://otheruser325.github.io'
+];
+
+const DEFAULT_DEVELOPMENT_CLIENT_ORIGINS = [
+  'http://localhost:8080',
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'https://localhost:8080',
+  'http://127.0.0.1:8080',
+  'http://127.0.0.1:3000'
+];
+
+const AUTH_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const AUTH_RATE_LIMIT_BUCKETS = new Map();
+
 // Helper to get country code from IP
 function getCountryFromIP(ip) {
   if (!ip || ip === '::1' || ip === '127.0.0.1' || ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
@@ -56,6 +76,34 @@ function publicUser(u) {
   return safe;
 }
 
+function getClientIp(req) {
+  const forwarded = req?.headers?.['x-forwarded-for'];
+  if (Array.isArray(forwarded) && forwarded[0]) return String(forwarded[0]).split(',')[0].trim();
+  if (typeof forwarded === 'string' && forwarded) return forwarded.split(',')[0].trim();
+  return req?.ip || req?.socket?.remoteAddress || 'unknown';
+}
+
+function isRateLimited(req, key, limit, windowMs = AUTH_RATE_LIMIT_WINDOW_MS) {
+  const now = Date.now();
+  const bucketKey = `${key}:${getClientIp(req)}`;
+  const bucket = AUTH_RATE_LIMIT_BUCKETS.get(bucketKey);
+
+  if (!bucket || (now - bucket.startedAt) >= windowMs) {
+    AUTH_RATE_LIMIT_BUCKETS.set(bucketKey, { startedAt: now, count: 1 });
+    return false;
+  }
+
+  bucket.count += 1;
+  return bucket.count > limit;
+}
+
+function rejectRateLimitedAuth(res) {
+  return res.status(429).json({
+    ok: false,
+    error: 'Too many authentication attempts. Please wait a minute and try again.'
+  });
+}
+
 function normalizeOrigin(origin) {
   if (!origin || typeof origin !== 'string') return null;
   try {
@@ -67,11 +115,21 @@ function normalizeOrigin(origin) {
 }
 
 function getConfiguredClientOrigins() {
-  if (!process.env.CLIENT_ORIGINS) return [];
-  return process.env.CLIENT_ORIGINS
-    .split(',')
-    .map((origin) => normalizeOrigin(origin.trim()))
-    .filter(Boolean);
+  const configured = process.env.CLIENT_ORIGINS
+    ? process.env.CLIENT_ORIGINS
+        .split(',')
+        .map((origin) => normalizeOrigin(origin.trim()))
+        .filter(Boolean)
+    : [];
+
+  const defaults = process.env.NODE_ENV === 'production'
+    ? DEFAULT_PRODUCTION_CLIENT_ORIGINS
+    : DEFAULT_DEVELOPMENT_CLIENT_ORIGINS;
+
+  return [...new Set([
+    ...defaults.map((origin) => normalizeOrigin(origin)).filter(Boolean),
+    ...configured
+  ])];
 }
 
 function getPublicServerOrigin() {
@@ -209,9 +267,7 @@ function isAllowedAuthOrigin(origin) {
 
   try {
     const hostname = new URL(normalized).hostname.toLowerCase();
-    if (hostname === 'localhost' || hostname === '127.0.0.1') return true;
-    if (hostname.endsWith('.vercel.app')) return true;
-    if (hostname.endsWith('.onrender.com')) return true;
+    if (process.env.NODE_ENV !== 'production' && (hostname === 'localhost' || hostname === '127.0.0.1')) return true;
     if (hostname === 'fivesdicegame.com' || hostname.endsWith('.fivesdicegame.com')) return true;
   } catch (e) {
     return false;
@@ -235,6 +291,11 @@ function applyAuthCorsHeaders(req, res) {
 function getClientRedirectBase(req) {
   const PRODUCTION_CLIENT_FALLBACK = 'https://fivesdicegame.vercel.app';
   const LEGACY_PLAY_CLIENT_URL = 'https://play.fivesdicegame.com';
+  const stateContext = getOAuthStateContext(req);
+
+  if (stateContext.clientOrigin) {
+    return stateContext.clientOrigin;
+  }
 
   const explicit = process.env.AUTH_SUCCESS_REDIRECT_URL || process.env.GAME_CLIENT_URL;
   if (explicit) {
@@ -294,19 +355,54 @@ function buildPostAuthErrorRedirect(req, provider, message) {
   return `${base}${separator}${params.toString()}`;
 }
 
+function decodeOAuthStatePayload(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith('popup.')) return null;
+
+  const encoded = trimmed.slice('popup.'.length);
+  if (!encoded) return null;
+
+  try {
+    const base64 = encoded
+      .replace(/-/g, '+')
+      .replace(/_/g, '/')
+      .padEnd(Math.ceil(encoded.length / 4) * 4, '=');
+    return JSON.parse(Buffer.from(base64, 'base64').toString('utf8'));
+  } catch (e) {
+    return null;
+  }
+}
+
 function getOAuthState(req) {
   const raw = typeof req?.query?.state === 'string' ? req.query.state.trim() : '';
   if (!raw) return undefined;
   // Keep state bounded so provider callbacks stay predictable.
-  return raw.slice(0, 128);
+  return raw.slice(0, 512);
+}
+
+function getOAuthStateContext(req) {
+  const state = getOAuthState(req);
+  if (!state) return { raw: undefined, popup: false, clientOrigin: null };
+  if (state === 'popup') return { raw: state, popup: true, clientOrigin: null };
+
+  const payload = decodeOAuthStatePayload(state);
+  const clientOrigin = normalizeOrigin(payload?.clientOrigin);
+  return {
+    raw: state,
+    popup: !!payload?.popup,
+    clientOrigin: clientOrigin && isAllowedAuthOrigin(clientOrigin) ? clientOrigin : null
+  };
 }
 
 function isPopupOAuthState(req) {
-  return getOAuthState(req) === 'popup';
+  return getOAuthStateContext(req).popup;
 }
 
 function sendOAuthPopupCompletionPage(req, res, provider, user) {
   const redirectUrl = buildPostAuthRedirect(req, provider);
+  const stateContext = getOAuthStateContext(req);
+  const openerOrigin = stateContext.clientOrigin || normalizeOrigin(redirectUrl) || normalizeOrigin(req?.headers?.origin);
   const payload = {
     type: 'fives-oauth-success',
     provider,
@@ -316,6 +412,7 @@ function sendOAuthPopupCompletionPage(req, res, provider, user) {
   };
 
   const serializedPayload = JSON.stringify(payload).replace(/</g, '\\u003c');
+  const serializedOpenerOrigin = JSON.stringify(openerOrigin || '');
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
@@ -333,9 +430,10 @@ function sendOAuthPopupCompletionPage(req, res, provider, user) {
     <script>
       (function () {
         var payload = ${serializedPayload};
+        var openerOrigin = ${serializedOpenerOrigin};
         try {
-          if (window.opener && !window.opener.closed) {
-            window.opener.postMessage(payload, '*');
+          if (openerOrigin && window.opener && !window.opener.closed) {
+            window.opener.postMessage(payload, openerOrigin);
             window.close();
             return;
           }
@@ -530,6 +628,10 @@ if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
 // --- GUEST REGISTER ---
 router.post("/guest/register", async (req, res) => {
   try {
+    if (isRateLimited(req, 'guest-register', 6)) {
+      return rejectRateLimitedAuth(res);
+    }
+
     const { password } = req.body;
     if (!password || password.length < 6)
       return res.json({ ok: false, error: "Invalid password" });
@@ -571,6 +673,10 @@ router.post("/guest/register", async (req, res) => {
 // --- GUEST LOGIN ---
 router.post("/guest/login", async (req, res) => {
   try {
+    if (isRateLimited(req, 'guest-login', 10)) {
+      return rejectRateLimitedAuth(res);
+    }
+
     const { username, password } = req.body;
     if (!username || !password) return res.json({ ok: false, error: "Missing credentials" });
 
@@ -659,35 +765,16 @@ router.get("/discord",
 // Discord authorize proxy endpoint to avoid CORS issues
 router.get("/discord/authorize", (req, res) => {
   try {
-    // Generate OAuth parameters dynamically
-    const client_id = process.env.DISCORD_CLIENT_ID;
-    const redirect_uri = resolveDiscordCallbackUrl(req);
-    const scope = 'identify';
-    const state = getOAuthState(req) || '';
-    const response_type = 'code';
-    
-    // Validate Discord configuration
-    if (!client_id) {
-      return res.status(500).json({ error: 'Discord OAuth not configured' });
-    }
-    
-    // Build Discord authorize URL
-    const discordUrl = new URL('https://discord.com/api/oauth2/authorize');
-    discordUrl.searchParams.set('client_id', client_id);
-    discordUrl.searchParams.set('redirect_uri', redirect_uri);
-    discordUrl.searchParams.set('scope', scope);
+    const redirectBase = getRequestOrigin(req) || getPublicServerOrigin();
+    const redirectUrl = new URL('/auth/discord', redirectBase);
+    const state = getOAuthState(req);
     if (state) {
-      discordUrl.searchParams.set('state', state);
+      redirectUrl.searchParams.set('state', state);
     }
-    discordUrl.searchParams.set('response_type', response_type);
-    
-    console.log('[Discord] Authorize proxy using callback URL:', redirect_uri);
-    console.log('[Discord] Authorize proxy redirecting to:', discordUrl.toString());
-    
-    applyAuthCorsHeaders(req, res);
-    
-    // Redirect to Discord OAuth
-    res.redirect(302, discordUrl.toString());
+    if (applyAuthCorsHeaders(req, res)) {
+      res.header('Cache-Control', 'no-store');
+    }
+    res.redirect(302, redirectUrl.toString());
   } catch (error) {
     console.error('[Discord] Authorize proxy error:', error?.message || error);
     res.status(500).json({ error: 'Internal server error' });
@@ -762,7 +849,6 @@ router.get(
           req.session.cookie.sameSite = 'none';
           req.session.cookie.secure = true;
           req.session.cookie.domain = undefined; // Remove domain restriction for cross-site
-          req.session.cookie.partitioned = true;
           req.session.cookie.priority = 'high';
         }
         
@@ -793,29 +879,6 @@ router.get(
           
           console.log('[Discord callback] Session saved successfully');
           
-          // Set additional cookies for cross-site authentication
-          if (process.env.NODE_ENV === 'production') {
-            // Set authentication indicator cookie
-            res.cookie('auth_provider', 'discord', {
-              maxAge: 24 * 60 * 60 * 1000, // 24 hours
-              httpOnly: false, // Allow JavaScript access
-              secure: true,
-              sameSite: 'none',
-              domain: undefined, // Remove domain restriction for cross-site
-              partitioned: true
-            });
-            
-            // Set session confirmation cookie
-            res.cookie('session_confirmed', 'true', {
-              maxAge: 24 * 60 * 60 * 1000, // 24 hours
-              httpOnly: false,
-              secure: true,
-              sameSite: 'none',
-              domain: undefined, // Remove domain restriction for cross-site
-              partitioned: true
-            });
-          }
-          
           // Success - notify popup opener (if popup flow) or redirect main window.
           completeOAuthSuccess(req, res, 'discord', user, '[Discord callback]');
         });
@@ -840,6 +903,8 @@ export function authMiddleware(app) {
   app.use(passport.session());
   console.log('[Auth] Passport middleware initialized');
 }
+
+export { passport };
 
 // Export the router as authRouter for consistency
 export const authRouter = router;

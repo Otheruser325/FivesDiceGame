@@ -6,6 +6,7 @@ import ErrorHandler from '../utils/ErrorManager.js';
 import SyncManager from '../utils/SyncManager.js';
 import GlobalLocalization from '../utils/LocalizationManager.js';
 import DebugManager from '../utils/DebugManager.js';
+import { getRuleFlags, isDiceathonConfig } from '../utils/GameModeManager.js';
 
 const t = (key, fallback) => GlobalLocalization.t(key, fallback);
 const tf = (key, fallback, ...args) => GlobalLocalization.format(key, fallback, ...args);
@@ -25,11 +26,17 @@ export default class OnlineGameScene extends Phaser.Scene {
     this.currentPlayerIndex = null;
 
     // defaults - server will override via game-state
+    const initialRules = getRuleFlags(data.gameMode ?? data.gamemode, {
+      combos: data.comboRules ?? data.combos,
+      multiplex: data.multiplex,
+      allowCombined: isDiceathonConfig(data)
+    });
     this.gameConfig = {
       players: data.players ?? 2,
       rounds: data.rounds ?? 20,
-      comboRules: data.comboRules ?? false,
-      multiplexRules: data.multiplex ?? false,
+      gamemode: initialRules.gameMode,
+      comboRules: initialRules.combos,
+      multiplexRules: initialRules.multiplex,
       teamsEnabled: data.teamsEnabled ?? false
     };
 
@@ -37,14 +44,12 @@ export default class OnlineGameScene extends Phaser.Scene {
     if (data && data.config) {
       this.gameConfig.players = data.config.players ?? this.gameConfig.players;
       this.gameConfig.rounds = data.config.rounds ?? this.gameConfig.rounds;
-      this.gameConfig.comboRules = data.config.combos ?? this.gameConfig.comboRules;
-      this.gameConfig.multiplexRules = data.config.multiplex ?? this.gameConfig.multiplexRules;
+      this.applyModeConfig(data.config);
       this.gameConfig.teamsEnabled = data.config.teamsEnabled ?? this.gameConfig.teamsEnabled;
     } else {
       this.gameConfig.players = data.players ?? this.gameConfig.players;
       this.gameConfig.rounds = data.rounds ?? this.gameConfig.rounds;
-      this.gameConfig.comboRules = data.comboRules ?? this.gameConfig.comboRules;
-      this.gameConfig.multiplexRules = data.multiplex ?? this.gameConfig.multiplexRules;
+      this.applyModeConfig(data);
       this.gameConfig.teamsEnabled = data.teamsEnabled ?? this.gameConfig.teamsEnabled;
     }
 
@@ -64,6 +69,17 @@ export default class OnlineGameScene extends Phaser.Scene {
     // timer (client side mirror only)
     this.turnTimer = null;
     this.turnTimeoutSeconds = 30;
+  }
+
+  applyModeConfig(source = {}) {
+    const rules = getRuleFlags(source.gameMode ?? source.gamemode, {
+      combos: source.comboRules ?? source.combos,
+      multiplex: source.multiplex,
+      allowCombined: isDiceathonConfig(source)
+    });
+    this.gameConfig.gamemode = rules.gameMode;
+    this.gameConfig.comboRules = rules.combos;
+    this.gameConfig.multiplexRules = rules.multiplex;
   }
 
   create() {
@@ -773,6 +789,7 @@ export default class OnlineGameScene extends Phaser.Scene {
       name: p.name,
       avatar: p.avatar || null,        // OAuth avatar (Discord/Google)
       playerIcon: p.playerIcon || null, // Guest avatar
+      team: p.team || null,
       type: p.type || 'guest',
       connected: p.connected !== false,
       score: p.score || 0  // Include score in playerSlots for easier access
@@ -813,8 +830,8 @@ export default class OnlineGameScene extends Phaser.Scene {
     if (payload.config) {
       this.gameConfig.players = payload.config.players ?? this.gameConfig.players;
       this.gameConfig.rounds = payload.config.rounds ?? this.gameConfig.rounds;
-      this.gameConfig.comboRules = payload.config.combos ?? this.gameConfig.comboRules;
-      this.gameConfig.multiplexRules = payload.config.multiplex ?? this.gameConfig.multiplexRules;
+      this.applyModeConfig(payload.config);
+      this.gameConfig.teamsEnabled = payload.config.teamsEnabled ?? this.gameConfig.teamsEnabled;
     }
 
     // ensure arrays sized properly
@@ -1211,15 +1228,19 @@ export default class OnlineGameScene extends Phaser.Scene {
 
   showConfirmExit() {
     if (this.exitModal) return;
-    const bg = this.add.rectangle(600, 300, 500, 250, 0x000000, 0.85);
+    const bg = this.add.rectangle(600, 300, 580, 290, 0x000000, 0.85);
     const msg = this.add.text(
       600,
-      260,
+      246,
       t('ONLINE_LEAVE_CONFIRM', 'Are you sure you want to leave the match? You may forfeit.'),
-      { fontSize: 22, align: 'center' }
+      {
+        fontSize: 22,
+        align: 'center',
+        wordWrap: { width: 450 }
+      }
     ).setOrigin(0.5);
-    const yesBtn = this.add.text(540, 340, t('UI_YES', 'Yes'), { fontSize: 26, color: '#66ff66' }).setOrigin(0.5).setInteractive();
-    const noBtn = this.add.text(660, 340, t('UI_NO', 'No'), { fontSize: 26, color: '#ff6666' }).setOrigin(0.5).setInteractive();
+    const yesBtn = this.add.text(535, 368, t('UI_YES', 'Yes'), { fontSize: 26, color: '#66ff66' }).setOrigin(0.5).setInteractive();
+    const noBtn = this.add.text(665, 368, t('UI_NO', 'No'), { fontSize: 26, color: '#ff6666' }).setOrigin(0.5).setInteractive();
 
     yesBtn.on('pointerdown', () => {
       // match server lobby manager's expected event

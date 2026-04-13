@@ -5,6 +5,7 @@ import Dice from '../utils/DiceManager.js';
 import ErrorHandler from '../utils/ErrorManager.js';
 import GlobalLocalization from '../utils/LocalizationManager.js';
 import DebugManager from '../utils/DebugManager.js';
+import { getRuleFlags, isDiceathonConfig } from '../utils/GameModeManager.js';
 
 const t = (key, fallback) => GlobalLocalization.t(key, fallback);
 const tf = (key, fallback, ...args) => GlobalLocalization.format(key, fallback, ...args);
@@ -18,8 +19,14 @@ export default class LocalGameScene extends Phaser.Scene {
     init(data) {
         this.totalPlayers = data.players || 2;
         this.totalRounds = data.rounds || 20;
-        this.comboRules = data.combos ?? false;
-        this.multiplexRules = data.multiplex ?? false;
+        const rules = getRuleFlags(data.gameMode ?? data.gamemode, {
+            combos: data.comboRules ?? data.combos,
+            multiplex: data.multiplex,
+            allowCombined: isDiceathonConfig(data)
+        });
+        this.gamemode = rules.gameMode;
+        this.comboRules = rules.combos;
+        this.multiplexRules = rules.multiplex;
         this.teamsEnabled = data.teamsEnabled ?? false;
         this.playerTeams = data.teams || Array.from({ length: this.totalPlayers }, (_, i) => i % 2 === 0 ? 'blue' : 'red');
 
@@ -739,24 +746,25 @@ ${result}`
 
     showConfirmExit() {
         if (this.exitModal) return;
-        const bg = this.add.rectangle(600, 300, 500, 250, 0x000000, 0.8);
+        const bg = this.add.rectangle(600, 300, 560, 280, 0x000000, 0.8);
 
         const msg = this.add.text(
             600,
-            260,
+            248,
             t('GAME_EXIT_CONFIRM', 'Are you sure you want to return to the main menu?'),
             {
                 fontSize: 26,
-                align: 'center'
+                align: 'center',
+                wordWrap: { width: 430 }
             }
         ).setOrigin(0.5);
 
-        const yesBtn = this.add.text(550, 340, t('UI_YES', 'Yes'), {
+        const yesBtn = this.add.text(545, 362, t('UI_YES', 'Yes'), {
             fontSize: 28,
             color: '#66ff66'
         }).setOrigin(0.5).setInteractive();
 
-        const noBtn = this.add.text(650, 340, t('UI_NO', 'No'), {
+        const noBtn = this.add.text(655, 362, t('UI_NO', 'No'), {
             fontSize: 28,
             color: '#ff6666'
         }).setOrigin(0.5).setInteractive();

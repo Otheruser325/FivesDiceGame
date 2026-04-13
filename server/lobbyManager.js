@@ -4,6 +4,73 @@ import { getUsernameFromDB, getActivePlayers, normalizeAllPlayers } from "./util
 import { loadUser } from "./utils/userStorage.js";
 import LeaderboardManager from "./utils/leaderboardManager.js";
 
+function normalizeGameMode(mode, combosFallback = false, multiplexFallback = false) {
+  const normalized = String(mode || '').trim().toLowerCase();
+  if (normalized === 'combanity') return 'combanity';
+  if (normalized === 'multiplex') return 'multiplex';
+  if (normalized === 'classic') {
+    if (multiplexFallback && !combosFallback) return 'multiplex';
+    if (combosFallback) return 'combanity';
+    return 'classic';
+  }
+  if (multiplexFallback && !combosFallback) return 'multiplex';
+  return combosFallback ? 'combanity' : 'classic';
+}
+
+function getRuleFlags(mode, combosFallback = false, multiplexFallback = false, allowCombined = false) {
+  const gameMode = normalizeGameMode(mode, combosFallback, multiplexFallback);
+  return {
+    gameMode,
+    combos: gameMode === 'combanity' || (allowCombined && !!combosFallback),
+    multiplex: gameMode === 'multiplex' || (allowCombined && !!multiplexFallback)
+  };
+}
+
+function isDiceathonConfig(config = {}) {
+  const eventMode = String(config.eventMode ?? config.eventType ?? config.eventKey ?? '').trim().toLowerCase();
+  return !!config.diceathon || eventMode === 'diceathon';
+}
+
+function normalizeLobbyConfig(config = {}) {
+  const players = Math.min(6, Math.max(2, Number(config.players) || 2));
+  const rounds = Math.min(30, Math.max(5, Number(config.rounds) || 20));
+  const rules = getRuleFlags(
+    config.gamemode ?? config.gameMode,
+    !!config.combos,
+    !!config.multiplex,
+    isDiceathonConfig(config)
+  );
+  const teamsEnabled = !!config.teamsEnabled;
+  const teams = teamsEnabled
+    ? Array.from({ length: players }, (_, index) => {
+        const team = Array.isArray(config.teams) ? config.teams[index] : null;
+        if (team === 'red' || team === 'blue') return team;
+        return index % 2 === 0 ? 'blue' : 'red';
+      })
+    : [];
+
+  return {
+    ...config,
+    players,
+    rounds,
+    gamemode: rules.gameMode,
+    gameMode: rules.gameMode,
+    combos: rules.combos,
+    multiplex: rules.multiplex,
+    teamsEnabled,
+    teams
+  };
+}
+
+function sanitizeAuthenticatedUser(user) {
+  if (!user?.id) return null;
+  return {
+    id: String(user.id).trim(),
+    name: (user.name && String(user.name).trim().substring(0, 32)) || `Guest${String(user.id).substring(0, 6)}`,
+    type: (user.type && String(user.type).trim()) || 'guest'
+  };
+}
+
 export default class LobbyManager {
   constructor(io) {
     this.io = io;
@@ -77,7 +144,7 @@ export default class LobbyManager {
             hostsocketid: item.hostsocketid || item.host || null,
             hostuserid: item.hostuserid || item.hostuser || null,
             players: Array.isArray(item.players) ? item.players : (item.players ? JSON.parse(item.players) : []),
-            config: item.config || (item.config_json ? item.config_json : { players: 2, rounds: 20, combos: false, multiplex: false }),
+            config: normalizeLobbyConfig(item.config || item.config_json || {}),
             createdAt: item.createdAt || item.created_at || Date.now(),
             updatedAt: item.updatedAt || item.updated_at || Date.now()
           };
@@ -101,6 +168,7 @@ export default class LobbyManager {
           changed = true;
           continue;
         }
+        lobby.config = normalizeLobbyConfig(lobby.config);
         if (lobby.players.length === 0) {
           delete this.lobbies[code];
           changed = true;
@@ -153,15 +221,68 @@ export default class LobbyManager {
     }
   }
 
+  getPlayerTeam(config, playerIndex) {
+    if (!config?.teamsEnabled) return null;
+    const team = Array.isArray(config.teams) ? config.teams[playerIndex] : null;
+    if (team === 'red' || team === 'blue') return team;
+    return playerIndex % 2 === 0 ? 'blue' : 'red';
+  }
+
+  attachLobbyTeams(players = [], config = {}) {
+    return (Array.isArray(players) ? players : []).map((player, index) => ({
+      ...player,
+      team: config?.teamsEnabled ? (player?.team || this.getPlayerTeam(config, index)) : null
+    }));
+  }
+
+  getAuthoritativeSocketUser(socket) {
+    return sanitizeAuthenticatedUser(socket?.request?.user);
+  }
+
+  ensureSessionAuthenticated(socket, emitSuccess = true) {
+    if (socket.data.user && socket.data.user.id) {
+      const authoritativeUser = this.getAuthoritativeSocketUser(socket);
+      if (!authoritativeUser || String(authoritativeUser.id) === String(socket.data.user.id)) {
+        return true;
+      }
+
+      console.warn(`[LobbyManager] Clearing mismatched socket auth for ${socket.id}`);
+      socket.data.user = null;
+      socket.data.authEmitted = false;
+    }
+
+    const authoritativeUser = this.getAuthoritativeSocketUser(socket);
+    if (!authoritativeUser) {
+      return false;
+    }
+
+    socket.data.user = authoritativeUser;
+    socket.data.authEmitted = true;
+    socket.data.lastHeartbeat = Date.now();
+
+    if (emitSuccess) {
+      socket.emit('auth-success', {
+        user: socket.data.user,
+        socketid: socket.id,
+        timestamp: Date.now(),
+        autoAuth: true
+      });
+    }
+
+    return true;
+  }
+
   // Helper: Ensure socket has user data (try auto-auth if missing)
   ensureAuthenticated(socket) {
+    return this.ensureSessionAuthenticated(socket);
+
     // If already authenticated, return true
     if (socket.data.user && socket.data.user.id) {
       return true;
     }
 
     // Try to auto-authenticate from session if available
-    if (socket.request && socket.request.user && !socket.data.authEmitted) {
+    if (false && socket.request && socket.request.user && !socket.data.authEmitted) {
       try {
         socket.data.user = {
           id: String(socket.request.user.id).trim(),
@@ -195,6 +316,10 @@ export default class LobbyManager {
     socket.data.user = socket.data.user || null;
     socket.data.authAttempts = 0;
     socket.data.lastHeartbeat = Date.now();
+
+    if (this.ensureSessionAuthenticated(socket, !socket.data.authEmitted)) {
+      console.log(`[LobbyManager] Session-authenticated socket as: ${socket.data.user.name}`);
+    }
 
     // ✅ AUTO-AUTH: Try to authenticate from request session if available
     // ✅ FIX: Only emit auth-success once per socket, mark as handled to prevent duplicate events
@@ -249,6 +374,46 @@ export default class LobbyManager {
           return;
         }
 
+        if (user.id) {
+          const authoritativeUser = this.getAuthoritativeSocketUser(socket);
+          if (!authoritativeUser) {
+            console.warn(`[LobbyManager] auth-user rejected for ${socket.id}: no authenticated session`);
+            socket.data.user = null;
+            socket.data.authEmitted = false;
+            socket.emit('auth-failed', {
+              reason: 'session_required',
+              message: 'Socket authentication requires a valid server session.',
+              attempt: socket.data.authAttempts
+            });
+            return;
+          }
+
+          if (String(user.id).trim() !== String(authoritativeUser.id)) {
+            console.warn(`[LobbyManager] auth-user rejected for ${socket.id}: payload id mismatch`);
+            socket.data.user = null;
+            socket.data.authEmitted = false;
+            socket.emit('auth-failed', {
+              reason: 'identity_mismatch',
+              message: 'Socket identity does not match the authenticated session.',
+              attempt: socket.data.authAttempts
+            });
+            return;
+          }
+
+          socket.data.user = authoritativeUser;
+          socket.data.authEmitted = true;
+          socket.data.lastHeartbeat = Date.now();
+
+          console.log(`[LobbyManager] Session-authenticated socket as: ${socket.data.user.name}`);
+          socket.emit('auth-success', {
+            user: socket.data.user,
+            socketid: socket.id,
+            timestamp: Date.now(),
+            verified: true
+          });
+          return;
+        }
+
         if (!user.id) {
           console.warn(`[LobbyManager] auth-user: user missing id`);
           socket.emit('auth-failed', { 
@@ -292,7 +457,7 @@ export default class LobbyManager {
     socket.on("create-lobby", async (config = {}, maybeUserId) => {
       try {
         // ✅ Check authentication first
-        if (!socket.data.user || !socket.data.user.id) {
+        if (!this.ensureSessionAuthenticated(socket)) {
           console.warn(`[LobbyManager] create-lobby: unauthenticated socket (no user)`);
           console.warn(`[LobbyManager] 💡 Client should: (1) call /auth/me to verify session, (2) emit auth-user event, (3) retry create-lobby`);
           socket.emit('auth-required', {
@@ -309,6 +474,8 @@ export default class LobbyManager {
           return socket.emit("create-failed", { reason: "invalid_user" });
         }
 
+        const lobbyConfig = normalizeLobbyConfig(config);
+
         // ensure unique code (retry if collision)
         let code;
         for (let i = 0; i < 6; i++) {
@@ -321,6 +488,7 @@ export default class LobbyManager {
         const playerObj = {
           id: socket.data.user.id,
           name: socket.data.user.name || `Guest${String(uid).substring(0, 6)}`,
+          team: this.getPlayerTeam(lobbyConfig, 0),
           ready: false,
           left: false,
           connected: true
@@ -331,12 +499,7 @@ export default class LobbyManager {
           hostSocketId: socket.id,
           hostUserId: socket.data.user.id,
           players: [playerObj],
-          config: {
-            players: config.players || 2,
-            rounds: config.rounds || 20,
-            combos: !!config.combos,
-            multiplex: !!config.multiplex
-          },
+          config: lobbyConfig,
           createdAt: Date.now(),
           updatedAt: Date.now(),
           updated_user: {
@@ -350,6 +513,12 @@ export default class LobbyManager {
 
         try { await this.save(); } catch (e) { console.warn("[LobbyManager] failed to persist created lobby:", e); }
 
+        const hostUserId = lobby.hostuserid || lobby.hostUserId || null;
+        if (hostUserId && String(hostUserId) === String(uid)) {
+          lobby.hostSocketId = socket.id;
+          lobby.hostsocketid = socket.id;
+        }
+
         socket.join(code);
         socket.emit("lobby-created", { code, timestamp: Date.now() });
         this.broadcastLobbyUpdate(code);
@@ -362,11 +531,12 @@ export default class LobbyManager {
     // ---------- JOIN LOBBY ----------
     socket.on("join-lobby", async (codeRaw, maybeUserId) => {
       try {
+        maybeUserId = null;
         // ✅ Check authentication first (with auto-auth attempt)
-        if (!this.ensureAuthenticated(socket)) {
+        if (!this.ensureSessionAuthenticated(socket)) {
           // ✅ CRITICAL FIX: If socket not authenticated but userId provided, try to use it as fallback
-          if (maybeUserId && typeof maybeUserId === 'string') {
-            console.log(`[LobbyManager] join-lobby: Socket unauthenticated, but userId provided as fallback: ${maybeUserId}`);
+          if (false && maybeUserId && typeof maybeUserId === 'string') {
+            console.log(`[LobbyManager] join-lobby: unreachable legacy branch hit unexpectedly`);
             // Accept the join with the provided userId, but log it as unverified
             // The socket will be authenticated via auth-user event shortly
             // Continue without auth for now - socket may be in flight with auth event
@@ -386,10 +556,11 @@ export default class LobbyManager {
         const code = codeRaw.trim().toUpperCase();
         const lobby = this.lobbies[code];
         if (!lobby) return socket.emit("join-failed", { reason: "notfound" });
+        lobby.config = normalizeLobbyConfig(lobby.config);
 
-        let uid = socket.data.user?.id || maybeUserId;
+        let uid = socket.data.user?.id || null;
         if (!uid) {
-          console.warn(`[LobbyManager] join-lobby: No user ID available from socket or parameter`);
+          console.warn(`[LobbyManager] join-lobby: No authenticated user ID available`);
           return socket.emit("join-failed", { reason: "invalid_user" });
         }
 
@@ -417,6 +588,7 @@ export default class LobbyManager {
           lobby.players.push({
             id: uid,
             name: playerName,
+            team: this.getPlayerTeam(lobby.config, presentCount),
             ready: false,
             left: false,
             connected: true
@@ -442,6 +614,8 @@ export default class LobbyManager {
             existing.left = false;
             existing.connected = true;
             existing.ready = false;
+            const existingIndex = lobby.players.findIndex(p => String(p.id) === String(uid));
+            existing.team = this.getPlayerTeam(lobby.config, existingIndex);
             try { await this.save(); } catch (e) { console.warn("[LobbyManager] save after rejoin failed:", e); }
           } else {
             existing.connected = true;
@@ -452,7 +626,7 @@ export default class LobbyManager {
         
         // ✅ CRITICAL FIX: Ensure socket.data.user is set for future operations
         // If we used fallback userId, now authenticate the socket properly
-        if (!socket.data.user && uid) {
+        if (false && !socket.data.user && uid) {
           const joiningPlayer = lobby.players.find(p => String(p.id) === String(uid));
           if (joiningPlayer) {
             socket.data.user = {
@@ -465,7 +639,7 @@ export default class LobbyManager {
         
         socket.emit("join-success", {
           code,
-          players: lobby.players,
+          players: this.attachLobbyTeams(lobby.players, lobby.config),
           hostSocketId: lobby.hostsocketid || lobby.hostSocketId || lobby.host || null,
           hostUserId: lobby.hostuserid || lobby.hostUserId || null,
           updated_user: lobby.updated_user || null,
@@ -487,9 +661,9 @@ export default class LobbyManager {
       if (!lobby) return;
       socket.emit("lobby-data", {
         code,
-        players: lobby.players,
-        hostSocketId: lobby.hostSocketId || lobby.host || null,
-        hostUserId: lobby.hostUserId || lobby.hostUserId || null,
+        players: this.attachLobbyTeams(lobby.players, lobby.config),
+        hostSocketId: lobby.hostsocketid || lobby.hostSocketId || lobby.host || null,
+        hostUserId: lobby.hostuserid || lobby.hostUserId || null,
         config: lobby.config
       });
     });
@@ -503,7 +677,7 @@ export default class LobbyManager {
         // return lobby snapshot if game not started
         const lobby = this.lobbies[code];
         if (lobby) {
-          const players = Array.isArray(lobby.players) ? lobby.players : [];
+          const players = this.attachLobbyTeams(lobby.players, lobby.config);
           const localIndex = players.findIndex(p => p.id === socket.data.user?.id);
           socket.emit("game-state", {
             players,
@@ -516,7 +690,16 @@ export default class LobbyManager {
       }
 
       // server-authoritative game state
-      const players = game.players.map(p => ({ id: p.id, name: p.name, score: p.score, comboStats: p.comboStats }));
+      const players = game.players.map(p => ({
+        id: p.id,
+        name: p.name,
+        type: p.type,
+        avatar: p.avatar,
+        playerIcon: p.playerIcon,
+        team: p.team || null,
+        score: p.score,
+        comboStats: p.comboStats
+      }));
       const localIndex = players.findIndex(p => p.id === socket.data.user?.id);
 
       socket.emit("game-state", {
@@ -540,7 +723,7 @@ export default class LobbyManager {
     socket.on("toggle-ready", async (codeRaw, maybeUserId) => {
       try {
         // ✅ Check authentication first (with auto-auth attempt)
-        if (!this.ensureAuthenticated(socket)) {
+        if (!this.ensureSessionAuthenticated(socket)) {
           console.warn(`[LobbyManager] toggle-ready: unauthenticated socket`);
           socket.emit('auth-required', {
             event: 'toggle-ready',
@@ -555,7 +738,7 @@ export default class LobbyManager {
         const lobby = this.lobbies[code];
         if (!lobby) return;
 
-        let uid = socket.data.user?.id || maybeUserId || null;
+        let uid = socket.data.user?.id || null;
         if (!uid) return;
 
         const player = lobby.players.find(p => String(p.id) === String(uid));
@@ -577,6 +760,49 @@ export default class LobbyManager {
         this.broadcastLobbyUpdate(code);
       } catch (err) {
         console.error('[LobbyManager] Error in toggle-ready:', err);
+      }
+    });
+
+    // ---------- TEAM CHANGED ----------
+    socket.on("team-changed", async ({ code: codeRaw, playerId, team } = {}) => {
+      try {
+        if (typeof codeRaw !== "string") return;
+        const code = codeRaw.trim().toUpperCase();
+        const lobby = this.lobbies[code];
+        if (!lobby) return;
+
+        lobby.config = normalizeLobbyConfig(lobby.config);
+        if (!lobby.config.teamsEnabled) return;
+        const hostUserId = lobby.hostuserid || lobby.hostUserId || null;
+        if (!socket.data.user?.id || String(socket.data.user.id) !== String(hostUserId)) return;
+
+        const playerIndex = lobby.players.findIndex((player) => String(player.id) === String(playerId));
+        if (playerIndex < 0) return;
+
+        const safeTeam = team === 'red' ? 'red' : 'blue';
+        lobby.config.teams[playerIndex] = safeTeam;
+        lobby.players[playerIndex].team = safeTeam;
+        lobby.updatedAt = Date.now();
+        if (socket.data.user) {
+          lobby.updated_user = {
+            id: socket.data.user.id,
+            name: socket.data.user.name,
+            timestamp: Date.now()
+          };
+        }
+
+        const activeGame = this.activeGames[code];
+        if (activeGame?.players?.[playerIndex]) {
+          activeGame.players[playerIndex].team = safeTeam;
+        }
+
+        await this.save();
+        this.broadcastLobbyUpdate(code);
+        if (activeGame) {
+          this.emitGameState(code);
+        }
+      } catch (err) {
+        console.error('[LobbyManager] Error in team-changed:', err);
       }
     });
 
@@ -604,7 +830,7 @@ export default class LobbyManager {
         }
 
         // ✅ Verify host (ensure socket is authenticated first)
-        if (!socket.data.user || !socket.data.user.id) {
+        if (!this.ensureSessionAuthenticated(socket)) {
           console.warn(`[LobbyManager] start-game: unauthenticated socket`);
           socket.emit('auth-required', {
             event: 'start-game',
@@ -614,10 +840,14 @@ export default class LobbyManager {
           return socket.emit("game-failed", { reason: "host_unauthenticated" });
         }
 
-        if (socket.id !== lobby.hostSocketId) {
+        const hostUserId = lobby.hostuserid || lobby.hostUserId || null;
+        if (!hostUserId || String(socket.data.user.id) !== String(hostUserId)) {
           socket.emit("game-failed", { reason: "not_host" });
           return;
         }
+
+        lobby.hostSocketId = socket.id;
+        lobby.hostsocketid = socket.id;
 
         // ensure players are present
         const activePlayers = (lobby.players || []).filter(p => !p.left);
@@ -633,6 +863,7 @@ export default class LobbyManager {
         // Discord/Google: fetch avatar from user profile
         let gamePlayersWithAvatars = [];
         for (const p of lobby.players) {
+          const playerIndex = gamePlayersWithAvatars.length;
           let avatar = null;
           let playerIcon = null;
           let userType = 'guest';
@@ -659,6 +890,7 @@ export default class LobbyManager {
             type: userType,
             avatar: avatar,          // OAuth users (Discord/Google)
             playerIcon: playerIcon,  // Guest users
+            team: this.getPlayerTeam(lobby.config, playerIndex),
             score: 0,
             comboStats: { pair:0, twoPair:0, triple:0, fullHouse:0, fourOfAKind:0, fiveOfAKind:0, straight:0 },
             hasRolled: false,
@@ -667,19 +899,20 @@ export default class LobbyManager {
           });
         }
 
+        const gameConfig = normalizeLobbyConfig(lobby.config || {});
         const game = {
           code,
-          config: lobby.config || { players: 2, rounds: 20, combos: false, multiplex: false },
+          config: gameConfig,
           players: gamePlayersWithAvatars,
           currentIndex: 0,
           round: 1,
-          totalRounds: lobby.config?.rounds || 20,
-          combosEnabled: !!lobby.config?.combos,
-          multiplexEnabled: !!lobby.config?.multiplex,
+          totalRounds: gameConfig.rounds,
+          combosEnabled: !!gameConfig.combos,
+          multiplexEnabled: !!gameConfig.multiplex,
           turnTimer: null,
           turnExpiresAt: null,
           rollInProgress: false,
-          timeLimitSeconds: lobby.config?.timeLimitSeconds || 30,
+          timeLimitSeconds: gameConfig.timeLimitSeconds || 30,
           createdAt: Date.now(),
           updatedAt: Date.now()
         };
@@ -687,12 +920,12 @@ export default class LobbyManager {
         this.activeGames[code] = game;
 
         // notify clients (invite to transition)
-        this.io.to(code).emit("game-starting", { code, config: lobby.config, players: lobby.players });
+        this.io.to(code).emit("game-starting", { code, config: game.config, players: this.attachLobbyTeams(lobby.players, game.config) });
 
         // build per-socket state and send
         const statePayload = {
           config: game.config,
-          players: game.players.map(p => ({ id: p.id, name: p.name, type: p.type, avatar: p.avatar, playerIcon: p.playerIcon, connected: true })),
+          players: game.players.map(p => ({ id: p.id, name: p.name, type: p.type, avatar: p.avatar, playerIcon: p.playerIcon, team: p.team || null, connected: true })),
           scores: game.players.map(p => p.score),
           comboStats: game.players.map(p => p.comboStats),
           round: game.round,
@@ -1165,7 +1398,7 @@ export default class LobbyManager {
     if (!lobby) return;
     
     // ✅ FIX: Only send active players (filter out left:true) to reduce client-side confusion
-    const activePlayers = getActivePlayers(lobby.players);
+    const activePlayers = this.attachLobbyTeams(getActivePlayers(lobby.players), lobby.config);
     
     this.io.to(code).emit("lobby-updated", {
       code,
@@ -1184,7 +1417,7 @@ export default class LobbyManager {
     if (!game) return;
 
     const statePayloadBase = {
-      players: game.players.map(p => ({ id: p.id, name: p.name, type: p.type, avatar: p.avatar, playerIcon: p.playerIcon, score: p.score, connected: true })),
+      players: game.players.map(p => ({ id: p.id, name: p.name, type: p.type, avatar: p.avatar, playerIcon: p.playerIcon, team: p.team || null, score: p.score, connected: true })),
       scores: game.players.map(p => p.score),
       comboStats: game.players.map(p => p.comboStats),
       round: game.round,

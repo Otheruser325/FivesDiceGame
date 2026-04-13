@@ -85,8 +85,6 @@ export default class PreloadScene extends Phaser.Scene {
             this.loadingText.setText(GlobalLocalization.t('PRELOAD_LOADING', 'Loading...'));
         }
 
-        this.time.delayedCall(5000, () => {
-            this.scene.start('MenuScene');
-        });
+        this.scene.start('MenuScene');
     }
 }

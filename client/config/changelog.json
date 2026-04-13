@@ -2,6 +2,23 @@
   "title": "Fives - Changelog",
   "entries": [
     {
+      "version": "1.3.0",
+      "date": "13/04/2026",
+      "tags": [
+        "Release",
+        "Updates",
+        "Modes",
+		"Fixes"
+      ],
+      "changes": [
+        "We've added three proper gamemodes: Classic, Combanity, and Multiplex!",
+        "Combanity and Multiplex replaces the old optional Combo Rules and Multiplex respectively into their very own gamemode for a more consistent and fun turn of events!",
+        "Improved preload so the game will load much faster - no more snail hangs!",
+		"Fixed close popup sizing in local/online games.",
+		"Fixed several server issues that can cause potential hijacking of the player client socket."
+      ]
+    },
+    {
       "version": "1.2.1",
       "date": "24/02/2026",
       "tags": [

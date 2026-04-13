@@ -358,6 +358,8 @@ export default class OnlineMenuScene extends Phaser.Scene {
             this.scene.start('LeaderboardScene');
         });
 
+        this.buildDiceathonShowcase();
+
         // Join Lobby button
         const joinBtn = this.add.text(600, 310, t('ONLINE_JOIN_LOBBY', 'Join Lobby'), {
                 fontSize: 28,
@@ -438,11 +440,11 @@ export default class OnlineMenuScene extends Phaser.Scene {
                    return;
                }
 
-               const performJoin = () => {
-                 console.log('[OnlineMenuScene] Joining lobby:', code);
-                 if (this.debugger) this.debugger.log('join-lobby emit', { code });
-                 socket.emit('join-lobby', code, myId);
-               };
+                const performJoin = () => {
+                  console.log('[OnlineMenuScene] Joining lobby:', code);
+                  if (this.debugger) this.debugger.log('join-lobby emit', { code });
+                  socket.emit('join-lobby', code);
+                };
                
                // Check if socket is already authenticated
                if (socket.data?.user?.id) {
@@ -455,17 +457,21 @@ export default class OnlineMenuScene extends Phaser.Scene {
                    if (authWaitTimeout) clearTimeout(authWaitTimeout);
                    socket.off('auth-success', onAuthSuccess);
                    performJoin();
-                 };
-                 
-                 socket.once('auth-success', onAuthSuccess);
-                 
-                 // Timeout in case auth-success never fires (fallback to join anyway with userId param)
-                 authWaitTimeout = setTimeout(() => {
-                   console.warn('[OnlineMenuScene] Auth-success timeout, joining anyway with fallback');
-                   socket.off('auth-success', onAuthSuccess);
-                   performJoin();
-                 }, 2000);
-               }
+                  };
+                  
+                  socket.once('auth-success', onAuthSuccess);
+                  if (this.user?.id) {
+                    emitAuthUser(this.user, true);
+                  }
+                  
+                  // Timeout in case auth-success never fires.
+                  authWaitTimeout = setTimeout(() => {
+                    console.warn('[OnlineMenuScene] Auth-success timeout, aborting join');
+                    socket.off('auth-success', onAuthSuccess);
+                    GlobalAlerts.show(this, t('ONLINE_AUTH_RETRY', 'Authentication error: Please try logging in again.'), 'error');
+                    resetJoinButton();
+                  }, 2000);
+                }
                
                // Set timeout as fallback (in case events don't fire)
                joinTimeout = setTimeout(() => {
@@ -570,6 +576,47 @@ export default class OnlineMenuScene extends Phaser.Scene {
 
         // Track elements for easy clearing
         this.lobbyUIElements.push(createBtn, leaderboardBtn, joinBtn);
+    }
+
+    buildDiceathonShowcase() {
+        if (!this.user) return;
+
+        const panel = this.add.container(955, 248);
+        const glow = this.add.ellipse(0, 0, 250, 170, 0x7f1616, 0.12);
+        const shell = this.add.rectangle(0, 0, 250, 160, 0x070707, 0.92)
+            .setStrokeStyle(2, 0x6e1b1b, 0.9);
+        const crown = this.add.rectangle(0, -74, 250, 8, 0x2a0909, 1);
+        const crownLight = this.add.rectangle(-52, -74, 86, 8, 0xd33a3a, 0.95);
+        const eyebrow = this.add.text(-106, -52, t('ONLINE_DICEATHON_EYEBROW', 'Official Event'), {
+            fontSize: 15,
+            color: '#f0b0b0',
+            fontStyle: 'bold'
+        }).setOrigin(0, 0.5);
+        const title = this.add.text(-106, -20, t('ONLINE_DICEATHON_TITLE', 'Diceathon'), {
+            fontSize: 28,
+            color: '#fff3f3',
+            fontStyle: 'bold'
+        }).setOrigin(0, 0.5);
+        const badge = this.add.text(82, -52, t('ONLINE_DICEATHON_STATUS', 'Silhouette'), {
+            fontSize: 13,
+            color: '#f3c96b',
+            fontStyle: 'bold'
+        }).setOrigin(1, 0.5);
+        const body = this.add.text(0, 22, t('ONLINE_DICEATHON_BODY', 'Fives events will live here once official online event support is ready. Expect special tables, rotating rules, and prize-focused runs.'), {
+            fontSize: 15,
+            color: '#c8b8b8',
+            align: 'center',
+            wordWrap: { width: 202 }
+        }).setOrigin(0.5);
+        const footer = this.add.text(0, 58, t('ONLINE_DICEATHON_FOOTER', 'Sign-in spotted. Event board stays dark for now.'), {
+            fontSize: 13,
+            color: '#8d7d7d',
+            align: 'center',
+            wordWrap: { width: 202 }
+        }).setOrigin(0.5);
+
+        panel.add([glow, shell, crown, crownLight, eyebrow, title, badge, body, footer]);
+        this.lobbyUIElements.push(panel);
     }
 
     clearLobbyUI() {

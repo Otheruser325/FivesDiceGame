@@ -4,6 +4,7 @@ import GlobalAudio from '../utils/AudioManager.js';
 import ErrorHandler from '../utils/ErrorManager.js';
 import GlobalLocalization from '../utils/LocalizationManager.js';
 import DebugManager from '../utils/DebugManager.js';
+import { GAME_MODES, getRuleFlags, isDiceathonConfig } from '../utils/GameModeManager.js';
 
 const t = (key, fallback) => GlobalLocalization.t(key, fallback);
 const tf = (key, fallback, ...args) => GlobalLocalization.format(key, fallback, ...args);
@@ -52,17 +53,16 @@ export default class OnlineLobbyScene extends Phaser.Scene {
 
         // RULES PANEL (top-right)
         this.rulesPanel = this.add.container(1100, 100);
-        const panelBg = this.add.rectangle(0, 0, 220, 180, 0x000000, 0.6).setOrigin(0, 0);
+        const panelBg = this.add.rectangle(0, 0, 220, 150, 0x000000, 0.6).setOrigin(0, 0);
         this.rulesPanel.add(panelBg);
 
         this.rulesTexts = {
             players: this.add.text(10, 10, "", { fontSize: 20, color: "#66ff66" }).setOrigin(0, 0),
             rounds: this.add.text(10, 40, "", { fontSize: 20, color: "#66ff66" }).setOrigin(0, 0),
-            combos: this.add.text(10, 70, "", { fontSize: 20, color: "#66ff66" }).setOrigin(0, 0),
-            multiplex: this.add.text(10, 100, "", { fontSize: 20, color: "#66ff66" }).setOrigin(0, 0),
-            teams: this.add.text(10, 130, "", { fontSize: 20, color: "#66ff66" }).setOrigin(0, 0)
+            mode: this.add.text(10, 70, "", { fontSize: 20, color: "#ff9999" }).setOrigin(0, 0),
+            teams: this.add.text(10, 100, "", { fontSize: 20, color: "#66ff66" }).setOrigin(0, 0)
         };
-        this.rulesPanel.add([this.rulesTexts.players, this.rulesTexts.rounds, this.rulesTexts.combos, this.rulesTexts.multiplex, this.rulesTexts.teams]);
+        this.rulesPanel.add([this.rulesTexts.players, this.rulesTexts.rounds, this.rulesTexts.mode, this.rulesTexts.teams]);
 
         // LEAVE BUTTON
         const leaveBtn = this.add.text(80, 60, t('ONLINE_LOBBY_LEAVE', 'Leave'), { fontSize: 26, color: "#ff6666" })
@@ -205,7 +205,7 @@ export default class OnlineLobbyScene extends Phaser.Scene {
                 name: this._sanitizePlayerName(p.name || p.id, p.id),
                 ready: !!p.ready,
                 connected: p.connected !== false,
-                team: p.team || (i % 2 === 0 ? 'blue' : 'red')  // Default team assignment
+                team: p.team || data.config?.teams?.[i] || (i % 2 === 0 ? 'blue' : 'red')  // Default team assignment
             }));
 
         // Accept several possible host fields from server
@@ -334,12 +334,27 @@ export default class OnlineLobbyScene extends Phaser.Scene {
 
     refreshRulesPanel() {
         if (!this.config || !this.rulesTexts) return;
+        const rules = getRuleFlags(this.config.gameMode ?? this.config.gamemode, {
+            combos: this.config.combos,
+            multiplex: this.config.multiplex,
+            allowCombined: isDiceathonConfig(this.config)
+        });
+        let modeLabel = t('CONFIG_MODE_CLASSIC', 'Classic');
+        if (isDiceathonConfig(this.config)) {
+            modeLabel = this.config.eventName || t('CONFIG_MODE_DICEATHON', 'Diceathon');
+        } else if (rules.gameMode === GAME_MODES.COMBANITY) {
+            modeLabel = t('CONFIG_MODE_COMBANITY', 'Combanity');
+        } else if (rules.gameMode === GAME_MODES.MULTIPLEX) {
+            modeLabel = t('CONFIG_MODE_MULTIPLEX', 'Multiplex');
+        }
+
         this.rulesTexts.players.text = tf('ONLINE_LOBBY_RULES_PLAYERS', 'Players: {0}', this.config.players || 2);
         this.rulesTexts.rounds.text = tf('ONLINE_LOBBY_RULES_ROUNDS', 'Rounds: {0}', this.config.rounds || 20);
-        this.rulesTexts.combos.text = tf('ONLINE_LOBBY_RULES_COMBOS', 'Combos: {0}', onOff(this.config.combos));
-        if (this.rulesTexts.multiplex) {
-            this.rulesTexts.multiplex.text = tf('ONLINE_LOBBY_RULES_MULTIPLEX', 'Multiplex: {0}', onOff(this.config.multiplex));
-        }
+        this.rulesTexts.mode.text = tf(
+            'ONLINE_LOBBY_RULES_GAMEMODE',
+            'Mode: {0}',
+            modeLabel
+        );
         this.rulesTexts.teams.text = tf('ONLINE_LOBBY_RULES_TEAMS', 'Teams: {0}', onOff(this.config.teamsEnabled));
     }
 
