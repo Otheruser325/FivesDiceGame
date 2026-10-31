@@ -1,4 +1,5 @@
 import { getSocket, getServerUrl, probeHealth, connectTo, emitAuthUser, fetchWithServerFallback } from '../utils/SocketManager.js';
+import { getFreshOAuthCachedUser } from '../utils/authRedirect.js';
 import GlobalAlerts from '../utils/AlertManager.js';
 import GlobalAudio from '../utils/AudioManager.js';
 import ErrorHandler from '../utils/ErrorManager.js';
@@ -230,8 +231,17 @@ export default class OnlineMenuScene extends Phaser.Scene {
 
         // Listen for auth changes (login/logout)
         // Use a single bound handler so we can remove it cleanly later
-        this._onAuthUpdated = async () => {
-            await this.refreshAuth();
+        this._onAuthUpdated = async (user) => {
+            if (user && user.id) {
+                // A trusted login just completed (for example the OAuth popup).
+                // Adopt it directly instead of re-checking the session, which can
+                // report signed out while cross-site cookies are blocked.
+                this.user = user;
+                localStorage.setItem('fives_user', JSON.stringify(user));
+                try { emitAuthUser(user); } catch (e) { /* ignore */ }
+            } else {
+                await this.refreshAuth();
+            }
             this.clearAllUI(); // clear previous visuals
             this.buildUI();
         };
@@ -654,8 +664,17 @@ export default class OnlineMenuScene extends Phaser.Scene {
                         return;
                     }
 
-                    // Server explicitly says "not authenticated": clear stale local cache.
+                    // Server explicitly says "not authenticated": clear stale local cache,
+                    // unless a popup login just succeeded and the cookie is not visible
+                    // to this cross-site request (third-party cookie blocking).
                     if (data && data.ok === false) {
+                        const freshUser = getFreshOAuthCachedUser();
+                        if (freshUser) {
+                            this.user = freshUser;
+                            emitAuthUser(freshUser);
+                            if (this.debugger) this.debugger.log('auth refresh: keeping fresh OAuth login', { id: freshUser.id });
+                            return;
+                        }
                         localStorage.removeItem('fives_user');
                         this.user = null;
                         emitAuthUser(null);
@@ -669,7 +688,14 @@ export default class OnlineMenuScene extends Phaser.Scene {
         }
 
         if (serverResponded) {
-            // Server responded but did not provide a valid auth payload.
+            // Server responded but did not provide a valid auth payload. Keep a
+            // login that just completed in the popup rather than flashing signed out.
+            const freshUser = getFreshOAuthCachedUser();
+            if (freshUser) {
+                this.user = freshUser;
+                emitAuthUser(freshUser);
+                return;
+            }
             // Avoid stale-login UI by clearing cache.
             localStorage.removeItem('fives_user');
             this.user = null;

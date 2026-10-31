@@ -3,6 +3,7 @@ import GlobalAudio from '../utils/AudioManager.js';
 import ErrorHandler from '../utils/ErrorManager.js';
 import GlobalLocalization from '../utils/LocalizationManager.js';
 import DebugManager from '../utils/DebugManager.js';
+import { markOAuthSuccess, getFreshOAuthCachedUser } from '../utils/authRedirect.js';
 
 const t = (key, fallback) => GlobalLocalization.t(key, fallback);
 const tf = (key, fallback, ...args) => GlobalLocalization.format(key, fallback, ...args);
@@ -52,8 +53,12 @@ export default class OnlineAccountScene extends Phaser.Scene {
     });
 
     // Rebuild UI when auth changes (single bound handler)
-    this._onAuthUpdated = async () => {
-      await this.refreshAuth();
+    this._onAuthUpdated = async (user) => {
+      if (user && user.id) {
+        this.user = user;
+      } else {
+        await this.refreshAuth();
+      }
       if (this.user) this.showAccountOptions();
       else this.showLoginOptions();
     };
@@ -139,8 +144,16 @@ export default class OnlineAccountScene extends Phaser.Scene {
             return;
           }
 
-          // Server explicitly says "not authenticated": clear stale local cache.
+          // Server explicitly says "not authenticated": clear stale local cache,
+          // unless the popup just completed and this cross-site request cannot see
+          // the session cookie (third-party cookie blocking).
           if (j && j.ok === false) {
+            const freshUser = getFreshOAuthCachedUser();
+            if (freshUser) {
+              this.user = freshUser;
+              emitAuthUser(freshUser);
+              return;
+            }
             this.user = null;
             localStorage.removeItem('fives_user');
             emitAuthUser(null);
@@ -157,6 +170,12 @@ export default class OnlineAccountScene extends Phaser.Scene {
     // If server responded but did not provide a valid authenticated user payload,
     // do not trust stale client cache.
     if (serverResponded) {
+      const freshUser = getFreshOAuthCachedUser();
+      if (freshUser) {
+        this.user = freshUser;
+        emitAuthUser(freshUser);
+        return;
+      }
       this.user = null;
       localStorage.removeItem('fives_user');
       emitAuthUser(null);
@@ -620,6 +639,13 @@ export default class OnlineAccountScene extends Phaser.Scene {
         return;
       }
 
+      // Persist the popup result immediately: if the popup does not receive our
+      // acknowledgement it may reload this window, and that reload must not lose
+      // a login that already succeeded.
+      markOAuthSuccess(this.oauthExpectedProvider || pendingUser.type);
+      localStorage.setItem('fives_user', JSON.stringify(pendingUser));
+      this.user = pendingUser;
+
       const confirmedUser = await this._waitForOAuthSession(3000, 350, {
         expectedUserId: pendingUser?.id,
         ignorePopupClosed: true
@@ -646,7 +672,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
       } catch (e) { /* ignore */ }
 
       alert(tf('ACCOUNT_LOGIN_SUCCESS', 'Logged in as {0}', resolvedUser.name || t('GENERIC_UNKNOWN', 'Unknown')));
-      this.game.events.emit('auth-updated');
+      this.game.events.emit('auth-updated', resolvedUser);
       this.scene.resume(this.returnTo);
       this.scene.stop();
     } catch (err) {

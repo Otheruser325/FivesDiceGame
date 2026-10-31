@@ -14,6 +14,7 @@ import OnlineLobbyScene from './scenes/OnlineLobbyScene.js';
 import OnlineGameScene from './scenes/OnlineGameScene.js';
 import OnlinePostGameScene from './scenes/OnlinePostGameScene.js';
 import LeaderboardScene from './scenes/LeaderboardScene.js';
+import { consumeAuthRedirect } from './utils/authRedirect.js';
 
 const config = {
     type: Phaser.AUTO,
@@ -43,5 +44,9 @@ const config = {
         LeaderboardScene,
     ]
 };
+
+// Keep an OAuth redirect result before any scene inspects the URL, and strip
+// the query parameters so a reload does not replay it.
+consumeAuthRedirect();
 
 new Phaser.Game(config);
