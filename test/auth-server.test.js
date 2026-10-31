@@ -278,6 +278,26 @@ test('repeated OAuth starts are rate limited', async () => {
   assert.ok(statuses.includes(429), `statuses: ${statuses.join(',')}`);
 });
 
+test('the login handoff endpoint refuses unknown nonces and hostile origins', async () => {
+  const body = JSON.stringify({ nonce: 'a'.repeat(32) });
+
+  const unknown = await fetch(`${base}/auth/oauth/claim`, {
+    method: 'POST',
+    headers: { Origin: CLIENT_ORIGIN, 'Content-Type': 'application/json' },
+    body
+  });
+  assert.equal(unknown.status, 401);
+  assert.equal(unknown.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(await unknown.json(), { ok: false });
+
+  const hostile = await fetch(`${base}/auth/oauth/claim`, {
+    method: 'POST',
+    headers: { Origin: 'https://evil.example', 'Content-Type': 'application/json' },
+    body
+  });
+  assert.equal(hostile.status, 403);
+});
+
 test('a mistyped AUTH_SUCCESS_REDIRECT_URL cannot become an open redirect', async () => {
   const res = await fetch(`${hostileBase}/auth/discord/callback?state=popup.bm90bWluZQ`, { redirect: 'manual' });
 

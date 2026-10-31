@@ -10,15 +10,19 @@ test('the client return path must stay a plain same-origin path', () => {
   assert.equal(sanitizeClientPath('/'), '/');
   assert.equal(sanitizeClientPath('/FivesDiceGame/'), '/FivesDiceGame/');
   assert.equal(sanitizeClientPath('/play/index.html'), '/play/index.html');
+  // The tab's own query and fragment are part of the page it is already on.
+  assert.equal(sanitizeClientPath('/FivesDiceGame/?room=ABC#lobby'), '/FivesDiceGame/?room=ABC#lobby');
+  assert.equal(sanitizeClientPath('/a?next=//evil.example'), '/a?next=//evil.example');
 
   assert.equal(sanitizeClientPath('//evil.example'), null);
   assert.equal(sanitizeClientPath('https://evil.example'), null);
   assert.equal(sanitizeClientPath('/../etc/passwd'), null);
-  assert.equal(sanitizeClientPath('/a?next=//evil.example'), null);
-  assert.equal(sanitizeClientPath('/a#fragment'), null);
+  assert.equal(sanitizeClientPath('/%2e%2e/admin'), null);
+  assert.equal(sanitizeClientPath('/a%2f..%2fadmin'), null);
   assert.equal(sanitizeClientPath('/a\\b'), null);
+  assert.equal(sanitizeClientPath('/a b'), null);
   assert.equal(sanitizeClientPath('/a\u0000b'), null);
-  assert.equal(sanitizeClientPath(`/${'a'.repeat(400)}`), null);
+  assert.equal(sanitizeClientPath(`/${'a'.repeat(600)}`), null);
   assert.equal(sanitizeClientPath(null), null);
 });
 
@@ -39,6 +43,15 @@ test('the return URL keeps the game path and never leaves its origin', () => {
   // Percent-encoded traversal is normalised by the URL parser inside the origin.
   assert.equal(
     new URL(resolveClientRedirect('https://play.fivesdicegame.com', '/%2e%2e/evil')).origin,
+    'https://play.fivesdicegame.com'
+  );
+  // The exact tab URL (query and fragment included) is preserved.
+  assert.equal(
+    resolveClientRedirect('https://otheruser325.github.io', '/FivesDiceGame/?room=ABC#lobby'),
+    'https://otheruser325.github.io/FivesDiceGame/?room=ABC#lobby'
+  );
+  assert.equal(
+    new URL(resolveClientRedirect('https://play.fivesdicegame.com', '/a?next=https://evil.example')).origin,
     'https://play.fivesdicegame.com'
   );
   assert.equal(resolveClientRedirect('not a url', '/'), null);

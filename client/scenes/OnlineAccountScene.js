@@ -30,6 +30,9 @@ export default class OnlineAccountScene extends Phaser.Scene {
     this.oauthPopup = null;
     this.oauthLoginInProgress = false;
     this.oauthPollTimer = null;
+    this.oauthClaimTimer = null;
+    this.oauthNonce = null;
+    this.oauthStopped = false;
     this.oauthServerBase = null;
     this.oauthExpectedProvider = null;
     this.debugger = DebugManager.create(this, { namespace: 'OnlineAccountScene' });
@@ -418,6 +421,10 @@ export default class OnlineAccountScene extends Phaser.Scene {
       clearInterval(this.oauthPollTimer);
       this.oauthPollTimer = null;
     }
+    if (this.oauthClaimTimer) {
+      clearInterval(this.oauthClaimTimer);
+      this.oauthClaimTimer = null;
+    }
 
     if (closePopup && this.oauthPopup && !this.oauthPopup.closed) {
       try { this.oauthPopup.close(); } catch (e) { /* ignore */ }
@@ -426,6 +433,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
     this.oauthPopup = null;
     this.oauthServerBase = null;
     this.oauthExpectedProvider = null;
+    this.oauthNonce = null;
   }
 
   async _waitForOAuthSession(timeoutMs = 60000, pollIntervalMs = 700, options = {}) {
@@ -458,6 +466,10 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
       const pollTimer = setInterval(async () => {
         if (finished) return;
+        if (this.oauthStopped) {
+          fail(new Error('OAuth login failed'));
+          return;
+        }
 
         if (!ignorePopupClosed && this.oauthPopup && this.oauthPopup.closed) {
           fail(new Error('OAuth popup closed before login finished'));
@@ -531,6 +543,16 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
         const data = event?.data;
         if (!data || typeof data !== 'object') return;
+        if (data.type === 'fives-oauth-error') {
+          try {
+            event.source.postMessage({ type: 'fives-oauth-ack' }, eventOrigin);
+          } catch (e) { /* ignore */ }
+          const failure = new Error(String(data.error || 'OAuth sign in failed'));
+          failure.oauthFailure = true;
+          this.oauthStopped = true;
+          fail(failure);
+          return;
+        }
         if (data.type !== 'fives-oauth-success') return;
         if (expectedProvider && data.provider !== expectedProvider) return;
         if (!data.user || !data.user.id) return;
@@ -550,6 +572,10 @@ export default class OnlineAccountScene extends Phaser.Scene {
       }, timeoutMs);
 
       closeWatchId = setInterval(() => {
+        if (this.oauthStopped) {
+          fail(new Error('OAuth login failed'));
+          return;
+        }
         if (!this.oauthPopup || this.oauthPopup.closed) {
           fail(new Error('OAuth popup closed before login finished'));
         }
@@ -557,7 +583,115 @@ export default class OnlineAccountScene extends Phaser.Scene {
     });
   }
 
-  _appendPopupState(url) {
+  // Claims the login this tab started. This is the path that survives the
+  // provider severing window.opener (Google does), so the response arrives in
+  // the tab that is actually running the game instead of a new one.
+  async _waitForOAuthHandoff(timeoutMs = 60000, pollIntervalMs = 900) {
+    const nonce = this.oauthNonce;
+    const expectedProvider = this.oauthExpectedProvider;
+    const server = (this.oauthServerBase || getServerUrl()).replace(/\/$/, '');
+    if (!nonce) throw new Error('OAuth handoff unavailable');
+
+    return new Promise((resolve, reject) => {
+      let finished = false;
+      let inFlight = false;
+      let timer = null;
+      const deadline = Date.now() + timeoutMs;
+
+      const cleanup = () => {
+        if (finished) return;
+        finished = true;
+        if (timer) clearInterval(timer);
+        if (this.oauthClaimTimer === timer) this.oauthClaimTimer = null;
+      };
+      const succeed = (user) => {
+        cleanup();
+        resolve(user);
+      };
+      const fail = (error) => {
+        cleanup();
+        reject(error);
+      };
+
+      const poll = async () => {
+        if (finished || inFlight) return;
+        if (Date.now() >= deadline) {
+          fail(new Error('OAuth login timed out'));
+          return;
+        }
+        inFlight = true;
+
+        try {
+          const res = await fetchWithServerFallback('/auth/oauth/claim', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ nonce })
+          }, server);
+          if (!res.ok) return;
+
+          const body = await res.json();
+          if (body?.error) {
+            const failure = new Error(String(body.error));
+            failure.oauthFailure = true;
+            this.oauthStopped = true;
+            fail(failure);
+            return;
+          }
+          const user = body?.user;
+          if (!body?.ok || !user?.id) return;
+          if (expectedProvider && user.type !== expectedProvider) return;
+          succeed(user);
+        } catch (err) {
+          // Keep polling while the OAuth flow is still in progress.
+        } finally {
+          inFlight = false;
+        }
+      };
+
+      timer = setInterval(poll, pollIntervalMs);
+      this.oauthClaimTimer = timer;
+      poll();
+    });
+  }
+
+  // The exact page this tab is on, so the callback can return to it instead of
+  // inventing a URL at the site root. OAuth result parameters are dropped.
+  _currentClientPath() {
+    try {
+      const { pathname = '/', search = '', hash = '' } = window.location || {};
+      const params = new URLSearchParams(search);
+      ['auth', 'provider', 'error', 'timestamp'].forEach((key) => params.delete(key));
+      const query = params.toString();
+      const path = `${pathname || '/'}${query ? `?${query}` : ''}${hash || ''}`;
+      return path.slice(0, 512);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // A secret only this tab knows. It lets the callback publish the finished
+  // login for this tab to claim, which works even when the provider severs
+  // window.opener. A weak fallback is worse than none, so skip the handoff when
+  // the platform has no cryptographic randomness.
+  _createOAuthNonce() {
+    try {
+      const cryptoApi = globalThis.crypto;
+      if (cryptoApi && typeof cryptoApi.randomUUID === 'function') {
+        return cryptoApi.randomUUID();
+      }
+      if (cryptoApi && typeof cryptoApi.getRandomValues === 'function') {
+        const bytes = new Uint8Array(16);
+        cryptoApi.getRandomValues(bytes);
+        return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+      }
+    } catch (e) {
+      /* fall through */
+    }
+    return null;
+  }
+
+  _appendPopupState(url, { mode = 'popup', nonce = null } = {}) {
     if (/[?&]state=/.test(url)) return url;
 
     let clientOrigin = null;
@@ -567,17 +701,12 @@ export default class OnlineAccountScene extends Phaser.Scene {
       clientOrigin = null;
     }
 
-    let clientPath = null;
-    try {
-      clientPath = window?.location?.pathname || null;
-    } catch (e) {
-      clientPath = null;
-    }
-
     const payload = {
-      popup: true,
+      popup: mode !== 'top',
+      mode,
       clientOrigin,
-      clientPath,
+      clientPath: this._currentClientPath(),
+      clientNonce: nonce || undefined,
       timestamp: Date.now()
     };
 
@@ -614,6 +743,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
     try {
       if (this.debugger) this.debugger.log('oauth login start', { url });
       this._clearOAuthState(true);
+      this.oauthStopped = false;
       this.oauthExpectedProvider = this._expectedProviderForUrl(url);
 
       const preferredServer = getServerUrl();
@@ -624,23 +754,31 @@ export default class OnlineAccountScene extends Phaser.Scene {
       }
       this.oauthServerBase = server;
 
-      const popupUrlPath = this._appendPopupState(url);
-      const popupUrl = `${server.replace(/\/$/, '')}${popupUrlPath.startsWith('/') ? '' : '/'}${popupUrlPath}`;
-      const topLevelUrl = popupUrl;
+      const nonce = this._createOAuthNonce();
+      this.oauthNonce = nonce;
+
+      const base = server.replace(/\/$/, '');
+      const popupUrlPath = this._appendPopupState(url, { mode: 'popup', nonce });
+      const popupUrl = `${base}${popupUrlPath.startsWith('/') ? '' : '/'}${popupUrlPath}`;
       const popupFeatures = 'popup=yes,width=520,height=720,menubar=no,toolbar=no,status=no,resizable=yes,scrollbars=yes';
       const popupName = `fives_oauth_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
       this.oauthPopup = window.open(popupUrl, popupName, popupFeatures);
 
-      // Popup blocked: fallback to top-level redirect (required for OAuth on strict browsers).
+      // Popup blocked: fall back to navigating this tab, and tell the server it
+      // is a top-level flow so the callback redirects instead of rendering a
+      // completion page in this tab.
       if (!this.oauthPopup || typeof this.oauthPopup.closed === 'undefined') {
+        const topLevelPath = this._appendPopupState(url, { mode: 'top', nonce });
+        const topLevelUrl = `${base}${topLevelPath.startsWith('/') ? '' : '/'}${topLevelPath}`;
         alert(t('ACCOUNT_OAUTH_POPUP_BLOCKED', 'Popup blocked. Redirecting to complete login...'));
         window.location.assign(topLevelUrl);
         return;
       }
 
       const pendingUser = await Promise.any([
-        this._waitForOAuthPopupMessage(60000),
-        this._waitForOAuthSession(60000, 700)
+        this._waitForOAuthPopupMessage(90000),
+        this._waitForOAuthSession(90000, 700, { ignorePopupClosed: true }),
+        this._waitForOAuthHandoff(90000, 900)
       ]);
       if (!pendingUser) {
         alert(t('ACCOUNT_OAUTH_FAILED_NO_USER', 'OAuth login failed: no user session found.'));
@@ -688,7 +826,12 @@ export default class OnlineAccountScene extends Phaser.Scene {
       console.error('[OAuth] Error during login:', err);
       if (this.debugger) this.debugger.error('oauth login error', { error: err?.message || String(err) });
 
-      const aggregateReasons = Array.isArray(err?.errors) ? err.errors : [];
+      const aggregateReasons = Array.isArray(err?.errors) ? err.errors : [err];
+      const oauthFailure = aggregateReasons.find((reason) => reason?.oauthFailure);
+      if (oauthFailure) {
+        alert(oauthFailure.message);
+        return;
+      }
       const primaryReason = aggregateReasons.find(Boolean);
       const message = String(primaryReason?.message || err?.message || '');
       if (message.includes('popup closed')) {

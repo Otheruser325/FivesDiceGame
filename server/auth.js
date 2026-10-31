@@ -10,6 +10,7 @@ import geoip from "geoip-lite";
 import { loadUsers, saveUsers, loadUser, saveUser } from "./utils/userStorage.js";
 import { buildOAuthPopupCompletionPage } from "./oauthPopupPage.js";
 import { sanitizeClientPath, resolveClientRedirect, isSameSiteOrigin } from "./oauthRedirect.js";
+import { registerOAuthHandoff, consumeOAuthHandoff, isValidOAuthNonce } from "./oauthHandoff.js";
 
 export const router = express.Router();
 router.use(express.json());
@@ -74,7 +75,7 @@ function requireStrategy(strategyName, fallbackMsg) {
   return (req, res, next) => {
     if (!isStrategyAvailable(strategyName)) {
       console.warn(`[Auth] Strategy '${strategyName}' not available`);
-      return res.redirect(buildPostAuthErrorRedirect(req, strategyName, fallbackMsg || `${strategyName} OAuth is not configured`));
+      return sendOAuthFailure(req, res, strategyName, fallbackMsg || `${strategyName} OAuth is not configured`);
     }
     next();
   };
@@ -178,12 +179,14 @@ function rejectRateLimitedAuth(res) {
 // Starting an OAuth flow is cheap for us but makes the provider work, and a
 // callback that reaches the strategy burns a token exchange. Cap both per IP.
 function oauthRateLimit(stage, provider) {
-  const limit = stage === 'start' ? 20 : 40;
+  // The game tab polls the handoff endpoint while it waits for the popup, so
+  // that stage needs a budget that covers a full sign-in attempt.
+  const limit = stage === 'start' ? 20 : stage === 'claim' ? 120 : 40;
   return (req, res, next) => {
     if (isRateLimited(req, `oauth-${stage}`, limit)) {
       console.warn(`[Auth] OAuth ${stage} rate limited for ${getClientIp(req)}`);
       if (stage === 'callback') {
-        return res.redirect(buildPostAuthErrorRedirect(req, provider, 'Too many sign-in attempts. Please wait a minute and try again.'));
+        return sendOAuthFailure(req, res, provider, 'Too many sign-in attempts. Please wait a minute and try again.');
       }
       return res.status(429).json({ ok: false, error: 'Too many sign-in attempts. Please wait a minute and try again.' });
     }
@@ -574,8 +577,12 @@ function decodeOAuthStatePayload(raw) {
 function getOAuthState(req) {
   const raw = typeof req?.query?.state === 'string' ? req.query.state.trim() : '';
   if (!raw) return undefined;
-  // Keep state bounded so provider callbacks stay predictable.
-  return raw.slice(0, 512);
+  // Keep state bounded and reject control characters. The client payload now
+  // also carries the return URL and the handoff nonce, so truncating it would
+  // silently drop the values the callback depends on.
+  if (raw.length > 4096) return undefined;
+  if (/[\u0000-\u001f\u007f]/.test(raw)) return undefined;
+  return raw;
 }
 
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -610,7 +617,11 @@ function issueOAuthState(req) {
   const requestedOrigin = normalizeOrigin(clientState?.clientOrigin);
   const clientOrigin = requestedOrigin && isAllowedAuthOrigin(requestedOrigin) ? requestedOrigin : null;
   const clientPath = sanitizeClientPath(clientState?.clientPath);
-  const popup = !!clientState?.popup || req?.query?.state === 'popup';
+  // `top` means the client replaced its own tab instead of opening a popup, so
+  // the callback must answer with a plain redirect rather than a completion page.
+  const mode = clientState?.mode === 'top' ? 'top' : 'popup';
+  const popup = mode === 'popup' || req?.query?.state === 'popup';
+  const handoffNonce = isValidOAuthNonce(clientState?.clientNonce) ? clientState.clientNonce : null;
 
   const nonce = crypto.randomBytes(24).toString('base64url');
   const now = Date.now();
@@ -619,7 +630,7 @@ function issueOAuthState(req) {
   req.session.oauthStates = pending
     .filter((entry) => entry && typeof entry.nonce === 'string' && (now - entry.createdAt) < OAUTH_STATE_TTL_MS)
     .slice(-(OAUTH_STATE_MAX_PENDING - 1))
-    .concat([{ nonce, popup, clientOrigin, clientPath, createdAt: now }]);
+    .concat([{ nonce, popup, mode, clientOrigin, clientPath, handoffNonce, createdAt: now }]);
 
   return `${OAUTH_STATE_PREFIX}${encodeOAuthStateToken({ n: nonce, p: popup ? 1 : 0 })}`;
 }
@@ -641,8 +652,10 @@ function consumeOAuthState(req) {
 
   return {
     popup: !!entry.popup,
+    mode: entry.mode === 'top' ? 'top' : 'popup',
     clientOrigin: entry.clientOrigin || null,
-    clientPath: sanitizeClientPath(entry.clientPath)
+    clientPath: sanitizeClientPath(entry.clientPath),
+    handoffNonce: isValidOAuthNonce(entry.handoffNonce) ? entry.handoffNonce : null
   };
 }
 
@@ -652,10 +665,29 @@ function requireOAuthState(provider) {
     if (!context) {
       console.warn(`[Auth] ${provider} callback rejected: state missing, expired, or not bound to this session`);
       req.oauthStateContext = null;
-      return res.redirect(buildPostAuthErrorRedirect(req, provider, 'Sign in session expired. Please try again.'));
+      return sendOAuthFailure(req, res, provider, 'Sign in session expired. Please try again.');
     }
     req.oauthStateContext = context;
     return next();
+  };
+}
+
+function contextFromClientPayload(raw, payload) {
+  const clientOrigin = normalizeOrigin(payload?.clientOrigin);
+  // Before the state is verified the raw value may be the server token
+  // (`{n, p}`) rather than the client payload. `p` still says whether this was
+  // a popup, which is all the failure path needs to avoid redirecting it.
+  const serverToken = payload && (payload.p === 0 || payload.p === 1);
+  const mode = serverToken
+    ? (payload.p ? 'popup' : 'top')
+    : (payload?.mode === 'top' ? 'top' : (payload ? 'popup' : 'top'));
+  return {
+    raw,
+    popup: serverToken ? !!payload.p : (mode === 'popup' && !!payload?.popup),
+    mode,
+    clientOrigin: clientOrigin && isAllowedAuthOrigin(clientOrigin) ? clientOrigin : null,
+    clientPath: sanitizeClientPath(payload?.clientPath),
+    handoffNonce: isValidOAuthNonce(payload?.clientNonce) ? payload.clientNonce : null
   };
 }
 
@@ -663,54 +695,79 @@ function getOAuthStateContext(req) {
   // During a verified OAuth callback, use the context recovered from the session.
   if (req && req.oauthStateContext !== undefined) {
     const context = req.oauthStateContext;
-    if (!context) return { raw: req?.query?.state, popup: false, clientOrigin: null, clientPath: null };
+    if (!context) {
+      // The state failed verification, but it can still tell us whether this was
+      // a popup so the failure does not redirect a popup into the game.
+      return contextFromClientPayload(req?.query?.state, decodeOAuthStatePayload(req?.query?.state));
+    }
     return {
       raw: req?.query?.state,
       popup: !!context.popup,
+      mode: context.mode === 'top' ? 'top' : 'popup',
       clientOrigin: context.clientOrigin || null,
-      clientPath: context.clientPath || null
+      clientPath: context.clientPath || null,
+      handoffNonce: context.handoffNonce || null
     };
   }
 
   const state = getOAuthState(req);
-  if (!state) return { raw: undefined, popup: false, clientOrigin: null, clientPath: null };
-  if (state === 'popup') return { raw: state, popup: true, clientOrigin: null, clientPath: null };
+  if (!state) return { raw: undefined, popup: false, mode: 'top', clientOrigin: null, clientPath: null, handoffNonce: null };
+  if (state === 'popup') return { raw: state, popup: true, mode: 'popup', clientOrigin: null, clientPath: null, handoffNonce: null };
 
-  const payload = decodeOAuthStatePayload(state);
-  const clientOrigin = normalizeOrigin(payload?.clientOrigin);
-  return {
-    raw: state,
-    popup: !!payload?.popup,
-    clientOrigin: clientOrigin && isAllowedAuthOrigin(clientOrigin) ? clientOrigin : null,
-    clientPath: sanitizeClientPath(payload?.clientPath)
-  };
+  return contextFromClientPayload(state, decodeOAuthStatePayload(state));
 }
 
 function isPopupOAuthState(req) {
   return getOAuthStateContext(req).popup;
 }
 
-function sendOAuthPopupCompletionPage(req, res, provider, user) {
-  const redirectUrl = buildPostAuthRedirect(req, provider);
-  const stateContext = getOAuthStateContext(req);
-  const candidateOpener = stateContext.clientOrigin || normalizeOrigin(redirectUrl) || normalizeOrigin(req?.headers?.origin);
-  const openerOrigin = isAllowedAuthOrigin(candidateOpener) ? normalizeOrigin(candidateOpener) : null;
-  const payload = {
-    type: 'fives-oauth-success',
-    provider,
-    user: publicUser(user),
-    redirectUrl,
-    timestamp: Date.now()
-  };
-
+function writeOAuthPopupPage(res, payload, openerOrigin) {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.setHeader('Pragma', 'no-cache');
-
   return res.status(200).send(buildOAuthPopupCompletionPage(payload, openerOrigin));
+}
+
+function sendOAuthPopupCompletionPage(req, res, provider, user) {
+  const stateContext = getOAuthStateContext(req);
+  const candidateOpener = stateContext.clientOrigin || normalizeOrigin(req?.headers?.origin);
+  const openerOrigin = isAllowedAuthOrigin(candidateOpener) ? normalizeOrigin(candidateOpener) : null;
+
+  return writeOAuthPopupPage(res, {
+    type: 'fives-oauth-success',
+    provider,
+    user: publicUser(user),
+    timestamp: Date.now()
+  }, openerOrigin);
+}
+
+// A popup must never be redirected into the game: doing so opens a second game
+// tab and leaves the one the player is using signed out. Popup failures render a
+// completion page instead, and publish the failure so the originating tab can
+// stop waiting immediately.
+export function sendOAuthFailure(req, res, provider, message) {
+  const context = getOAuthStateContext(req);
+  if (context.popup) {
+    if (context.handoffNonce && context.clientOrigin) {
+      registerOAuthHandoff({
+        nonce: context.handoffNonce,
+        provider,
+        error: message,
+        clientOrigin: context.clientOrigin
+      });
+    }
+    return writeOAuthPopupPage(res, {
+      type: 'fives-oauth-error',
+      provider,
+      error: message,
+      timestamp: Date.now()
+    }, isAllowedAuthOrigin(context.clientOrigin) ? context.clientOrigin : null);
+  }
+
+  return res.redirect(buildPostAuthErrorRedirect(req, provider, message));
 }
 
 // Cookies for a client that shares the API's registrable domain can stay
@@ -730,7 +787,7 @@ function applyOAuthSessionCookiePolicy(req) {
   cookie.httpOnly = true;
 }
 
-function completeOAuthSuccess(req, res, provider, user, logPrefix) {
+export function completeOAuthSuccess(req, res, provider, user, logPrefix) {
   const send = () => {
     if (isPopupOAuthState(req)) {
       console.log(`${logPrefix} Popup flow completed; notifying opener`);
@@ -741,6 +798,21 @@ function completeOAuthSuccess(req, res, provider, user, logPrefix) {
     console.log(`${logPrefix} Redirecting to:`, redirectUrl);
     return res.redirect(redirectUrl);
   };
+
+  // When the provider severs window.opener the popup cannot hand the user back,
+  // so publish a single-use ticket the tab that started the flow can claim.
+  const context = getOAuthStateContext(req);
+  if (context.popup) {
+    const registered = registerOAuthHandoff({
+      nonce: context.handoffNonce,
+      provider,
+      user: publicUser(user),
+      clientOrigin: context.clientOrigin
+    });
+    if (!registered) {
+      console.warn(`${logPrefix} Login handoff was not registered; relying on popup message or session`);
+    }
+  }
 
   applyOAuthSessionCookiePolicy(req);
 
@@ -1026,6 +1098,34 @@ router.get("/me", async (req, res) => {
   else res.json({ ok: false });
 });
 
+// Claims a login completed in the OAuth popup. The nonce is generated by the tab
+// that opened the popup, so this endpoint is what lets that tab finish even when
+// the provider severed window.opener. It never creates a session: the callback
+// already did, and this only reports the finished login to the originating tab.
+router.post("/oauth/claim", oauthRateLimit('claim', 'oauth'), (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const origin = normalizeOrigin(req.headers.origin);
+  if (!origin || !isAllowedAuthOrigin(origin) || !applyAuthCorsHeaders(req, res)) {
+    return res.status(403).json({ ok: false });
+  }
+
+  const nonce = typeof req.body?.nonce === 'string' ? req.body.nonce : '';
+  const entry = consumeOAuthHandoff(nonce, { origin });
+  if (!entry) {
+    // Missing, expired, already claimed, or from another origin. Do not reveal
+    // which; the client treats this as "not ready yet" and keeps polling.
+    return res.status(401).json({ ok: false });
+  }
+
+  if (entry.error) {
+    // A terminal failure consumed the ticket; the game tab stops waiting now
+    // instead of showing a timeout minutes later.
+    return res.json({ ok: false, error: entry.error });
+  }
+
+  return res.json({ ok: true, user: entry.user });
+});
+
 // ----------------- LOGOUT -----------------
 router.post("/logout", (req, res) => {
   req.logout(() => {
@@ -1067,18 +1167,18 @@ router.get(
     passport.authenticate("google", { callbackURL }, (err, user) => {
       if (err) {
         console.error('[Google callback] Authentication error:', err?.message || err);
-        return res.redirect(buildPostAuthErrorRedirect(req, 'google', 'Google sign in failed. Please try again.'));
+        return sendOAuthFailure(req, res, 'google', 'Google sign in failed. Please try again.');
       }
 
       if (!user) {
         console.warn('[Google callback] No user returned from strategy');
-        return res.redirect(buildPostAuthErrorRedirect(req, 'google', 'Google sign in was cancelled or failed.'));
+        return sendOAuthFailure(req, res, 'google', 'Google sign in was cancelled or failed.');
       }
 
       req.login(user, async (loginErr) => {
         if (loginErr) {
           console.error('[Google callback] Login error:', loginErr?.message || loginErr);
-          return res.redirect(buildPostAuthErrorRedirect(req, 'google', 'Google sign in failed. Please try again.'));
+          return sendOAuthFailure(req, res, 'google', 'Google sign in failed. Please try again.');
         }
 
             if (!user.country) {
@@ -1173,18 +1273,18 @@ router.get(
     passport.authenticate("discord", { callbackURL }, (err, user, info) => {
       if (err) {
         console.error('[Discord callback] Authentication error:', err?.message || err);
-        return res.redirect(buildPostAuthErrorRedirect(req, 'discord', 'Discord sign in failed. Please try again.'));
+        return sendOAuthFailure(req, res, 'discord', 'Discord sign in failed. Please try again.');
       }
       
       if (!user) {
         console.warn('[Discord callback] No user returned from strategy');
-        return res.redirect(buildPostAuthErrorRedirect(req, 'discord', 'Discord login failed'));
+        return sendOAuthFailure(req, res, 'discord', 'Discord login failed');
       }
       
       req.login(user, async (loginErr) => {
         if (loginErr) {
           console.error('[Discord callback] Login error:', loginErr?.message || loginErr);
-          return res.redirect(buildPostAuthErrorRedirect(req, 'discord', 'Discord sign in failed. Please try again.'));
+          return sendOAuthFailure(req, res, 'discord', 'Discord sign in failed. Please try again.');
         }
 
             if (!user.country) {
@@ -1221,7 +1321,7 @@ router.get(
               });
             } catch (fallbackErr) {
               console.error('[Discord callback] All session save attempts failed:', fallbackErr?.message || fallbackErr);
-              return res.redirect(buildPostAuthErrorRedirect(req, 'discord', 'Discord sign in failed. Please try again.'));
+              return sendOAuthFailure(req, res, 'discord', 'Discord sign in failed. Please try again.');
             }
           }
           

@@ -3,15 +3,18 @@
 // trust them.
 
 // A client may ask to be returned to the page it started from (for example a
-// GitHub Pages project path). Only a same-origin path is accepted: no scheme,
-// host, query, fragment, traversal or control characters.
+// GitHub Pages project path, or a game URL with its own room query). Only a
+// relative same-origin reference is accepted: no scheme, host, traversal,
+// encoded separators or control characters. Query and fragment are allowed
+// because they are part of the page the tab is already on.
 export function sanitizeClientPath(raw) {
   if (typeof raw !== 'string') return null;
   const value = raw.trim();
-  if (!value || value.length > 300) return null;
+  if (!value || value.length > 512) return null;
   if (!value.startsWith('/') || value.startsWith('//')) return null;
   if (value.includes('\\') || value.includes('..')) return null;
-  if (/[\u0000-\u001f\u007f?#]/.test(value)) return null;
+  if (/%2e|%2f|%5c/i.test(value)) return null;
+  if (/[\u0000-\u0020\u007f]/.test(value)) return null;
   return value;
 }
 
