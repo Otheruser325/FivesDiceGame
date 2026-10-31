@@ -21,6 +21,7 @@ const DEFAULT_PRODUCTION_CLIENT_ORIGINS = [
   'https://fivesdicegame.com',
   'https://www.fivesdicegame.com',
   'https://fivesdicegame.vercel.app',
+  'https://fivesweb.vercel.app',
   'https://otheruser325.github.io'
 ];
 

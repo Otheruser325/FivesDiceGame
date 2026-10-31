@@ -298,6 +298,18 @@ test('the login handoff endpoint refuses unknown nonces and hostile origins', as
   assert.equal(hostile.status, 403);
 });
 
+test('the Vercel fallback client may claim a login handoff', async () => {
+  const res = await fetch(`${base}/auth/oauth/claim`, {
+    method: 'POST',
+    headers: { Origin: 'https://fivesweb.vercel.app', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nonce: 'b'.repeat(32) })
+  });
+
+  // 401 means the origin was accepted and only the unknown nonce was refused;
+  // a 403 would mean the fallback client cannot receive its login at all.
+  assert.equal(res.status, 401);
+});
+
 test('a mistyped AUTH_SUCCESS_REDIRECT_URL cannot become an open redirect', async () => {
   const res = await fetch(`${hostileBase}/auth/discord/callback?state=popup.bm90bWluZQ`, { redirect: 'manual' });
 

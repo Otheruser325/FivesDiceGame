@@ -4,6 +4,7 @@ import ErrorHandler from '../utils/ErrorManager.js';
 import GlobalLocalization from '../utils/LocalizationManager.js';
 import DebugManager from '../utils/DebugManager.js';
 import { markOAuthSuccess, getFreshOAuthCachedUser, saveCachedUser } from '../utils/authRedirect.js';
+import { classifyOAuthFailure } from '../utils/oauthFailure.js';
 
 const t = (key, fallback) => GlobalLocalization.t(key, fallback);
 const tf = (key, fallback, ...args) => GlobalLocalization.format(key, fallback, ...args);
@@ -33,6 +34,8 @@ export default class OnlineAccountScene extends Phaser.Scene {
     this.oauthClaimTimer = null;
     this.oauthNonce = null;
     this.oauthStopped = false;
+    this.oauthCancelled = false;
+    this.oauthSettled = false;
     this.oauthServerBase = null;
     this.oauthExpectedProvider = null;
     this.debugger = DebugManager.create(this, { namespace: 'OnlineAccountScene' });
@@ -615,6 +618,10 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
       const poll = async () => {
         if (finished || inFlight) return;
+        if (this.oauthStopped) {
+          fail(new Error('OAuth login failed'));
+          return;
+        }
         if (Date.now() >= deadline) {
           fail(new Error('OAuth login timed out'));
           return;
@@ -732,6 +739,42 @@ export default class OnlineAccountScene extends Phaser.Scene {
     return null;
   }
 
+  // Last chance to keep a completed login. The callback saves the session
+  // before it answers, so an already signed-in session is proof the login
+  // succeeded even when the popup message and the handoff ticket both failed
+  // (for example when the API restarted or another instance handled the claim).
+  async _recoverOAuthResult() {
+    const server = (this.oauthServerBase || getServerUrl()).replace(/\/$/, '');
+    const expectedProvider = this.oauthExpectedProvider;
+    const matches = (user) => !!user?.id && (!expectedProvider || user.type === expectedProvider);
+
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2500);
+      try {
+        const res = await fetchWithServerFallback('/auth/me', { credentials: 'include', signal: controller.signal }, server);
+        if (res?.ok) {
+          const body = await res.json();
+          if (body?.ok && matches(body.user)) return body.user;
+        }
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (e) {
+      // Fall through to the handoff.
+    }
+
+    if (this.oauthNonce) {
+      try {
+        return await this._waitForOAuthHandoff(2500, 500);
+      } catch (e) {
+        // No ticket left to claim.
+      }
+    }
+
+    return null;
+  }
+
   async oauthLogin(url) {
     if (this.oauthLoginInProgress) {
       if (this.oauthPopup && !this.oauthPopup.closed) {
@@ -744,6 +787,8 @@ export default class OnlineAccountScene extends Phaser.Scene {
       if (this.debugger) this.debugger.log('oauth login start', { url });
       this._clearOAuthState(true);
       this.oauthStopped = false;
+      this.oauthCancelled = false;
+      this.oauthSettled = false;
       this.oauthExpectedProvider = this._expectedProviderForUrl(url);
 
       const preferredServer = getServerUrl();
@@ -775,15 +820,30 @@ export default class OnlineAccountScene extends Phaser.Scene {
         return;
       }
 
-      const pendingUser = await Promise.any([
-        this._waitForOAuthPopupMessage(90000),
-        this._waitForOAuthSession(90000, 700, { ignorePopupClosed: true }),
-        this._waitForOAuthHandoff(90000, 900)
-      ]);
+      let pendingUser;
+      try {
+        pendingUser = await Promise.any([
+          this._waitForOAuthPopupMessage(90000),
+          this._waitForOAuthSession(90000, 700, { ignorePopupClosed: true }),
+          this._waitForOAuthHandoff(90000, 900)
+        ]);
+      } catch (deliveryError) {
+        // Every in-page delivery path failed. Ask the server whether the
+        // callback signed this browser in before reporting a failure: the
+        // login may have completed while the ticket or popup message was lost.
+        // A terminal failure (expired state, provider error) is authoritative,
+        // so only recover when no path reported one.
+        pendingUser = (this.oauthCancelled || this.oauthStopped)
+          ? null
+          : await this._recoverOAuthResult();
+        if (!pendingUser) throw deliveryError;
+        if (this.debugger) this.debugger.warn('oauth login recovered after delivery failure');
+      }
       if (!pendingUser) {
         alert(t('ACCOUNT_OAUTH_FAILED_NO_USER', 'OAuth login failed: no user session found.'));
         return;
       }
+      this.oauthSettled = true;
 
       // Persist the popup result immediately: if the popup does not receive our
       // acknowledgement it may reload this window, and that reload must not lose
@@ -828,27 +888,37 @@ export default class OnlineAccountScene extends Phaser.Scene {
       this.scene.stop();
     } catch (err) {
       this._clearOAuthState(true);
-      console.error('[OAuth] Error during login:', err);
-      if (this.debugger) this.debugger.error('oauth login error', { error: err?.message || String(err) });
-
-      const aggregateReasons = Array.isArray(err?.errors) ? err.errors : [err];
-      const oauthFailure = aggregateReasons.find((reason) => reason?.oauthFailure);
-      if (oauthFailure) {
-        alert(oauthFailure.message);
+      if (this.oauthCancelled) {
+        if (this.debugger) this.debugger.log('oauth login cancelled');
         return;
       }
-      const primaryReason = aggregateReasons.find(Boolean);
-      const message = String(primaryReason?.message || err?.message || '');
-      if (message.includes('popup closed')) {
+
+      console.error('[OAuth] Error during login:', err);
+      const reasons = Array.isArray(err?.errors) ? err.errors.filter(Boolean) : [err].filter(Boolean);
+      if (reasons.length > 1) {
+        console.error('[OAuth] Sign-in delivery paths:', reasons.map((reason) => reason?.message || String(reason)));
+      }
+      if (this.debugger) this.debugger.error('oauth login error', { error: err?.message || String(err) });
+
+      const failure = classifyOAuthFailure(err);
+      if (failure.kind === 'reported') {
+        alert(failure.message || t('ACCOUNT_OAUTH_FAILED_NO_USER', 'OAuth login failed: no user session found.'));
+        return;
+      }
+      if (failure.kind === 'cancelled') {
         alert(t('ACCOUNT_OAUTH_POPUP_CLOSED', 'OAuth window was closed before login finished.'));
         return;
       }
-      if (message.includes('timed out')) {
+      if (failure.kind === 'timeout') {
         alert(t('ACCOUNT_OAUTH_TIMEOUT', 'OAuth login timed out. Please try again.'));
         return;
       }
+      if (failure.kind === 'unconfirmed') {
+        alert(t('ACCOUNT_OAUTH_UNCONFIRMED', 'Sign in could not be confirmed. Reload the page to check your account.'));
+        return;
+      }
 
-      const msg = err.message || t('ACCOUNT_NETWORK_ERROR_FALLBACK', 'Could not connect to server');
+      const msg = failure.message || t('ACCOUNT_NETWORK_ERROR_FALLBACK', 'Could not connect to server');
       alert(tf('ACCOUNT_NETWORK_ERROR', 'Network error: {0}', msg));
     } finally {
       this.oauthLoginInProgress = false;
@@ -1014,7 +1084,18 @@ export default class OnlineAccountScene extends Phaser.Scene {
     this.closeModal();
   }
 
+  // Stops a pending OAuth wait when the player closes the account scene. Without
+  // this, oauthLoginInProgress stayed true until every 90s waiter rejected, so
+  // the buttons did nothing when the scene was reopened.
+  _cancelOAuthLogin() {
+    if (!this.oauthLoginInProgress || this.oauthSettled) return;
+    this.oauthCancelled = true;
+    this.oauthStopped = true;
+    this._clearOAuthState(true);
+  }
+
   closeModal() {
+    this._cancelOAuthLogin();
     this.scene.resume(this.returnTo);
     this.scene.stop();
   }
@@ -1023,6 +1104,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
   // Cleanup
   // ----------------------------
   shutdown() {
+    this._cancelOAuthLogin();
     this._clearOAuthState(true);
 
     // Remove auth listener
