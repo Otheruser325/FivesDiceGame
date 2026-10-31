@@ -8,6 +8,7 @@ import bcrypt from "bcryptjs";
 import { v4 as uuidv4, v5 as uuidv5 } from "uuid";
 import geoip from "geoip-lite";
 import { loadUsers, saveUsers, loadUser, saveUser } from "./utils/userStorage.js";
+import { buildOAuthPopupCompletionPage } from "./oauthPopupPage.js";
 
 export const router = express.Router();
 router.use(express.json());
@@ -694,44 +695,14 @@ function sendOAuthPopupCompletionPage(req, res, provider, user) {
     timestamp: Date.now()
   };
 
-  const serializedPayload = JSON.stringify(payload).replace(/</g, '\\u003c');
-  const serializedOpenerOrigin = JSON.stringify(openerOrigin || '');
-
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.setHeader('Pragma', 'no-cache');
 
-  return res.status(200).send(`<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>OAuth Complete</title>
-  </head>
-  <body>
-    <p>Completing sign in...</p>
-    <script>
-      (function () {
-        var payload = ${serializedPayload};
-        var openerOrigin = ${serializedOpenerOrigin};
-        try {
-          if (openerOrigin && window.opener && !window.opener.closed) {
-            window.opener.postMessage(payload, openerOrigin);
-            window.close();
-            return;
-          }
-        } catch (e) {}
-
-        if (payload.redirectUrl) {
-          window.location.replace(payload.redirectUrl);
-          return;
-        }
-
-        document.body.textContent = 'Sign in complete. You can close this window.';
-      })();
-    </script>
-  </body>
-</html>`);
+  return res.status(200).send(buildOAuthPopupCompletionPage(payload, openerOrigin));
 }
 
 function completeOAuthSuccess(req, res, provider, user, logPrefix) {
@@ -784,7 +755,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       async (accessToken, refreshToken, profile, done) => {
         try {
           const googleId = normalizeOAuthProviderId(profile?.id);
-          if (!googleId) {
+          if (!googleId || !/^[A-Za-z0-9_-]{1,255}$/.test(googleId)) {
             return done(new Error('Invalid Google profile id'), null);
           }
 
@@ -1008,6 +979,7 @@ router.post("/guest/login", async (req, res) => {
 
 // ----------------- SESSION CHECK -----------------
 router.get("/me", async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   if (req.user) res.json({ ok: true, user: publicUser(req.user) });
   else res.json({ ok: false });
 });

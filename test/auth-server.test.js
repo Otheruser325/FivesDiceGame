@@ -215,6 +215,7 @@ test('the session survives registration and is cleared by logout', async () => {
 
   const me = await fetch(`${base}/auth/me`, { headers: { Cookie: cookie, 'X-Forwarded-Proto': 'https' } });
   assert.equal(me.status, 200);
+  assert.equal(me.headers.get('cache-control'), 'no-store');
   const meBody = await me.json();
   assert.equal(meBody.ok, true);
   assert.equal(meBody.user.id, id);

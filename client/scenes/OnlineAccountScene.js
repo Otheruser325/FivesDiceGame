@@ -470,6 +470,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
         }
       }, pollIntervalMs);
 
+      if (this.oauthPollTimer) clearInterval(this.oauthPollTimer);
       this.oauthPollTimer = pollTimer;
     });
   }
@@ -515,6 +516,10 @@ export default class OnlineAccountScene extends Phaser.Scene {
         if (expectedProvider && data.provider !== expectedProvider) return;
         if (!data.user || !data.user.id) return;
         if (expectedProvider && data.user.type !== expectedProvider) return;
+
+        try {
+          event.source.postMessage({ type: 'fives-oauth-ack' }, eventOrigin);
+        } catch (e) { /* ignore */ }
 
         succeed(data.user);
       };
@@ -615,32 +620,32 @@ export default class OnlineAccountScene extends Phaser.Scene {
         return;
       }
 
-      const confirmedUser = await this._waitForOAuthSession(8000, 350, {
+      const confirmedUser = await this._waitForOAuthSession(3000, 350, {
         expectedUserId: pendingUser?.id,
         ignorePopupClosed: true
       }).catch(() => null);
 
+      // The popup response is authoritative for this window: it came from our
+      // popup on the API origin. The session check can fail while third-party
+      // cookies are blocked, and refusing the result there would strand the
+      // user after a successful sign-in.
+      const resolvedUser = confirmedUser || pendingUser;
+
       if (!confirmedUser) {
-        this.user = null;
-        localStorage.removeItem('fives_user');
-        try {
-          emitAuthUser(null);
-        } catch (e) { /* ignore */ }
-        alert(t('ACCOUNT_OAUTH_SESSION_MISSING', 'OAuth login did not finish correctly. Please try again.'));
-        return;
+        console.warn('[OAuth] Session check did not confirm the popup result; continuing with the popup response');
       }
 
       this._clearOAuthState(true);
 
-      localStorage.setItem('fives_user', JSON.stringify(confirmedUser));
-      this.user = confirmedUser;
-      if (this.debugger) this.debugger.log('oauth login success', { id: confirmedUser?.id, type: confirmedUser?.type });
+      localStorage.setItem('fives_user', JSON.stringify(resolvedUser));
+      this.user = resolvedUser;
+      if (this.debugger) this.debugger.log('oauth login success', { id: resolvedUser?.id, type: resolvedUser?.type });
 
       try {
-        emitAuthUser(confirmedUser);
+        emitAuthUser(resolvedUser);
       } catch (e) { /* ignore */ }
 
-      alert(tf('ACCOUNT_LOGIN_SUCCESS', 'Logged in as {0}', confirmedUser.name || t('GENERIC_UNKNOWN', 'Unknown')));
+      alert(tf('ACCOUNT_LOGIN_SUCCESS', 'Logged in as {0}', resolvedUser.name || t('GENERIC_UNKNOWN', 'Unknown')));
       this.game.events.emit('auth-updated');
       this.scene.resume(this.returnTo);
       this.scene.stop();
