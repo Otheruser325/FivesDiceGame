@@ -1,5 +1,5 @@
 import GlobalAudio from '../utils/AudioManager.js';
-import { getServerUrl } from '../utils/SocketManager.js';
+import { getServerUrl, fetchWithServerFallback } from '../utils/SocketManager.js';
 import SyncManager from '../utils/SyncManager.js';
 import GlobalLocalization from '../utils/LocalizationManager.js';
 
@@ -200,10 +200,10 @@ export default class LeaderboardScene extends Phaser.Scene {
         this._updateLeaderboardText(t('LEADERBOARD_LOADING_SHORT', 'Loading...'));
 
         try {
-            const server = getServerUrl();
-            const url = `${server.replace(/\/$/, '')}/leaderboard?sortBy=${this.currentSort}`;
-
-            const response = await fetch(url, { credentials: 'include', signal: this._abortController.signal });
+            const response = await fetchWithServerFallback(
+                `/leaderboard?sortBy=${this.currentSort}`,
+                { credentials: 'include', signal: this._abortController.signal }
+            );
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);

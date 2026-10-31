@@ -4,7 +4,7 @@
  * Provides mechanisms for graceful degradation when server is unreachable.
  */
 
-import { getSocket, isInMaintenanceMode, getConnectionRetries, resetConnectionState, getServerUrl } from './SocketManager.js';
+import { getSocket, isInMaintenanceMode, getConnectionRetries, resetConnectionState, getServerUrl, fetchWithServerFallback } from './SocketManager.js';
 
 let _lastHealthCheck = 0;
 let _recoveryAttempts = 0;
@@ -18,11 +18,10 @@ const RECOVERY_WAIT_MS = 3000;
  */
 export async function performHealthCheck() {
   try {
-    const server = getServerUrl();
     const ctrl = new AbortController();
     const timeoutId = setTimeout(() => ctrl.abort(), 5000);
     
-    const resp = await fetch(`${server.replace(/\/$/, '')}/health`, {
+    const resp = await fetchWithServerFallback('/health', {
       signal: ctrl.signal,
       credentials: 'include'
     });

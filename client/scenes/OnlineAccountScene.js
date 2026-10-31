@@ -1,4 +1,4 @@
-import { getSocket, getServerUrl, emitAuthUser } from '../utils/SocketManager.js';
+import { getSocket, getServerUrl, emitAuthUser, fetchWithServerFallback, resolveOAuthServerBase, switchServer } from '../utils/SocketManager.js';
 import GlobalAudio from '../utils/AudioManager.js';
 import ErrorHandler from '../utils/ErrorManager.js';
 import GlobalLocalization from '../utils/LocalizationManager.js';
@@ -116,7 +116,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
     // Try server auth (if available) then fallback to localStorage
     try {
       const server = getServerUrl();
-      const res = await fetch(`${server.replace(/\/$/, '')}/auth/me`, { credentials: 'include' });
+      const res = await fetchWithServerFallback('/auth/me', { credentials: 'include' }, server);
       serverResponded = true;
       if (res.ok) {
         const text = await res.text();
@@ -199,7 +199,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
   async getAvailableAuthMethods() {
     try {
       const server = getServerUrl();
-      const res = await fetch(`${server.replace(/\/$/, '')}/auth/methods`);
+      const res = await fetchWithServerFallback('/auth/methods', {}, server);
       if (res.ok) {
         return await res.json();
       }
@@ -450,7 +450,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
         }
 
         try {
-          const res = await fetch(`${server}/auth/me`, { credentials: 'include' });
+          const res = await fetchWithServerFallback('/auth/me', { credentials: 'include' }, server);
           if (!res.ok) return;
 
           const body = await res.json();
@@ -505,6 +505,8 @@ export default class OnlineAccountScene extends Phaser.Scene {
       const onMessage = (event) => {
         const eventOrigin = normalizeServerBase(event?.origin || '');
         if (!eventOrigin || !allowedOrigins.has(eventOrigin)) return;
+        // Only the popup we opened may complete this login.
+        if (this.oauthPopup && event?.source && event.source !== this.oauthPopup) return;
 
         const data = event?.data;
         if (!data || typeof data !== 'object') return;
@@ -568,63 +570,18 @@ export default class OnlineAccountScene extends Phaser.Scene {
     return null;
   }
 
-  async _probeOAuthServer(serverBase, timeoutMs = 1200) {
-    const normalized = normalizeServerBase(serverBase);
-    if (!normalized) return false;
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const res = await fetch(`${normalized}/health`, {
-        method: 'GET',
-        credentials: 'include',
-        signal: controller.signal
-      });
-      return !!res?.ok;
-    } catch (err) {
-      return false;
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-
-  async _resolveOAuthServerBase() {
-    const primary = normalizeServerBase(getServerUrl()) || RENDER_OAUTH_FALLBACK_SERVER;
-    const fallback = RENDER_OAUTH_FALLBACK_SERVER;
-
-    if (primary === fallback) return fallback;
-
-    const primaryHost = (() => {
-      try { return new URL(primary).hostname.toLowerCase(); } catch (e) { return ''; }
-    })();
-
-    // Custom domain may be unavailable; verify it before OAuth redirect flow.
-    if (primaryHost === 'api.fivesdicegame.com') {
-      const customHealthy = await this._probeOAuthServer(primary, 1200);
-      if (customHealthy) return primary;
-      if (this.debugger) this.debugger.warn('oauth server fallback', { from: primary, to: fallback, reason: 'custom-domain-unreachable' });
-      return fallback;
-    }
-
-    const healthy = await this._probeOAuthServer(primary, 900);
-    if (healthy) return primary;
-
-    const fallbackHealthy = await this._probeOAuthServer(fallback, 1200);
-    if (fallbackHealthy) {
-      if (this.debugger) this.debugger.warn('oauth server fallback', { from: primary, to: fallback, reason: 'primary-unreachable' });
-      return fallback;
-    }
-
-    return primary;
-  }
-
   async oauthLogin(url) {
     try {
       if (this.debugger) this.debugger.log('oauth login start', { url });
       this._clearOAuthState(true);
       this.oauthExpectedProvider = this._expectedProviderForUrl(url);
 
-      const server = await this._resolveOAuthServerBase();
+      const preferredServer = getServerUrl();
+      const server = await resolveOAuthServerBase(preferredServer);
+      if (normalizeServerBase(server) !== normalizeServerBase(preferredServer)) {
+        switchServer(server);
+        if (this.debugger) this.debugger.warn('oauth server fallback', { from: normalizeServerBase(preferredServer), to: normalizeServerBase(server) });
+      }
       this.oauthServerBase = server;
 
       const popupUrlPath = this._appendPopupState(url);
@@ -716,7 +673,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
     }
     try {
       if (this.debugger) this.debugger.log('guest register start');
-      const resp = await fetch(`${getServerUrl()}/auth/guest/register`, {
+      const resp = await fetchWithServerFallback('/auth/guest/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -761,7 +718,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
     if (!username || !password) { alert(t('ACCOUNT_ENTER_CREDENTIALS', 'Enter credentials')); return; }
     try {
       if (this.debugger) this.debugger.log('guest login start', { username });
-      const resp = await fetch(`${getServerUrl()}/auth/guest/login`, {
+      const resp = await fetchWithServerFallback('/auth/guest/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -827,7 +784,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
     signOutBtn.on('pointerdown', async () => {
       try {
-        await fetch(`${getServerUrl().replace(/\/$/, '')}/auth/logout`, { method: 'POST', credentials: 'include' });
+        await fetchWithServerFallback('/auth/logout', { method: 'POST', credentials: 'include' });
       } catch (e) { console.warn('Logout request failed', e); }
       localStorage.removeItem('fives_user');
 

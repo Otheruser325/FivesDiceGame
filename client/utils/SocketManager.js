@@ -305,6 +305,64 @@ export function getServerUrl() {
   return _initialServerCandidate();
 }
 
+export function getFallbackServerUrl() {
+  return RENDER_API_SERVER;
+}
+
+export async function fetchWithServerFallback(path, options = {}, preferredBase = null) {
+  const suffix = String(path || '');
+  const normalizedSuffix = suffix.startsWith('/') ? suffix : `/${suffix}`;
+  const primary = _norm(preferredBase || _serverUrl || _initialServerCandidate());
+  const candidates = [primary];
+
+  const fallback = _norm(RENDER_API_SERVER);
+  if (fallback && fallback !== primary) candidates.push(fallback);
+
+  let lastError = null;
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const base = candidates[index];
+    try {
+      const response = await fetch(`${base}${normalizedSuffix}`, options);
+      if (response.ok || response.status < 500) {
+        if (index > 0) {
+          console.warn('[SocketManager] API unavailable at', primary, '- continuing on', base);
+          _switchServer(base);
+        }
+        return response;
+      }
+      lastError = new Error(`HTTP ${response.status}`);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('No API server responded');
+}
+
+export function switchServer(target) {
+  const origin = _parseServerOrigin(target);
+  if (!origin || !_isTrustedServerOrigin(origin)) {
+    console.warn('[SocketManager] Ignoring untrusted server switch:', target);
+    return getServerUrl();
+  }
+  _switchServer(origin);
+  return getServerUrl();
+}
+
+export async function resolveOAuthServerBase(preferredBase, timeoutMs = 1200) {
+  const primary = _parseServerOrigin(preferredBase || _serverUrl || _initialServerCandidate());
+  if (!primary) return _norm(RENDER_API_SERVER);
+
+  const render = _norm(RENDER_API_SERVER);
+  if (primary === render) return render;
+
+  if (await _probeHealthOrigin(primary, timeoutMs)) return primary;
+
+  console.warn('[SocketManager] OAuth server unavailable at', primary, '- using', render);
+  return render;
+}
+
 /**
  * Check if the socket is in maintenance mode (failed to connect after retries)
  */

@@ -72,18 +72,30 @@ function requireStrategy(strategyName, fallbackMsg) {
   return (req, res, next) => {
     if (!isStrategyAvailable(strategyName)) {
       console.warn(`[Auth] Strategy '${strategyName}' not available`);
-      const message = encodeURIComponent(fallbackMsg || `${strategyName} OAuth is not configured`);
-      return res.redirect(`/?error=${message}`);
+      return res.redirect(buildPostAuthErrorRedirect(req, strategyName, fallbackMsg || `${strategyName} OAuth is not configured`));
     }
     next();
   };
 }
 
-// SAFE HELPER
+// Only hand the client the fields it renders. Anything the account record grows
+// later (provider tokens, emails, storage metadata, password hashes) stays
+// server-side instead of being copied wherever a user object is returned.
+const PUBLIC_USER_FIELDS = ['id', 'name', 'type', 'avatar', 'country', 'createdAt', 'updatedAt', 'oauthProvider'];
+
 function publicUser(u) {
   if (!u) return null;
-  const { guestpassword, guestPassword, ...safe } = u;
+  const safe = {};
+  for (const field of PUBLIC_USER_FIELDS) {
+    const value = u[field];
+    if (value !== undefined && value !== null) safe[field] = value;
+  }
   return safe;
+}
+
+function sanitizeDisplayName(value) {
+  if (typeof value !== 'string') return '';
+  return value.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 64);
 }
 
 // Express resolves `req.ip` through the configured `trust proxy` setting. Reading
@@ -159,6 +171,22 @@ function rejectRateLimitedAuth(res) {
     ok: false,
     error: 'Too many authentication attempts. Please wait a minute and try again.'
   });
+}
+
+// Starting an OAuth flow is cheap for us but makes the provider work, and a
+// callback that reaches the strategy burns a token exchange. Cap both per IP.
+function oauthRateLimit(stage, provider) {
+  const limit = stage === 'start' ? 20 : 40;
+  return (req, res, next) => {
+    if (isRateLimited(req, `oauth-${stage}`, limit)) {
+      console.warn(`[Auth] OAuth ${stage} rate limited for ${getClientIp(req)}`);
+      if (stage === 'callback') {
+        return res.redirect(buildPostAuthErrorRedirect(req, provider, 'Too many sign-in attempts. Please wait a minute and try again.'));
+      }
+      return res.status(429).json({ ok: false, error: 'Too many sign-in attempts. Please wait a minute and try again.' });
+    }
+    return next();
+  };
 }
 
 function normalizeOrigin(origin) {
@@ -335,36 +363,90 @@ function toAbsoluteCallbackUrl(candidate, req, preferredBase) {
   return null;
 }
 
-function resolveDiscordCallbackUrl(req) {
-  const requestOrigin = getRequestOrigin(req);
-  const requestHostCallback = requestOrigin ? normalizeAbsoluteUrl(`${requestOrigin}${DISCORD_CALLBACK_PATH}`) : null;
-  const publicOriginCallback = normalizeAbsoluteUrl(`${PUBLIC_SERVER_ORIGIN}${DISCORD_CALLBACK_PATH}`);
-  const configuredCallback = toAbsoluteCallbackUrl(DISCORD_CALLBACK_URL, req, PUBLIC_SERVER_ORIGIN);
+const OAUTH_CALLBACK_PATHS = {
+  google: '/auth/google/callback',
+  discord: '/auth/discord/callback'
+};
+const DEFAULT_RENDER_OAUTH_ORIGIN = 'https://fivesapi.onrender.com';
+const RENDER_PUBLIC_HOST = 'fivesapi.onrender.com';
+const CUSTOM_API_HOST = 'api.fivesdicegame.com';
 
-  // Discord token exchange is strict about redirect_uri matching. In production
-  // we should stick to one stable callback instead of drifting with whichever
+function isPinnedToUnavailableCustomDomain(candidate) {
+  if (!candidate) return false;
+  try {
+    if (new URL(PUBLIC_SERVER_ORIGIN).hostname.toLowerCase() !== RENDER_PUBLIC_HOST) return false;
+    return new URL(candidate).hostname.toLowerCase() === CUSTOM_API_HOST;
+  } catch (e) {
+    return false;
+  }
+}
+
+// redirect_uri decides where the provider sends the authorization code, so it
+// must never come from a request header. Only https URLs on hosts we actually
+// serve are accepted (http is tolerated for localhost development).
+function toTrustedCallbackUrl(candidate) {
+  const normalized = normalizeAbsoluteUrl(candidate);
+  if (!normalized) return null;
+
+  let parsed;
+  try {
+    parsed = new URL(normalized);
+  } catch (e) {
+    return null;
+  }
+
+  if (parsed.username || parsed.password) return null;
+
+  const hostname = parsed.hostname.toLowerCase();
+  const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+  if (parsed.protocol !== 'https:' && !(process.env.NODE_ENV !== 'production' && isLocal)) return null;
+  if (!isTrustedServerHost(hostname)) return null;
+
+  return normalized;
+}
+
+function resolveOAuthCallbackUrl(provider, req) {
+  const path = OAUTH_CALLBACK_PATHS[provider] || `/auth/${provider}/callback`;
+  const configured = provider === 'discord'
+    ? process.env.DISCORD_CALLBACK_URL
+    : process.env.GOOGLE_CALLBACK_URL;
+
+  const configuredAbsolute = toAbsoluteCallbackUrl(configured, req, PUBLIC_SERVER_ORIGIN);
+  const requestOrigin = getRequestOrigin(req);
+  const requestCallback = requestOrigin ? normalizeAbsoluteUrl(`${requestOrigin}${path}`) : null;
+
+  const configuredIsStale = isPinnedToUnavailableCustomDomain(configuredAbsolute);
+  const configuredFirst = configuredIsStale ? null : configuredAbsolute;
+  const configuredLast = configuredIsStale ? configuredAbsolute : null;
+
+  // Providers require an exact redirect_uri match at token exchange, so in
+  // production we stick to one stable callback instead of following whichever
   // host happened to serve the authorize request.
   const candidates = process.env.NODE_ENV === 'production'
     ? [
-        configuredCallback,
-        publicOriginCallback,
-        normalizeAbsoluteUrl(DISCORD_CALLBACK_FALLBACK_URL),
-        normalizeAbsoluteUrl(DEFAULT_RENDER_DISCORD_CALLBACK_URL)
+        configuredFirst,
+        normalizeAbsoluteUrl(`${PUBLIC_SERVER_ORIGIN}${path}`),
+        normalizeAbsoluteUrl(`${DEFAULT_RENDER_OAUTH_ORIGIN}${path}`),
+        configuredLast
       ]
     : [
-        requestHostCallback,
-        configuredCallback,
-        publicOriginCallback,
-        normalizeAbsoluteUrl(DISCORD_CALLBACK_FALLBACK_URL),
-        normalizeAbsoluteUrl(DEFAULT_RENDER_DISCORD_CALLBACK_URL)
+        requestCallback,
+        configuredFirst,
+        normalizeAbsoluteUrl(`${PUBLIC_SERVER_ORIGIN}${path}`),
+        normalizeAbsoluteUrl(`${DEFAULT_RENDER_OAUTH_ORIGIN}${path}`),
+        configuredLast
       ];
 
   for (const candidate of candidates) {
-    const normalized = normalizeAbsoluteUrl(candidate);
-    if (normalized) return normalized;
+    const trusted = toTrustedCallbackUrl(candidate);
+    if (trusted) return trusted;
   }
 
-  return DEFAULT_RENDER_DISCORD_CALLBACK_URL;
+  return `${DEFAULT_RENDER_OAUTH_ORIGIN}${path}`;
+}
+
+function resolveDiscordCallbackUrl(req) {
+  return resolveOAuthCallbackUrl('discord', req);
 }
 
 function isAllowedAuthOrigin(origin) {
@@ -409,10 +491,14 @@ function getClientRedirectBase(req) {
   const explicit = process.env.AUTH_SUCCESS_REDIRECT_URL || process.env.GAME_CLIENT_URL;
   if (explicit) {
     const normalizedExplicit = normalizeOrigin(explicit);
-    if (process.env.NODE_ENV === 'production' && normalizedExplicit === LEGACY_PLAY_CLIENT_URL) {
+    if (!normalizedExplicit || !isAllowedAuthOrigin(normalizedExplicit)) {
+      // A mistyped env var must not turn the callback into an open redirect.
+      console.warn('[Auth] Ignoring AUTH_SUCCESS_REDIRECT_URL outside the allowed client origins');
+    } else if (process.env.NODE_ENV === 'production' && normalizedExplicit === LEGACY_PLAY_CLIENT_URL) {
       return PRODUCTION_CLIENT_FALLBACK;
+    } else {
+      return normalizedExplicit;
     }
-    return explicit;
   }
 
   const requestOrigin = normalizeOrigin(req?.headers?.origin);
@@ -692,7 +778,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       {
         clientID: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackURL: "/auth/google/callback",
+        callbackURL: resolveOAuthCallbackUrl('google'),
       },
       async (accessToken, refreshToken, profile, done) => {
         try {
@@ -707,7 +793,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           if (!user) {
             user = {
               id: deterministicId,
-              name: profile.displayName || `GoogleUser${crypto.randomInt(1000, 9999)}`,
+              name: sanitizeDisplayName(profile.displayName) || `GoogleUser${crypto.randomInt(1000, 9999)}`,
               type: "google",
               oauthGoogle: googleId,
               oauthProvider: 'google',
@@ -760,6 +846,7 @@ if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
         try {
           const response = await fetch("https://discord.com/api/users/@me", {
             headers: { Authorization: `Bearer ${accessToken}` },
+            signal: AbortSignal.timeout(5000)
           });
           
           if (!response.ok) {
@@ -768,15 +855,12 @@ if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
           }
           
           const discord = await response.json();
-          
-          if (!discord.id) {
-            console.error('[Discord] No user ID in response:', discord);
-            return done(new Error('Invalid Discord user response'));
-          }
+          const discordId = normalizeOAuthProviderId(discord?.id);
 
-          const discordId = normalizeOAuthProviderId(discord.id);
-          if (!discordId) {
-            return done(new Error('Invalid Discord user response: missing id'), null);
+          // Discord ids are numeric snowflakes; anything else is not a profile we trust.
+          if (!discordId || !/^\d{1,32}$/.test(discordId)) {
+            console.error('[Discord] Unexpected user id in response');
+            return done(new Error('Invalid Discord user response'));
           }
 
           const deterministicId = buildOAuthUserId('discord', discordId) || uuidv4();
@@ -785,7 +869,7 @@ if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
           if (!user) {
             user = {
               id: deterministicId,
-              name: discord.username || `Discord${crypto.randomInt(1000, 9999)}`,
+              name: sanitizeDisplayName(discord.username) || `Discord${crypto.randomInt(1000, 9999)}`,
               type: "discord",
               oauthDiscord: discordId,
               oauthProvider: 'discord',
@@ -903,7 +987,6 @@ router.post("/guest/login", async (req, res) => {
     const match = await bcrypt.compare(password, storedPassword);
     if (!match) return res.json({ ok: false, error: INVALID_CREDENTIALS_ERROR });
 
-    // Update country if not set
     if (!user.country) {
       user.country = getCountryFromIP(req.ip || req.socket.remoteAddress);
       await saveUser(user);
@@ -930,15 +1013,28 @@ router.get("/me", async (req, res) => {
 
 // ----------------- LOGOUT -----------------
 router.post("/logout", (req, res) => {
-  req.logout(() => res.json({ ok: true }));
+  req.logout(() => {
+    // Drop pending provider flows with the session so a half-finished login
+    // cannot be replayed against the next account that signs in here.
+    if (req.session) {
+      req.session.oauthStates = undefined;
+      if (typeof req.session.destroy === 'function') {
+        req.session.destroy(() => res.json({ ok: true }));
+        return;
+      }
+    }
+    res.json({ ok: true });
+  });
 });
 
 // ----------------- OAUTH ROUTES -----------------
 router.get("/google", 
   requireStrategy("google", "Google OAuth is not configured on this server. Please restart the server with GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET set."),
+  oauthRateLimit('start', 'google'),
   (req, res, next) => {
     const state = issueOAuthState(req);
     return passport.authenticate("google", {
+      callbackURL: resolveOAuthCallbackUrl('google', req),
       scope: ["profile"],
       state
     })(req, res, next);
@@ -948,20 +1044,46 @@ router.get("/google",
 router.get(
   "/google/callback",
   requireStrategy("google", "Google OAuth is not configured"),
+  oauthRateLimit('callback', 'google'),
   requireOAuthState("google"),
-  passport.authenticate("google", { failureRedirect: "/" }),
-  async (req, res) => {
-    // Update country if not set
-    if (req.user && !req.user.country) {
-      req.user.country = getCountryFromIP(req.ip || req.socket.remoteAddress);
-      await saveUser(req.user);
-    }
-    completeOAuthSuccess(req, res, 'google', req.user, '[Google callback]');
+  (req, res, next) => {
+    const callbackURL = resolveOAuthCallbackUrl('google', req);
+
+    passport.authenticate("google", { callbackURL }, (err, user) => {
+      if (err) {
+        console.error('[Google callback] Authentication error:', err?.message || err);
+        return res.redirect(buildPostAuthErrorRedirect(req, 'google', 'Google sign in failed. Please try again.'));
+      }
+
+      if (!user) {
+        console.warn('[Google callback] No user returned from strategy');
+        return res.redirect(buildPostAuthErrorRedirect(req, 'google', 'Google sign in was cancelled or failed.'));
+      }
+
+      req.login(user, async (loginErr) => {
+        if (loginErr) {
+          console.error('[Google callback] Login error:', loginErr?.message || loginErr);
+          return res.redirect(buildPostAuthErrorRedirect(req, 'google', 'Google sign in failed. Please try again.'));
+        }
+
+            if (!user.country) {
+          try {
+            user.country = getCountryFromIP(req.ip || req.socket.remoteAddress);
+            await saveUser(user);
+          } catch (countryErr) {
+            console.warn('[Google callback] Country update failed:', countryErr?.message || countryErr);
+          }
+        }
+
+        completeOAuthSuccess(req, res, 'google', user, '[Google callback]');
+      });
+    })(req, res, next);
   }
 );
 
 router.get("/discord",
   requireStrategy("discord", "Discord OAuth is not configured on this server. Please restart the server with DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET set."),
+  oauthRateLimit('start', 'discord'),
   (req, res, next) => {
     applyAuthCorsHeaders(req, res);
     const callbackURL = resolveDiscordCallbackUrl(req);
@@ -975,11 +1097,17 @@ router.get("/discord",
 );
 
 // Discord authorize proxy endpoint to avoid CORS issues
-router.get("/discord/authorize", (req, res) => {
+router.get("/discord/authorize", oauthRateLimit('start', 'discord'), (req, res) => {
   try {
+    const state = getOAuthState(req);
+    // Only forward state values shaped like the ones we mint, so this route
+    // cannot be used to echo arbitrary strings back to the client.
+    if (state && !/^popup(\.|$)/.test(state)) {
+      return res.status(400).json({ error: 'Invalid state' });
+    }
+
     const redirectBase = getRequestOrigin(req) || getPublicServerOrigin();
     const redirectUrl = new URL('/auth/discord', redirectBase);
-    const state = getOAuthState(req);
     if (state) {
       redirectUrl.searchParams.set('state', state);
     }
@@ -1012,6 +1140,7 @@ router.options("/discord/authorize", (req, res) => {
 router.get(
   "/discord/callback",
   requireStrategy("discord", "Discord OAuth is not configured"),
+  oauthRateLimit('callback', 'discord'),
   requireOAuthState("discord"),
   (req, res, next) => {
     const callbackURL = resolveDiscordCallbackUrl(req);
@@ -1029,8 +1158,7 @@ router.get(
     passport.authenticate("discord", { callbackURL }, (err, user, info) => {
       if (err) {
         console.error('[Discord callback] Authentication error:', err?.message || err);
-        const errorMsg = `Discord login failed: ${err?.message || 'Unknown error'}`;
-        return res.redirect(buildPostAuthErrorRedirect(req, 'discord', errorMsg));
+        return res.redirect(buildPostAuthErrorRedirect(req, 'discord', 'Discord sign in failed. Please try again.'));
       }
       
       if (!user) {
@@ -1041,12 +1169,10 @@ router.get(
       req.login(user, async (loginErr) => {
         if (loginErr) {
           console.error('[Discord callback] Login error:', loginErr?.message || loginErr);
-          const errorMsg = `Login failed: ${loginErr?.message || 'Unknown error'}`;
-          return res.redirect(buildPostAuthErrorRedirect(req, 'discord', errorMsg));
+          return res.redirect(buildPostAuthErrorRedirect(req, 'discord', 'Discord sign in failed. Please try again.'));
         }
 
-        // Update country if not set
-        if (!user.country) {
+            if (!user.country) {
           user.country = getCountryFromIP(req.ip || req.socket.remoteAddress);
           await saveUser(user);
         }
@@ -1085,8 +1211,7 @@ router.get(
               });
             } catch (fallbackErr) {
               console.error('[Discord callback] All session save attempts failed:', fallbackErr?.message || fallbackErr);
-              const errorMsg = `Session save failed: ${fallbackErr?.message || 'Unknown error'}`;
-              return res.redirect(buildPostAuthErrorRedirect(req, 'discord', errorMsg));
+              return res.redirect(buildPostAuthErrorRedirect(req, 'discord', 'Discord sign in failed. Please try again.'));
             }
           }
           

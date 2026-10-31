@@ -1,4 +1,4 @@
-import { getSocket, getServerUrl, probeHealth, connectTo, emitAuthUser } from '../utils/SocketManager.js';
+import { getSocket, getServerUrl, probeHealth, connectTo, emitAuthUser, fetchWithServerFallback } from '../utils/SocketManager.js';
 import GlobalAlerts from '../utils/AlertManager.js';
 import GlobalAudio from '../utils/AudioManager.js';
 import ErrorHandler from '../utils/ErrorManager.js';
@@ -635,7 +635,7 @@ export default class OnlineMenuScene extends Phaser.Scene {
         if (socketLibAvailable) {
             try {
                 const server = getServerUrl();
-                const resp = await fetch(`${server.replace(/\/$/, '')}/auth/me`, { credentials: 'include' });
+                const resp = await fetchWithServerFallback('/auth/me', { credentials: 'include' }, server);
                 serverResponded = true;
 
                 if (resp.ok) {
