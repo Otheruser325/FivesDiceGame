@@ -567,9 +567,17 @@ export default class OnlineAccountScene extends Phaser.Scene {
       clientOrigin = null;
     }
 
+    let clientPath = null;
+    try {
+      clientPath = window?.location?.pathname || null;
+    } catch (e) {
+      clientPath = null;
+    }
+
     const payload = {
       popup: true,
       clientOrigin,
+      clientPath,
       timestamp: Date.now()
     };
 
@@ -642,7 +650,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
       // Persist the popup result immediately: if the popup does not receive our
       // acknowledgement it may reload this window, and that reload must not lose
       // a login that already succeeded.
-      markOAuthSuccess(this.oauthExpectedProvider || pendingUser.type);
+      markOAuthSuccess(this.oauthExpectedProvider || pendingUser.type, pendingUser);
       localStorage.setItem('fives_user', JSON.stringify(pendingUser));
       this.user = pendingUser;
 

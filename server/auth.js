@@ -9,6 +9,7 @@ import { v4 as uuidv4, v5 as uuidv5 } from "uuid";
 import geoip from "geoip-lite";
 import { loadUsers, saveUsers, loadUser, saveUser } from "./utils/userStorage.js";
 import { buildOAuthPopupCompletionPage } from "./oauthPopupPage.js";
+import { sanitizeClientPath, resolveClientRedirect, isSameSiteOrigin } from "./oauthRedirect.js";
 
 export const router = express.Router();
 router.use(express.json());
@@ -486,7 +487,7 @@ function getClientRedirectBase(req) {
   const stateContext = getOAuthStateContext(req);
 
   if (stateContext.clientOrigin) {
-    return stateContext.clientOrigin;
+    return resolveClientRedirect(stateContext.clientOrigin, stateContext.clientPath) || stateContext.clientOrigin;
   }
 
   const explicit = process.env.AUTH_SUCCESS_REDIRECT_URL || process.env.GAME_CLIENT_URL;
@@ -608,6 +609,7 @@ function issueOAuthState(req) {
   const clientState = decodeOAuthStatePayload(req?.query?.state);
   const requestedOrigin = normalizeOrigin(clientState?.clientOrigin);
   const clientOrigin = requestedOrigin && isAllowedAuthOrigin(requestedOrigin) ? requestedOrigin : null;
+  const clientPath = sanitizeClientPath(clientState?.clientPath);
   const popup = !!clientState?.popup || req?.query?.state === 'popup';
 
   const nonce = crypto.randomBytes(24).toString('base64url');
@@ -617,7 +619,7 @@ function issueOAuthState(req) {
   req.session.oauthStates = pending
     .filter((entry) => entry && typeof entry.nonce === 'string' && (now - entry.createdAt) < OAUTH_STATE_TTL_MS)
     .slice(-(OAUTH_STATE_MAX_PENDING - 1))
-    .concat([{ nonce, popup, clientOrigin, createdAt: now }]);
+    .concat([{ nonce, popup, clientOrigin, clientPath, createdAt: now }]);
 
   return `${OAUTH_STATE_PREFIX}${encodeOAuthStateToken({ n: nonce, p: popup ? 1 : 0 })}`;
 }
@@ -637,7 +639,11 @@ function consumeOAuthState(req) {
   req.session.oauthStates = pending;
   if (!entry || (Date.now() - entry.createdAt) >= OAUTH_STATE_TTL_MS) return null;
 
-  return { popup: !!entry.popup, clientOrigin: entry.clientOrigin || null };
+  return {
+    popup: !!entry.popup,
+    clientOrigin: entry.clientOrigin || null,
+    clientPath: sanitizeClientPath(entry.clientPath)
+  };
 }
 
 function requireOAuthState(provider) {
@@ -657,24 +663,26 @@ function getOAuthStateContext(req) {
   // During a verified OAuth callback, use the context recovered from the session.
   if (req && req.oauthStateContext !== undefined) {
     const context = req.oauthStateContext;
-    if (!context) return { raw: req?.query?.state, popup: false, clientOrigin: null };
+    if (!context) return { raw: req?.query?.state, popup: false, clientOrigin: null, clientPath: null };
     return {
       raw: req?.query?.state,
       popup: !!context.popup,
-      clientOrigin: context.clientOrigin || null
+      clientOrigin: context.clientOrigin || null,
+      clientPath: context.clientPath || null
     };
   }
 
   const state = getOAuthState(req);
-  if (!state) return { raw: undefined, popup: false, clientOrigin: null };
-  if (state === 'popup') return { raw: state, popup: true, clientOrigin: null };
+  if (!state) return { raw: undefined, popup: false, clientOrigin: null, clientPath: null };
+  if (state === 'popup') return { raw: state, popup: true, clientOrigin: null, clientPath: null };
 
   const payload = decodeOAuthStatePayload(state);
   const clientOrigin = normalizeOrigin(payload?.clientOrigin);
   return {
     raw: state,
     popup: !!payload?.popup,
-    clientOrigin: clientOrigin && isAllowedAuthOrigin(clientOrigin) ? clientOrigin : null
+    clientOrigin: clientOrigin && isAllowedAuthOrigin(clientOrigin) ? clientOrigin : null,
+    clientPath: sanitizeClientPath(payload?.clientPath)
   };
 }
 
@@ -705,15 +713,49 @@ function sendOAuthPopupCompletionPage(req, res, provider, user) {
   return res.status(200).send(buildOAuthPopupCompletionPage(payload, openerOrigin));
 }
 
+// Cookies for a client that shares the API's registrable domain can stay
+// SameSite=Lax, which browsers keep sending even when third-party cookies are
+// blocked. Only genuinely cross-site clients need None+Secure.
+function applyOAuthSessionCookiePolicy(req) {
+  if (process.env.NODE_ENV !== 'production') return;
+  const cookie = req?.session?.cookie;
+  if (!cookie) return;
+
+  const context = getOAuthStateContext(req);
+  const clientOrigin = context.clientOrigin;
+  cookie.sameSite = clientOrigin && isSameSiteOrigin(clientOrigin, req?.hostname)
+    ? 'lax'
+    : 'none';
+  cookie.secure = true;
+  cookie.httpOnly = true;
+}
+
 function completeOAuthSuccess(req, res, provider, user, logPrefix) {
-  if (isPopupOAuthState(req)) {
-    console.log(`${logPrefix} Popup flow completed; notifying opener`);
-    return sendOAuthPopupCompletionPage(req, res, provider, user);
+  const send = () => {
+    if (isPopupOAuthState(req)) {
+      console.log(`${logPrefix} Popup flow completed; notifying opener`);
+      return sendOAuthPopupCompletionPage(req, res, provider, user);
+    }
+
+    const redirectUrl = buildPostAuthRedirect(req, provider);
+    console.log(`${logPrefix} Redirecting to:`, redirectUrl);
+    return res.redirect(redirectUrl);
+  };
+
+  applyOAuthSessionCookiePolicy(req);
+
+  if (!req.session || typeof req.session.save !== 'function') {
+    return send();
   }
 
-  const redirectUrl = buildPostAuthRedirect(req, provider);
-  console.log(`${logPrefix} Redirecting to:`, redirectUrl);
-  return res.redirect(redirectUrl);
+  // Persist the session before telling the client the login succeeded; a slow
+  // store must not produce a completion page whose cookie is not saved yet.
+  req.session.save((saveErr) => {
+    if (saveErr) {
+      console.error(`${logPrefix} Session save before completion failed:`, saveErr?.message || saveErr);
+    }
+    send();
+  });
 }
 
 async function saveOAuthUserOrThrow(user, providerField) {
@@ -1156,14 +1198,9 @@ router.get(
         req.session.loginTime = new Date().toISOString();
         req.session.lastActivity = new Date().toISOString();
         
-        // Ensure session is properly configured for cross-site cookies
-        if (process.env.NODE_ENV === 'production') {
-          req.session.cookie.sameSite = 'none';
-          req.session.cookie.secure = true;
-          req.session.cookie.domain = undefined; // Remove domain restriction for cross-site
-          req.session.cookie.priority = 'high';
-        }
-        
+        // The cookie policy (Lax for same-site clients, None for cross-site) is
+        // applied centrally in completeOAuthSuccess before the response.
+
         // Save session with enhanced error handling and retry logic
         req.session.save(async (saveErr) => {
           if (saveErr) {

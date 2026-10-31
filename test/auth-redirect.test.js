@@ -80,6 +80,64 @@ test('a fresh popup login keeps the cached user when the session cookie is not v
   assert.equal(getFreshOAuthCachedUser(), null);
 });
 
+test('a redirect back to the game keeps the user the popup just handed over', () => {
+  const user = { id: 'u1', name: 'Ada', type: 'discord' };
+  installBrowser({
+    href: 'https://play.fivesdicegame.com/?auth=success&provider=discord&timestamp=123',
+    user
+  });
+
+  markOAuthSuccess('discord', user);
+  const notice = consumeAuthRedirect();
+
+  assert.equal(notice.source, 'popup');
+  assert.equal(notice.user?.id, 'u1');
+  assert.equal(getFreshOAuthCachedUser()?.id, 'u1');
+});
+
+test('a redirect completion restores the user even if the cache was cleared', () => {
+  const user = { id: 'u1', name: 'Ada', type: 'google' };
+  const { local, historyCalls } = installBrowser({
+    href: 'https://otheruser325.github.io/FivesDiceGame/?auth=success&provider=google',
+    user
+  });
+
+  const notice = consumeAuthRedirect();
+  assert.equal(notice.source, 'redirect');
+  assert.deepEqual(historyCalls, ['/FivesDiceGame/']);
+
+  // Simulate a later /auth/me failure clearing the cache: the snapshot in the
+  // notice still carries the login the server just completed.
+  local.delete('fives_user');
+  assert.equal(getFreshOAuthCachedUser()?.id, 'u1');
+  assert.ok(local.has('fives_user'));
+});
+
+test('an error redirect cannot overwrite a fresh popup success', () => {
+  const user = { id: 'u1', name: 'Ada', type: 'discord' };
+  installBrowser({ href: 'https://play.fivesdicegame.com/?auth=error&error=Sign+in+failed', user });
+
+  markOAuthSuccess('discord', user);
+  const notice = consumeAuthRedirect();
+
+  assert.equal(notice.status, 'success');
+  assert.equal(getFreshOAuthCachedUser()?.id, 'u1');
+});
+
+test('a redirect does not revive a cached account from another provider', () => {
+  const cachedDiscordUser = { id: 'u-discord', name: 'Ada', type: 'discord' };
+  installBrowser({
+    href: 'https://play.fivesdicegame.com/?auth=success&provider=google',
+    user: cachedDiscordUser
+  });
+
+  const notice = consumeAuthRedirect();
+
+  assert.equal(notice.status, 'success');
+  assert.equal(notice.user, undefined);
+  assert.equal(getFreshOAuthCachedUser(), null);
+});
+
 test('a stale popup marker cannot keep a cached user signed in', () => {
   const user = { id: 'u1', name: 'Ada', type: 'discord' };
   const { session } = installBrowser({ href: 'https://play.fivesdicegame.com/', user });

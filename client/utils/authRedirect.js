@@ -22,6 +22,12 @@ function getLocalStorage() {
   }
 }
 
+function sanitizeUser(user) {
+  if (!user || typeof user !== 'object') return null;
+  if (!user.id || typeof user.id !== 'string') return null;
+  return user;
+}
+
 function readNotice() {
   const storage = getSessionStorage();
   if (!storage) return null;
@@ -40,6 +46,28 @@ function writeNotice(notice) {
   if (!storage) return;
   try {
     storage.setItem(STORAGE_KEY, JSON.stringify(notice));
+  } catch (e) {
+    // ignore unavailable storage
+  }
+}
+
+function readCachedUser() {
+  const storage = getLocalStorage();
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem('fives_user');
+    if (!raw) return null;
+    return sanitizeUser(JSON.parse(raw));
+  } catch (e) {
+    return null;
+  }
+}
+
+function writeCachedUser(user) {
+  const storage = getLocalStorage();
+  if (!storage) return;
+  try {
+    storage.setItem('fives_user', JSON.stringify(user));
   } catch (e) {
     // ignore unavailable storage
   }
@@ -70,14 +98,42 @@ export function consumeAuthRedirect() {
   const status = url.searchParams.get('auth');
   if (status !== 'success' && status !== 'error') return null;
 
-  const notice = {
-    status,
-    source: 'redirect',
-    provider: url.searchParams.get('provider') || null,
-    error: url.searchParams.get('error') || null,
-    at: Date.now()
-  };
-  writeNotice(notice);
+  const existing = getRecentOAuthSuccess();
+  let notice;
+
+  if (status === 'success') {
+    // A popup login may have completed moments ago in this same tab; its
+    // redirect back to the game must not downgrade that stronger result.
+    const keepPopup = existing?.source === 'popup';
+    const provider = url.searchParams.get('provider');
+    const cachedUser = readCachedUser();
+    // Never revive a cached account from a different provider than the one that
+    // just signed in; the cache may belong to the previous user of this browser.
+    const providerMatches = !provider || !cachedUser
+      || cachedUser.type === provider
+      || cachedUser.oauthProvider === provider;
+    const user = sanitizeUser(existing?.user) || (providerMatches ? cachedUser : null);
+    notice = {
+      status: 'success',
+      source: keepPopup ? 'popup' : 'redirect',
+      provider: url.searchParams.get('provider') || existing?.provider || null,
+      at: keepPopup ? existing.at : Date.now()
+    };
+    if (user) notice.user = user;
+    writeNotice(notice);
+    if (user) writeCachedUser(user);
+  } else if (!existing) {
+    notice = {
+      status: 'error',
+      source: 'redirect',
+      provider: url.searchParams.get('provider') || null,
+      error: url.searchParams.get('error') || null,
+      at: Date.now()
+    };
+    writeNotice(notice);
+  } else {
+    notice = existing;
+  }
 
   REDIRECT_PARAMS.forEach((key) => url.searchParams.delete(key));
   try {
@@ -94,14 +150,22 @@ export function consumeAuthRedirect() {
 }
 
 // Marks a login completed by the OAuth popup. The popup message is delivered on
-// the API origin and the user has already been resolved by the server.
-export function markOAuthSuccess(provider) {
-  writeNotice({
+// the API origin and the user has already been resolved by the server. The user
+// is snapshotted here because a following redirect reload may run before
+// localStorage is read again.
+export function markOAuthSuccess(provider, user) {
+  const notice = {
     status: 'success',
     source: 'popup',
     provider: provider || null,
     at: Date.now()
-  });
+  };
+  const safeUser = sanitizeUser(user) || readCachedUser();
+  if (safeUser) {
+    notice.user = safeUser;
+    writeCachedUser(safeUser);
+  }
+  writeNotice(notice);
 }
 
 export function getRecentOAuthSuccess(maxAgeMs = NOTICE_MAX_AGE_MS) {
@@ -116,21 +180,20 @@ export function getRecentOAuthSuccess(maxAgeMs = NOTICE_MAX_AGE_MS) {
   return notice;
 }
 
-// Returns the cached user only for a popup login that just succeeded. This is
-// used when /auth/me cannot see the session cookie (third-party cookie
-// blocking); the server remains authoritative for online actions.
+// Returns the cached user for a login that just succeeded, whether it was handed
+// over by the popup or returned through the redirect. This is used when
+// /auth/me cannot see the session cookie (third-party cookie blocking); the
+// server remains authoritative for online actions.
 export function getFreshOAuthCachedUser() {
   const notice = getRecentOAuthSuccess();
-  if (!notice || notice.source !== 'popup') return null;
+  if (!notice) return null;
 
-  const storage = getLocalStorage();
-  if (!storage) return null;
-  try {
-    const raw = storage.getItem('fives_user');
-    if (!raw) return null;
-    const user = JSON.parse(raw);
-    return user && user.id ? user : null;
-  } catch (e) {
-    return null;
-  }
+  const user = sanitizeUser(notice.user) || readCachedUser();
+  if (!user) return null;
+  // The cache can belong to a different account than the one that just signed
+  // in; only reuse it when it matches the provider recorded for this login.
+  const provider = notice.provider;
+  if (provider && user.type !== provider && user.oauthProvider !== provider) return null;
+  writeCachedUser(user);
+  return user;
 }
