@@ -1,5 +1,6 @@
 import './env.js';
 import express from "express";
+import crypto from "crypto";
 import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import OAuth2Strategy from "passport-oauth2";
@@ -10,6 +11,7 @@ import { loadUsers, saveUsers, loadUser, saveUser } from "./utils/userStorage.js
 
 export const router = express.Router();
 router.use(express.json());
+router.use(requireTrustedOrigin);
 
 const DEFAULT_PRODUCTION_CLIENT_ORIGINS = [
   'https://play.fivesdicegame.com',
@@ -30,6 +32,14 @@ const DEFAULT_DEVELOPMENT_CLIENT_ORIGINS = [
 
 const AUTH_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const AUTH_RATE_LIMIT_BUCKETS = new Map();
+const AUTH_RATE_LIMIT_MAX_BUCKETS = 5000;
+const AUTH_RATE_LIMIT_SWEEP_INTERVAL_MS = 30 * 1000;
+let authRateLimitLastSweep = 0;
+
+const INVALID_CREDENTIALS_ERROR = 'Invalid username or password';
+// Hashed once at boot so the "no such account" path costs roughly the same as a
+// real password check (keeps login timing from revealing which usernames exist).
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('fives-timing-equalizer', 10);
 
 // Helper to get country code from IP
 function getCountryFromIP(ip) {
@@ -76,15 +86,62 @@ function publicUser(u) {
   return safe;
 }
 
+// Express resolves `req.ip` through the configured `trust proxy` setting. Reading
+// X-Forwarded-For by hand would let a client pick its own IP (and therefore mint a
+// fresh rate-limit bucket on every request).
 function getClientIp(req) {
-  const forwarded = req?.headers?.['x-forwarded-for'];
-  if (Array.isArray(forwarded) && forwarded[0]) return String(forwarded[0]).split(',')[0].trim();
-  if (typeof forwarded === 'string' && forwarded) return forwarded.split(',')[0].trim();
-  return req?.ip || req?.socket?.remoteAddress || 'unknown';
+  const direct = req?.ip || req?.socket?.remoteAddress || 'unknown';
+  return String(direct).replace(/^::ffff:/, '').trim() || 'unknown';
+}
+
+function pruneRateLimitBuckets(now) {
+  const oversized = AUTH_RATE_LIMIT_BUCKETS.size > AUTH_RATE_LIMIT_MAX_BUCKETS;
+  if (!oversized && (now - authRateLimitLastSweep) < AUTH_RATE_LIMIT_SWEEP_INTERVAL_MS) return;
+  authRateLimitLastSweep = now;
+
+  for (const [key, bucket] of AUTH_RATE_LIMIT_BUCKETS) {
+    if (!bucket || (now - bucket.startedAt) >= AUTH_RATE_LIMIT_WINDOW_MS) {
+      AUTH_RATE_LIMIT_BUCKETS.delete(key);
+    }
+  }
+
+  if (AUTH_RATE_LIMIT_BUCKETS.size <= AUTH_RATE_LIMIT_MAX_BUCKETS) return;
+
+  // still too many buckets, drop the oldest first
+  let overflow = AUTH_RATE_LIMIT_BUCKETS.size - AUTH_RATE_LIMIT_MAX_BUCKETS;
+  for (const key of AUTH_RATE_LIMIT_BUCKETS.keys()) {
+    AUTH_RATE_LIMIT_BUCKETS.delete(key);
+    if (--overflow <= 0) break;
+  }
+}
+
+// Session cookies are SameSite=None in production, so a cross-site HTML form could
+// otherwise reach these endpoints with the victim's cookie attached. Require a
+// browser Origin (or Referer) belonging to the game client on every unsafe method.
+function requireTrustedOrigin(req, res, next) {
+  const method = String(req?.method || '').toUpperCase();
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return next();
+
+  let origin = normalizeOrigin(req?.headers?.origin);
+  if (!origin && req?.headers?.referer) {
+    try {
+      origin = normalizeOrigin(new URL(String(req.headers.referer)).origin);
+    } catch (e) {
+      origin = null;
+    }
+  }
+
+  if (!origin || !isAllowedAuthOrigin(origin)) {
+    console.warn(`[Auth] Rejected ${method} ${req?.originalUrl || ''} from origin: ${origin || 'none'}`);
+    return res.status(403).json({ ok: false, error: 'Request origin not allowed' });
+  }
+
+  return next();
 }
 
 function isRateLimited(req, key, limit, windowMs = AUTH_RATE_LIMIT_WINDOW_MS) {
   const now = Date.now();
+  pruneRateLimitBuckets(now);
   const bucketKey = `${key}:${getClientIp(req)}`;
   const bucket = AUTH_RATE_LIMIT_BUCKETS.get(bucketKey);
 
@@ -199,19 +256,59 @@ function normalizeAbsoluteUrl(url) {
   }
 }
 
+// Hosts we are willing to derive a server origin from. Host and X-Forwarded-Host
+// are attacker-controlled request headers, and this origin ends up in redirect
+// Location headers (/auth/discord/authorize), so anything unknown is rejected.
+const TRUSTED_SERVER_HOSTS = [
+  'fivesapi.onrender.com',
+  'fivesdicegame.com',
+  'play.fivesdicegame.com',
+  'www.fivesdicegame.com',
+  'fivesdicegame.vercel.app',
+  'otheruser325.github.io'
+];
+
+function isTrustedServerHost(hostname) {
+  const host = String(hostname || '').toLowerCase().replace(/\.$/, '');
+  if (!host) return false;
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') return true;
+  if (TRUSTED_SERVER_HOSTS.includes(host)) return true;
+  if (host.endsWith('.fivesdicegame.com')) return true;
+
+  const configuredHosts = [process.env.HOST, process.env.PUBLIC_SERVER_URL, process.env.RENDER_EXTERNAL_URL]
+    .filter(Boolean)
+    .map((value) => {
+      const raw = String(value).trim();
+      try {
+        return raw.includes('://') ? new URL(raw).hostname.toLowerCase() : raw.toLowerCase();
+      } catch (e) {
+        return null;
+      }
+    })
+    .filter(Boolean);
+
+  return configuredHosts.includes(host);
+}
+
 function getRequestOrigin(req) {
   try {
+    const trustProxy = !!req?.app?.get?.('trust proxy');
     const forwardedProtoRaw = req?.headers?.['x-forwarded-proto'];
-    const forwardedHostRaw = req?.headers?.['x-forwarded-host'];
+    const forwardedHostRaw = trustProxy ? req?.headers?.['x-forwarded-host'] : null;
 
     const forwardedProto = Array.isArray(forwardedProtoRaw) ? forwardedProtoRaw[0] : forwardedProtoRaw;
     const forwardedHost = Array.isArray(forwardedHostRaw) ? forwardedHostRaw[0] : forwardedHostRaw;
 
-    const proto = String(forwardedProto || req?.protocol || 'https').split(',')[0].trim();
+    const proto = String(forwardedProto || req?.protocol || 'https').split(',')[0].trim().toLowerCase();
     const host = String(forwardedHost || req?.get?.('host') || '').split(',')[0].trim();
     if (!host) return null;
 
-    return normalizeOrigin(`${proto}://${host}`);
+    const origin = normalizeOrigin(`${proto === 'http' ? 'http' : 'https'}://${host}`);
+    if (!origin) return null;
+
+    // Only echo a host we actually serve; callers otherwise fall back to the
+    // configured public origin.
+    return isTrustedServerHost(new URL(origin).hostname) ? origin : null;
   } catch (e) {
     return null;
   }
@@ -393,7 +490,94 @@ function getOAuthState(req) {
   return raw.slice(0, 512);
 }
 
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const OAUTH_STATE_MAX_PENDING = 5;
+const OAUTH_STATE_PREFIX = 'popup.';
+
+function encodeOAuthStateToken(payload) {
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+}
+
+function decodeOAuthStateToken(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith(OAUTH_STATE_PREFIX)) return null;
+  const encoded = trimmed.slice(OAUTH_STATE_PREFIX.length);
+  if (!encoded) return null;
+  try {
+    const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+    const parsed = JSON.parse(Buffer.from(base64, 'base64').toString('utf8'));
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Starts an OAuth flow. The provider state carries a nonce that is also stored in
+// this browser's session, so a callback URL minted elsewhere (login CSRF / session
+// fixation) cannot complete a sign-in. The client-supplied payload is only used as
+// a hint for popup handling and is always re-validated against the origin allowlist.
+function issueOAuthState(req) {
+  const clientState = decodeOAuthStatePayload(req?.query?.state);
+  const requestedOrigin = normalizeOrigin(clientState?.clientOrigin);
+  const clientOrigin = requestedOrigin && isAllowedAuthOrigin(requestedOrigin) ? requestedOrigin : null;
+  const popup = !!clientState?.popup || req?.query?.state === 'popup';
+
+  const nonce = crypto.randomBytes(24).toString('base64url');
+  const now = Date.now();
+  const pending = Array.isArray(req.session?.oauthStates) ? req.session.oauthStates : [];
+
+  req.session.oauthStates = pending
+    .filter((entry) => entry && typeof entry.nonce === 'string' && (now - entry.createdAt) < OAUTH_STATE_TTL_MS)
+    .slice(-(OAUTH_STATE_MAX_PENDING - 1))
+    .concat([{ nonce, popup, clientOrigin, createdAt: now }]);
+
+  return `${OAUTH_STATE_PREFIX}${encodeOAuthStateToken({ n: nonce, p: popup ? 1 : 0 })}`;
+}
+
+// One-time consumption of a provider callback's state. Returns null when the state
+// is missing, expired, already used, or was not issued to this session.
+function consumeOAuthState(req) {
+  const token = decodeOAuthStateToken(req?.query?.state);
+  const nonce = typeof token?.n === 'string' ? token.n : null;
+  if (!nonce) return null;
+
+  const pending = Array.isArray(req.session?.oauthStates) ? req.session.oauthStates : [];
+  const index = pending.findIndex((entry) => entry && entry.nonce === nonce);
+  if (index === -1) return null;
+
+  const [entry] = pending.splice(index, 1);
+  req.session.oauthStates = pending;
+  if (!entry || (Date.now() - entry.createdAt) >= OAUTH_STATE_TTL_MS) return null;
+
+  return { popup: !!entry.popup, clientOrigin: entry.clientOrigin || null };
+}
+
+function requireOAuthState(provider) {
+  return (req, res, next) => {
+    const context = consumeOAuthState(req);
+    if (!context) {
+      console.warn(`[Auth] ${provider} callback rejected: state missing, expired, or not bound to this session`);
+      req.oauthStateContext = null;
+      return res.redirect(buildPostAuthErrorRedirect(req, provider, 'Sign in session expired. Please try again.'));
+    }
+    req.oauthStateContext = context;
+    return next();
+  };
+}
+
 function getOAuthStateContext(req) {
+  // During a verified OAuth callback, use the context recovered from the session.
+  if (req && req.oauthStateContext !== undefined) {
+    const context = req.oauthStateContext;
+    if (!context) return { raw: req?.query?.state, popup: false, clientOrigin: null };
+    return {
+      raw: req?.query?.state,
+      popup: !!context.popup,
+      clientOrigin: context.clientOrigin || null
+    };
+  }
+
   const state = getOAuthState(req);
   if (!state) return { raw: undefined, popup: false, clientOrigin: null };
   if (state === 'popup') return { raw: state, popup: true, clientOrigin: null };
@@ -523,7 +707,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           if (!user) {
             user = {
               id: deterministicId,
-              name: profile.displayName || `GoogleUser${Math.floor(Math.random() * 9999)}`,
+              name: profile.displayName || `GoogleUser${crypto.randomInt(1000, 9999)}`,
               type: "google",
               oauthGoogle: googleId,
               oauthProvider: 'google',
@@ -601,7 +785,7 @@ if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
           if (!user) {
             user = {
               id: deterministicId,
-              name: discord.username || `Discord${Math.floor(Math.random() * 9999)}`,
+              name: discord.username || `Discord${crypto.randomInt(1000, 9999)}`,
               type: "discord",
               oauthDiscord: discordId,
               oauthProvider: 'discord',
@@ -645,12 +829,12 @@ router.post("/guest/register", async (req, res) => {
     }
 
     const { password } = req.body;
-    if (!password || password.length < 6)
+    if (typeof password !== 'string' || password.length < 6 || password.length > 128)
       return res.json({ ok: false, error: "Invalid password" });
 
     const id = uuidv4();
     const hashed = await bcrypt.hash(password, 10);
-    const name = "Guest" + Math.floor(Math.random() * 9999);
+    const name = "Guest" + crypto.randomInt(1000, 9999);
 
     // Build the user object
     const user = { id, name, type: "guest", guestpassword: hashed, country: getCountryFromIP(req.ip || req.socket.remoteAddress) };
@@ -689,23 +873,35 @@ router.post("/guest/login", async (req, res) => {
       return rejectRateLimitedAuth(res);
     }
 
-    const { username, password } = req.body;
-    if (!username || !password) return res.json({ ok: false, error: "Missing credentials" });
+    const { username, password } = req.body || {};
+    if (typeof username !== 'string' || typeof password !== 'string' || !username || !password) {
+      return res.json({ ok: false, error: INVALID_CREDENTIALS_ERROR });
+    }
+    if (username.length > 64 || password.length > 256) {
+      return res.json({ ok: false, error: INVALID_CREDENTIALS_ERROR });
+    }
+
+    // Per-username bucket on top of the per-IP one: slows targeted guessing that
+    // rotates source addresses.
+    if (isRateLimited(req, `guest-login-user:${username.toLowerCase()}`, 5)) {
+      return rejectRateLimitedAuth(res);
+    }
 
     const users = await loadUsers();
     const user = Object.values(users).find(u => u.type === "guest" && u.name === username);
 
-    if (!user) return res.json({ ok: false, error: "Guest not found" });
-
     // ✅ Handle both guestPassword (app format) and guestpassword (DB format)
-    const storedPassword = user.guestPassword || user.guestpassword;
+    const storedPassword = user ? (user.guestPassword || user.guestpassword) : null;
     if (!storedPassword) {
-      console.warn(`[auth] Guest ${username} has no password stored - cannot login`);
-      return res.json({ ok: false, error: "Guest account corrupted - no password" });
+      // Same generic error and comparable timing whether the account is missing,
+      // passwordless, or just has the wrong password: prevents username enumeration.
+      await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
+      if (user) console.warn(`[auth] Guest ${user.id} has no password stored - cannot login`);
+      return res.json({ ok: false, error: INVALID_CREDENTIALS_ERROR });
     }
 
     const match = await bcrypt.compare(password, storedPassword);
-    if (!match) return res.json({ ok: false, error: "Wrong password" });
+    if (!match) return res.json({ ok: false, error: INVALID_CREDENTIALS_ERROR });
 
     // Update country if not set
     if (!user.country) {
@@ -714,7 +910,10 @@ router.post("/guest/login", async (req, res) => {
     }
 
     req.login(user, (err) => {
-      if (err) return res.json({ ok: false, error: err.message });
+      if (err) {
+        console.error('[auth] req.login failed after guest login:', err?.message || err);
+        return res.json({ ok: false, error: "Server error" });
+      }
       res.json({ ok: true, user: publicUser(user) });
     });
   } catch (err) {
@@ -738,7 +937,7 @@ router.post("/logout", (req, res) => {
 router.get("/google", 
   requireStrategy("google", "Google OAuth is not configured on this server. Please restart the server with GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET set."),
   (req, res, next) => {
-    const state = getOAuthState(req);
+    const state = issueOAuthState(req);
     return passport.authenticate("google", {
       scope: ["profile"],
       state
@@ -749,6 +948,7 @@ router.get("/google",
 router.get(
   "/google/callback",
   requireStrategy("google", "Google OAuth is not configured"),
+  requireOAuthState("google"),
   passport.authenticate("google", { failureRedirect: "/" }),
   async (req, res) => {
     // Update country if not set
@@ -765,7 +965,7 @@ router.get("/discord",
   (req, res, next) => {
     applyAuthCorsHeaders(req, res);
     const callbackURL = resolveDiscordCallbackUrl(req);
-    const state = getOAuthState(req);
+    const state = issueOAuthState(req);
     
     passport.authenticate("discord", {
       callbackURL,
@@ -812,6 +1012,7 @@ router.options("/discord/authorize", (req, res) => {
 router.get(
   "/discord/callback",
   requireStrategy("discord", "Discord OAuth is not configured"),
+  requireOAuthState("discord"),
   (req, res, next) => {
     const callbackURL = resolveDiscordCallbackUrl(req);
 

@@ -13,6 +13,22 @@ import LeaderboardManager from './utils/leaderboardManager.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// some hosts never set NODE_ENV, which leaves dev session secrets and open CORS on
+const HOSTED_ENV_MARKERS = [
+  'RENDER',
+  'RENDER_SERVICE_ID',
+  'FLY_APP_NAME',
+  'RAILWAY_ENVIRONMENT',
+  'K_SERVICE',
+  'DYNO',
+  'WEBSITE_SITE_NAME'
+];
+if (!process.env.NODE_ENV && HOSTED_ENV_MARKERS.some((key) => !!process.env[key])) {
+  process.env.NODE_ENV = 'production';
+  console.log('[Server] NODE_ENV was unset but a hosting environment was detected; defaulting to production');
+}
+
 const IS_SERVERLESS = process.env.VERCEL === '1' || !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.NOW_REGION;
 const SERVER_RUNTIME = IS_SERVERLESS ? 'serverless' : 'persistent';
 const DEFAULT_RENDER_API_ORIGIN = 'https://fivesapi.onrender.com';
@@ -306,8 +322,9 @@ async function initializeSession() {
 }
 
 // Middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// auth payloads are tiny, a big body limit only helps attackers
+app.use(express.json({ limit: '100kb' }));
+app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
 // Initialize session middleware
 const sessionMiddleware = await initializeSession();
@@ -360,14 +377,45 @@ app.use((req, res, next) => {
 // Auth routes
 app.use('/auth', authRouter);
 
+// throttle public board reads so one client can't force repeated full-table scans
+const LEADERBOARD_RATE_WINDOW_MS = 60 * 1000;
+const LEADERBOARD_RATE_MAX_REQUESTS = 30;
+const LEADERBOARD_SORT_OPTIONS = ['total', 'highest', 'combos', 'wins', 'best'];
+const leaderboardRateBuckets = new Map();
+
+function isLeaderboardRateLimited(bucketKey) {
+    const now = Date.now();
+    if (leaderboardRateBuckets.size > 2000) {
+        for (const [key, bucket] of leaderboardRateBuckets) {
+            if (!bucket || (now - bucket.startedAt) >= LEADERBOARD_RATE_WINDOW_MS) {
+                leaderboardRateBuckets.delete(key);
+            }
+        }
+    }
+
+    const bucket = leaderboardRateBuckets.get(bucketKey);
+    if (!bucket || (now - bucket.startedAt) >= LEADERBOARD_RATE_WINDOW_MS) {
+        leaderboardRateBuckets.set(bucketKey, { startedAt: now, count: 1 });
+        return false;
+    }
+
+    bucket.count += 1;
+    return bucket.count > LEADERBOARD_RATE_MAX_REQUESTS;
+}
+
 // Leaderboard endpoint
 app.get('/leaderboard', async (req, res) => {
-    try {
-        const sortBy = req.query.sortBy || 'total';
+    const sortBy = req.query.sortBy || 'total';
 
-        if (!['total', 'highest', 'combos', 'wins', 'best'].includes(sortBy)) {
-            return res.status(400).json({ error: 'Invalid sort option' });
-        }
+    if (!LEADERBOARD_SORT_OPTIONS.includes(sortBy)) {
+        return res.status(400).json({ error: 'Invalid sort option' });
+    }
+
+    if (isLeaderboardRateLimited(`http:${req.ip || req.socket?.remoteAddress || 'unknown'}`)) {
+        return res.status(429).json({ error: 'Too many leaderboard requests. Please try again shortly.' });
+    }
+
+    try {
 
         console.log(`[Leaderboard HTTP] Fetching top players (sortBy=${sortBy})`);
         const topPlayers = await LeaderboardManager.getTopPlayers(100, sortBy);
@@ -399,7 +447,8 @@ app.get('/leaderboard', async (req, res) => {
         });
     } catch (err) {
         console.error('[Leaderboard HTTP] Failed to get leaderboard:', err.message || err);
-        res.status(500).json({ error: `Failed to load leaderboard: ${err.message}` });
+        // don't leak internal error text
+        res.status(500).json({ error: 'Failed to load leaderboard' });
     }
 });
 
@@ -442,6 +491,10 @@ io.on('connection', async (socket) => {
 
   // ✅ NEW: Leaderboard handler with enhanced error handling
   socket.on('get-leaderboard', async (options) => {
+    if (isLeaderboardRateLimited(`socket:${socket.id}`)) {
+      return socket.emit('leaderboard-error', 'Too many leaderboard requests. Please try again shortly.');
+    }
+
     try {
       const sortBy = options?.sortBy || 'total';
       
@@ -481,7 +534,7 @@ io.on('connection', async (socket) => {
     } catch (err) {
       console.error('[Leaderboard] Failed to get leaderboard:', err.message || err);
       console.error('[Leaderboard] Stack:', err.stack);
-      socket.emit('leaderboard-error', `Failed to load leaderboard: ${err.message}`);
+      socket.emit('leaderboard-error', 'Failed to load leaderboard');
     }
   });
 
@@ -506,6 +559,16 @@ io.on('connection', async (socket) => {
 
 // Error handling middleware
 app.use((error, req, res, next) => {
+  const status = Number(error?.status || error?.statusCode) || 500;
+
+  // bad request bodies are 4xx, not 500
+  if (status >= 400 && status < 500) {
+    console.warn(`[Server] Rejected request with ${status}:`, error?.type || error?.message);
+    return res.status(status).json({
+      error: status === 413 ? 'Payload too large' : 'Bad request'
+    });
+  }
+
   console.error('[Server] Error:', error);
   res.status(500).json({ 
     error: 'Internal server error',

@@ -1,4 +1,17 @@
+import { randomInt } from "node:crypto";
 import { loadLobbies, saveLobby, saveLobbies, pruneLocalLobbies, deleteSupabaseLobby } from "./utils/lobbyStorage.js";
+
+// lobby codes are the only thing hiding a lobby, so use a CSPRNG.
+// skip look-alike characters so codes are easy to read out.
+const LOBBY_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+function generateLobbyCode(length = 5) {
+  let code = "";
+  for (let i = 0; i < length; i += 1) {
+    code += LOBBY_CODE_ALPHABET[randomInt(0, LOBBY_CODE_ALPHABET.length)];
+  }
+  return code;
+}
 import { rollDice, calculateScore } from "./utils/DiceManager.js";
 import { getUsernameFromDB, getActivePlayers, normalizeAllPlayers } from "./utils/playerStateManager.js";
 import { loadUser } from "./utils/userStorage.js";
@@ -200,6 +213,20 @@ export default class LobbyManager {
     }
   }
 
+  // write just this lobby instead of re-upserting the whole map
+  async persistLobby(code) {
+    const key = String(code || "").trim().toUpperCase();
+    const lobby = this.lobbies[key];
+    if (!lobby) return null;
+
+    try {
+      return await saveLobby(lobby);
+    } catch (err) {
+      console.warn(`[LobbyManager] persistLobby(${key}) failed:`, err?.message || err);
+      return null;
+    }
+  }
+
   // Delete lobby (and persist)
   async deleteLobby(code) {
     if (!code) return;
@@ -270,6 +297,23 @@ export default class LobbyManager {
     }
 
     return true;
+  }
+
+  // Membership checks for lobby/game state access. Lobby codes are short and
+  // guessable, so knowing a code must never be enough to read or destroy it.
+  isLobbyMember(lobby, socket) {
+    if (!lobby || !socket?.data?.user?.id) return false;
+    const uid = String(socket.data.user.id);
+    if (lobby.hostUserId && String(lobby.hostUserId) === uid) return true;
+    if (!Array.isArray(lobby.players)) return false;
+    return lobby.players.some((p) => p && String(p.id) === uid);
+  }
+
+  isGameMember(game, socket) {
+    if (!game || !socket?.data?.user?.id) return false;
+    const uid = String(socket.data.user.id);
+    if (!Array.isArray(game.players)) return false;
+    return game.players.some((p) => p && String(p.id) === uid);
   }
 
   // Helper: Ensure socket has user data (try auto-auth if missing)
@@ -477,13 +521,12 @@ export default class LobbyManager {
         const lobbyConfig = normalizeLobbyConfig(config);
 
         // ensure unique code (retry if collision)
-        let code;
-        for (let i = 0; i < 6; i++) {
-          code = Math.random().toString(36).slice(2, 7).toUpperCase();
-          if (!this.lobbies[code]) break;
-          code = null;
+        let code = null;
+        for (let i = 0; i < 12 && !code; i++) {
+          const candidate = generateLobbyCode(5);
+          if (!this.lobbies[candidate]) code = candidate;
         }
-        if (!code) code = ("L" + Date.now()).slice(-6).toUpperCase();
+        if (!code) code = generateLobbyCode(6);
 
         const playerObj = {
           id: socket.data.user.id,
@@ -511,7 +554,7 @@ export default class LobbyManager {
 
         this.lobbies[code] = lobby;
 
-        try { await this.save(); } catch (e) { console.warn("[LobbyManager] failed to persist created lobby:", e); }
+        try { await this.persistLobby(code); } catch (e) { console.warn("[LobbyManager] failed to persist created lobby:", e); }
 
         const hostUserId = lobby.hostuserid || lobby.hostUserId || null;
         if (hostUserId && String(hostUserId) === String(uid)) {
@@ -608,7 +651,7 @@ export default class LobbyManager {
             timestamp: Date.now()
           };
 
-          try { await this.save(); } catch (e) { console.warn("[LobbyManager] save after join failed:", e); }
+          try { await this.persistLobby(code); } catch (e) { console.warn("[LobbyManager] save after join failed:", e); }
         } else {
           if (existing.left) {
             existing.left = false;
@@ -616,7 +659,7 @@ export default class LobbyManager {
             existing.ready = false;
             const existingIndex = lobby.players.findIndex(p => String(p.id) === String(uid));
             existing.team = this.getPlayerTeam(lobby.config, existingIndex);
-            try { await this.save(); } catch (e) { console.warn("[LobbyManager] save after rejoin failed:", e); }
+            try { await this.persistLobby(code); } catch (e) { console.warn("[LobbyManager] save after rejoin failed:", e); }
           } else {
             existing.connected = true;
           }
@@ -659,6 +702,11 @@ export default class LobbyManager {
       const code = codeRaw.trim().toUpperCase();
       const lobby = this.lobbies[code];
       if (!lobby) return;
+      if (!this.ensureSessionAuthenticated(socket, false) || !this.isLobbyMember(lobby, socket)) {
+        console.warn(`[LobbyManager] request-lobby-data denied for ${socket.id}: not a member of ${code}`);
+        socket.emit("lobby-data-denied", { code, reason: "not_member" });
+        return;
+      }
       socket.emit("lobby-data", {
         code,
         players: this.attachLobbyTeams(lobby.players, lobby.config),
@@ -673,6 +721,17 @@ export default class LobbyManager {
       const code = (payload && payload.code) ? String(payload.code).trim().toUpperCase() : null;
       if (!code) return;
       const game = this.activeGames[code];
+      const lobbySnapshot = this.lobbies[code];
+      if (!this.ensureSessionAuthenticated(socket, false)) {
+        socket.emit("game-state-denied", { code, reason: "unauthenticated" });
+        return;
+      }
+      const isMember = (game && this.isGameMember(game, socket)) || (lobbySnapshot && this.isLobbyMember(lobbySnapshot, socket));
+      if (!isMember) {
+        console.warn(`[LobbyManager] request-game-state denied for ${socket.id}: not a member of ${code}`);
+        socket.emit("game-state-denied", { code, reason: "not_member" });
+        return;
+      }
       if (!game) {
         // return lobby snapshot if game not started
         const lobby = this.lobbies[code];
@@ -756,7 +815,7 @@ export default class LobbyManager {
           };
         }
         
-        try { await this.save(); } catch (e) { console.warn("[LobbyManager] save after toggle-ready failed:", e); }
+        try { await this.persistLobby(code); } catch (e) { console.warn("[LobbyManager] save after toggle-ready failed:", e); }
         this.broadcastLobbyUpdate(code);
       } catch (err) {
         console.error('[LobbyManager] Error in toggle-ready:', err);
@@ -796,7 +855,7 @@ export default class LobbyManager {
           activeGame.players[playerIndex].team = safeTeam;
         }
 
-        await this.save();
+        await this.persistLobby(code);
         this.broadcastLobbyUpdate(code);
         if (activeGame) {
           this.emitGameState(code);
@@ -1065,6 +1124,19 @@ export default class LobbyManager {
     socket.on("game-finished", async (codeRaw) => {
       if (!codeRaw || typeof codeRaw !== "string") return;
       const code = codeRaw.trim().toUpperCase();
+
+      // Only an authenticated member of this lobby/game may tear it down.
+      const lobby = this.lobbies[code];
+      const game = this.activeGames[code];
+      if (!lobby && !game) return;
+
+      const authenticated = this.ensureSessionAuthenticated(socket, false);
+      const isMember = (lobby && this.isLobbyMember(lobby, socket)) || (game && this.isGameMember(game, socket));
+      if (!authenticated || !isMember) {
+        console.warn(`[LobbyManager] game-finished rejected for ${socket.id}: not a member of ${code}`);
+        socket.emit("game-finished-denied", { code, reason: "not_member" });
+        return;
+      }
 
       await this.deleteLobby(code);
       this.io.to(code).emit("lobby-deleted", { code });

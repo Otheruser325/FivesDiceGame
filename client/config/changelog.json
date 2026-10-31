@@ -2,6 +2,22 @@
   "title": "Fives - Changelog",
   "entries": [
     {
+      "version": "1.3.1",
+      "date": "31/10/2026",
+      "tags": [
+        "Release",
+        "Fixes",
+        "Security"
+      ],
+      "changes": [
+        "Online lobbies are now private: only players in a lobby can read or change its state.",
+        "Sign-in can no longer be redirected to another site or started from a third-party page.",
+        "Dice rolls use a cryptographic random source, so past rolls no longer predict future ones.",
+        "The leaderboard is cached and rate limited, keeping the server responsive under load.",
+        "Container health checks now follow the configured PORT instead of assuming 8080."
+      ]
+    },
+    {
       "version": "1.3.0",
       "date": "13/04/2026",
       "tags": [

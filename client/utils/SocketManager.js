@@ -86,19 +86,59 @@ function _shouldAllowLegacyVercelFallback() {
   }
 }
 
+function _parseServerOrigin(value) {
+  try {
+    const url = new URL(String(value).trim());
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    return _norm(url.origin);
+  } catch (e) {
+    return null;
+  }
+}
+
+function _isTrustedServerOrigin(origin) {
+  if (!origin) return false;
+  try {
+    if (_isLocalHost(new URL(origin).hostname)) return true;
+  } catch (e) {
+    return false;
+  }
+  const known = [RENDER_API_SERVER, LEGACY_VERCEL_API_SERVER, CUSTOM_API_SERVER].map(_norm);
+  if (known.includes(origin)) return true;
+  try {
+    if (window.location.origin && _norm(window.location.origin) === origin) return true;
+  } catch (e) {
+    // ignore
+  }
+  return false;
+}
+
+// `?server=` (and window.__FIVES_API_SERVER__) is honoured only for origins we
+// already trust. Otherwise a link like ?server=https://attacker.tld would make
+// the client send the guest password and session cookies to that host.
 function _getExplicitServerOverride() {
   try {
     if (typeof window === 'undefined') return null;
 
+    const candidates = [];
     const fromWindow = window.__FIVES_API_SERVER__;
     if (typeof fromWindow === 'string' && fromWindow.trim()) {
-      return _norm(fromWindow.trim());
+      candidates.push(fromWindow.trim());
     }
 
     const qp = new URLSearchParams(window.location.search || '');
     const fromQuery = qp.get('server');
     if (fromQuery) {
-      return _norm(fromQuery);
+      candidates.push(fromQuery);
+    }
+
+    for (const candidate of candidates) {
+      const origin = _parseServerOrigin(candidate);
+      if (!origin || !_isTrustedServerOrigin(origin)) {
+        console.warn('[SocketManager] Ignoring untrusted server override:', candidate);
+        continue;
+      }
+      return origin;
     }
   } catch (e) {
     // ignore

@@ -1,11 +1,11 @@
 {
   "name": "fivesdicegame",
-  "version": "1.0.0",
+  "version": "1.3.1",
   "type": "module",
   "description": "A simple yet popular dice game that can be played locally or interally.",
   "main": "index.js",
   "scripts": {
-	  "start": "node server/index.js",
+    "start": "node server/index.js",
     "dev": "nodemon --watch server --watch client --exec node server/index.js --delay 200",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

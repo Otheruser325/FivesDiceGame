@@ -74,7 +74,7 @@ async function _runSupabaseStartupCheck() {
 // ⚠️ CRITICAL: Log Supabase initialization status on startup
 console.log('[lobbyStorage] Supabase initialization:');
 console.log('  SUPABASE_URL:', SUPA_URL ? `✅ Set (${SUPA_URL.substring(0, 30)}...)` : '❌ MISSING');
-console.log('  SUPABASE_SERVICE_ROLE_KEY:', SUPA_KEY ? `✅ Set (${SUPA_KEY.substring(0, 20)}...)` : '❌ MISSING');
+console.log('  SUPABASE_SERVICE_ROLE_KEY:', SUPA_KEY ? '✅ Set (redacted)' : '❌ MISSING');
 
 if (SUPA_URL && SUPA_KEY) {
   try {

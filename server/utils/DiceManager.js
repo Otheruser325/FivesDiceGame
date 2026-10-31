@@ -1,9 +1,13 @@
+import { randomInt } from 'node:crypto';
 import { checkCombo } from './ComboManager.js';
 
+// Dice are server-authoritative, so they must come from a CSPRNG: Math.random()
+// state is recoverable from a handful of outputs, which would let a player
+// predict every future roll in the match.
 export function rollDice(count = 5, sides = 6) {
   const safeCount = Math.max(0, count | 0);
   const safeSides = Math.max(2, sides | 0);
-  return Array.from({ length: safeCount }, () => Math.floor(Math.random() * safeSides) + 1);
+  return Array.from({ length: safeCount }, () => randomInt(1, safeSides + 1));
 }
 
 export function getBaseScore(dice = [], multiplexEnabled = false) {

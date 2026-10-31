@@ -14,6 +14,12 @@
 
 import { loadUser, saveUser, loadUsers } from './userStorage.js';
 
+const LEADERBOARD_SORTS = ['total', 'highest', 'combos', 'wins', 'best'];
+// cached sorted board; concurrent reads share one scan per TTL
+const LEADERBOARD_CACHE_TTL_MS = Number(process.env.LEADERBOARD_CACHE_TTL_MS || 20000);
+const leaderboardCache = new Map();
+const leaderboardInFlight = new Map();
+
 const COMBO_CATEGORIES = {
   TRIPLE: 'triple',              // Three of a kind
   FOUR_OF_A_KIND: 'fourOfAKind', // Four of a kind
@@ -140,6 +146,8 @@ export class LeaderboardManager {
       const comboCount = Array.isArray(combosInGame) 
         ? combosInGame.length 
         : (combosInGame ? Object.values(combosInGame).reduce((sum, v) => sum + (v || 0), 0) : 0);
+      // stats changed, drop the cache
+      leaderboardCache.clear();
       console.log(`[LeaderboardManager] Updated stats for ${userId}: +${finalScore} pts, combos: ${comboCount}`);
     } catch (err) {
       console.error(`[LeaderboardManager] Failed to update stats for ${userId}:`, err.message);
@@ -152,9 +160,24 @@ export class LeaderboardManager {
    * @param {string} sortBy - Sort key: 'total', 'highest', 'combos', 'wins', 'best'
    * @returns {Promise<Array>} Array of top players with formatted stats
    */
-  static async getTopPlayers(limit = 10, sortBy = 'total') {
-    try {
-      const allUsers = await loadUsers();
+  static _normalizeSort(sortBy) {
+    const value = String(sortBy || '').trim().toLowerCase();
+    return LEADERBOARD_SORTS.includes(value) ? value : 'total';
+  }
+
+  static async _loadSortedEntries(sortBy = 'total') {
+    const key = this._normalizeSort(sortBy);
+    const cached = leaderboardCache.get(key);
+    if (cached && (Date.now() - cached.at) < LEADERBOARD_CACHE_TTL_MS) {
+      return cached.entries;
+    }
+
+    const pending = leaderboardInFlight.get(key);
+    if (pending) return pending;
+
+    const task = (async () => {
+      try {
+        const allUsers = await loadUsers();
       
       // ✅ FIX: Convert object map to array if needed
       // loadUsers() returns object map {userId: user, userId2: user2, ...} not an array
@@ -201,18 +224,31 @@ export class LeaderboardManager {
       console.log(`[LeaderboardManager] Found ${leaderboardEntries.length} players with stats`);
 
       // Sort based on requested metric
-      const sorted = this._sortLeaderboard(leaderboardEntries, sortBy);
+      const sorted = this._sortLeaderboard(leaderboardEntries, key);
+      leaderboardCache.set(key, { at: Date.now(), entries: sorted });
+      return sorted;
+      } catch (err) {
+        console.error('[LeaderboardManager] Failed to get top players:', err.message || err);
+        return [];
+      }
+    })();
 
-      // Return top N with rankings
-      return sorted.slice(0, limit).map((entry, idx) => ({
-        rank: idx + 1,
-        ...entry
-      }));
-    } catch (err) {
-      console.error('[LeaderboardManager] Failed to get top players:', err.message || err);
-      console.error('[LeaderboardManager] Stack:', err.stack);
-      return [];
+    leaderboardInFlight.set(key, task);
+    try {
+      return await task;
+    } finally {
+      leaderboardInFlight.delete(key);
     }
+  }
+
+  static async getTopPlayers(limit = 10, sortBy = 'total') {
+    const entries = await this._loadSortedEntries(sortBy);
+    const safeLimit = Math.max(0, Number(limit) || 0);
+
+    return entries.slice(0, safeLimit).map((entry, idx) => ({
+      rank: idx + 1,
+      ...entry
+    }));
   }
 
   /**
@@ -223,8 +259,9 @@ export class LeaderboardManager {
    */
   static async getPlayerRank(userId, sortBy = 'total') {
     try {
-      const topPlayers = await this.getTopPlayers(10000, sortBy);
-      const playerEntry = topPlayers.find(p => p.id === userId);
+      // reuse the cached board
+      const entries = await this._loadSortedEntries(sortBy);
+      const playerEntry = entries.find(p => p.id === userId);
 
       if (!playerEntry) {
         return null;
@@ -232,7 +269,7 @@ export class LeaderboardManager {
 
       return {
         rank: playerEntry.rank,
-        totalPlayers: topPlayers.length,
+        totalPlayers: entries.length,
         ...playerEntry
       };
     } catch (err) {
