@@ -1,5 +1,5 @@
 import { getSocket, getServerUrl, probeHealth, connectTo, emitAuthUser, fetchWithServerFallback } from '../utils/SocketManager.js';
-import { getFreshOAuthCachedUser } from '../utils/authRedirect.js';
+import { getFreshOAuthCachedUser, saveCachedUser } from '../utils/authRedirect.js';
 import GlobalAlerts from '../utils/AlertManager.js';
 import GlobalAudio from '../utils/AudioManager.js';
 import ErrorHandler from '../utils/ErrorManager.js';
@@ -237,7 +237,7 @@ export default class OnlineMenuScene extends Phaser.Scene {
                 // Adopt it directly instead of re-checking the session, which can
                 // report signed out while cross-site cookies are blocked.
                 this.user = user;
-                localStorage.setItem('fives_user', JSON.stringify(user));
+                saveCachedUser(user);
                 try { emitAuthUser(user); } catch (e) { /* ignore */ }
             } else {
                 await this.refreshAuth();
@@ -660,7 +660,7 @@ export default class OnlineMenuScene extends Phaser.Scene {
                             socket.userId = this.user.id;
                             console.log('[OnlineMenuScene] Set socket.userId from server auth:', socket.userId);
                         }
-                        localStorage.setItem('fives_user', JSON.stringify(this.user));
+                        saveCachedUser(this.user);
                         return;
                     }
 

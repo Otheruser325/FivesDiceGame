@@ -63,14 +63,24 @@ function readCachedUser() {
   }
 }
 
-function writeCachedUser(user) {
+// Writes the account cache without ever throwing. Storage can be disabled or
+// full (Safari private mode, quota errors); a failed cache write must not turn a
+// login the server already completed into an error.
+export function saveCachedUser(user) {
   const storage = getLocalStorage();
-  if (!storage) return;
+  if (!storage) return false;
+  const safeUser = sanitizeUser(user);
+  if (!safeUser) return false;
   try {
-    storage.setItem('fives_user', JSON.stringify(user));
+    storage.setItem('fives_user', JSON.stringify(safeUser));
+    return true;
   } catch (e) {
-    // ignore unavailable storage
+    return false;
   }
+}
+
+function writeCachedUser(user) {
+  saveCachedUser(user);
 }
 
 export function clearOAuthRedirectNotice() {

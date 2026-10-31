@@ -787,6 +787,33 @@ function applyOAuthSessionCookiePolicy(req) {
   cookie.httpOnly = true;
 }
 
+// A callback that never responds looks like a failed login to the provider even
+// though the account is linked. Bound the session write so a degraded store
+// cannot hold the completion response forever; the handoff ticket is already
+// registered and does not depend on this write.
+function saveSessionBeforeCompletion(req, logPrefix, done) {
+  const configured = Number(process.env.OAUTH_SESSION_SAVE_TIMEOUT_MS);
+  const timeoutMs = Number.isFinite(configured) && configured > 0 ? configured : 2500;
+  let settled = false;
+
+  const finish = (error) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    if (error) {
+      console.error(`${logPrefix} Session save before completion failed:`, error?.message || error);
+    }
+    done();
+  };
+
+  const timer = setTimeout(() => finish(new Error(`timed out after ${timeoutMs}ms`)), timeoutMs);
+  try {
+    req.session.save((saveErr) => finish(saveErr));
+  } catch (err) {
+    finish(err);
+  }
+}
+
 export function completeOAuthSuccess(req, res, provider, user, logPrefix) {
   const send = () => {
     if (isPopupOAuthState(req)) {
@@ -820,14 +847,9 @@ export function completeOAuthSuccess(req, res, provider, user, logPrefix) {
     return send();
   }
 
-  // Persist the session before telling the client the login succeeded; a slow
-  // store must not produce a completion page whose cookie is not saved yet.
-  req.session.save((saveErr) => {
-    if (saveErr) {
-      console.error(`${logPrefix} Session save before completion failed:`, saveErr?.message || saveErr);
-    }
-    send();
-  });
+  // Persist the session before telling the client the login succeeded, but do
+  // not wait on a broken store indefinitely.
+  return saveSessionBeforeCompletion(req, logPrefix, send);
 }
 
 async function saveOAuthUserOrThrow(user, providerField) {
@@ -1321,7 +1343,10 @@ router.get(
               });
             } catch (fallbackErr) {
               console.error('[Discord callback] All session save attempts failed:', fallbackErr?.message || fallbackErr);
-              return sendOAuthFailure(req, res, 'discord', 'Discord sign in failed. Please try again.');
+              // The account is linked and req.login succeeded. Complete the
+              // sign-in anyway so the popup/handoff can deliver it; do not turn
+              // a session-store problem into a false "sign in failed".
+              return completeOAuthSuccess(req, res, 'discord', user, '[Discord callback]');
             }
           }
           

@@ -3,7 +3,7 @@ import GlobalAudio from '../utils/AudioManager.js';
 import ErrorHandler from '../utils/ErrorManager.js';
 import GlobalLocalization from '../utils/LocalizationManager.js';
 import DebugManager from '../utils/DebugManager.js';
-import { markOAuthSuccess, getFreshOAuthCachedUser } from '../utils/authRedirect.js';
+import { markOAuthSuccess, getFreshOAuthCachedUser, saveCachedUser } from '../utils/authRedirect.js';
 
 const t = (key, fallback) => GlobalLocalization.t(key, fallback);
 const tf = (key, fallback, ...args) => GlobalLocalization.format(key, fallback, ...args);
@@ -789,13 +789,18 @@ export default class OnlineAccountScene extends Phaser.Scene {
       // acknowledgement it may reload this window, and that reload must not lose
       // a login that already succeeded.
       markOAuthSuccess(this.oauthExpectedProvider || pendingUser.type, pendingUser);
-      localStorage.setItem('fives_user', JSON.stringify(pendingUser));
+      saveCachedUser(pendingUser);
       this.user = pendingUser;
 
-      const confirmedUser = await this._waitForOAuthSession(3000, 350, {
-        expectedUserId: pendingUser?.id,
-        ignorePopupClosed: true
-      }).catch(() => null);
+      // The popup/claim response is already authoritative. Do not let a slow or
+      // hanging session check hold the success UI hostage.
+      const confirmedUser = await Promise.race([
+        this._waitForOAuthSession(3000, 350, {
+          expectedUserId: pendingUser?.id,
+          ignorePopupClosed: true
+        }).catch(() => null),
+        new Promise((resolve) => setTimeout(() => resolve(null), 3300))
+      ]);
 
       // The popup response is authoritative for this window: it came from our
       // popup on the API origin. The session check can fail while third-party
@@ -809,7 +814,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
       this._clearOAuthState(true);
 
-      localStorage.setItem('fives_user', JSON.stringify(resolvedUser));
+      saveCachedUser(resolvedUser);
       this.user = resolvedUser;
       if (this.debugger) this.debugger.log('oauth login success', { id: resolvedUser?.id, type: resolvedUser?.type });
 

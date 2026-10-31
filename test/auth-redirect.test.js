@@ -5,7 +5,8 @@ import {
   markOAuthSuccess,
   getRecentOAuthSuccess,
   getFreshOAuthCachedUser,
-  clearOAuthRedirectNotice
+  clearOAuthRedirectNotice,
+  saveCachedUser
 } from '../client/utils/authRedirect.js';
 
 function installBrowser({ href, user = null } = {}) {
@@ -136,6 +137,20 @@ test('a redirect does not revive a cached account from another provider', () => 
   assert.equal(notice.status, 'success');
   assert.equal(notice.user, undefined);
   assert.equal(getFreshOAuthCachedUser(), null);
+});
+
+test('a blocked localStorage cannot turn a completed login into an error', () => {
+  installBrowser({ href: 'https://play.fivesdicegame.com/' });
+  globalThis.localStorage.setItem = () => {
+    throw new Error('QuotaExceededError');
+  };
+  const user = { id: 'u1', name: 'Ada', type: 'google' };
+
+  // Both the explicit cache write and the marker write run after the server has
+  // already authenticated the player; neither may throw.
+  assert.equal(saveCachedUser(user), false);
+  assert.doesNotThrow(() => markOAuthSuccess('google', user));
+  assert.equal(getFreshOAuthCachedUser()?.id, 'u1');
 });
 
 test('a stale popup marker cannot keep a cached user signed in', () => {

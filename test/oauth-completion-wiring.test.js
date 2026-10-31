@@ -57,6 +57,25 @@ test('a popup completion hands the login to a claimable ticket and never redirec
   );
 });
 
+test('a hung session store cannot block the OAuth completion response', async () => {
+  clearOAuthHandoffs();
+  const nonce = crypto.randomBytes(24).toString('base64url');
+  const req = fakeRequest({ mode: 'popup', nonce });
+  req.session.save = () => { /* a broken store never calls back */ };
+  const res = fakeResponse();
+
+  process.env.OAUTH_SESSION_SAVE_TIMEOUT_MS = '40';
+  try {
+    completeOAuthSuccess(req, res, 'google', USER, '[test]');
+    await new Promise((resolve) => setTimeout(resolve, 120));
+  } finally {
+    delete process.env.OAUTH_SESSION_SAVE_TIMEOUT_MS;
+  }
+
+  assert.equal(res.statusCode, 200, 'the callback must still answer');
+  assert.ok(String(res.body).includes('fives-oauth-success'));
+});
+
 test('a popup completion that cannot register a handoff still returns the completion page', () => {
   clearOAuthHandoffs();
   const req = fakeRequest({ mode: 'popup', nonce: null });
