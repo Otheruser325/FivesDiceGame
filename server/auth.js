@@ -684,7 +684,8 @@ function isPopupOAuthState(req) {
 function sendOAuthPopupCompletionPage(req, res, provider, user) {
   const redirectUrl = buildPostAuthRedirect(req, provider);
   const stateContext = getOAuthStateContext(req);
-  const openerOrigin = stateContext.clientOrigin || normalizeOrigin(redirectUrl) || normalizeOrigin(req?.headers?.origin);
+  const candidateOpener = stateContext.clientOrigin || normalizeOrigin(redirectUrl) || normalizeOrigin(req?.headers?.origin);
+  const openerOrigin = isAllowedAuthOrigin(candidateOpener) ? normalizeOrigin(candidateOpener) : null;
   const payload = {
     type: 'fives-oauth-success',
     provider,

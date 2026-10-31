@@ -27,6 +27,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
     this.loginUserInput = null;
     this.loginPassInput = null;
     this.oauthPopup = null;
+    this.oauthLoginInProgress = false;
     this.oauthPollTimer = null;
     this.oauthServerBase = null;
     this.oauthExpectedProvider = null;
@@ -505,8 +506,8 @@ export default class OnlineAccountScene extends Phaser.Scene {
       const onMessage = (event) => {
         const eventOrigin = normalizeServerBase(event?.origin || '');
         if (!eventOrigin || !allowedOrigins.has(eventOrigin)) return;
-        // Only the popup we opened may complete this login.
-        if (this.oauthPopup && event?.source && event.source !== this.oauthPopup) return;
+        // Only the popup opened for this attempt may complete the login.
+        if (!this.oauthPopup || !event?.source || event.source !== this.oauthPopup) return;
 
         const data = event?.data;
         if (!data || typeof data !== 'object') return;
@@ -525,7 +526,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
       }, timeoutMs);
 
       closeWatchId = setInterval(() => {
-        if (this.oauthPopup && this.oauthPopup.closed) {
+        if (!this.oauthPopup || this.oauthPopup.closed) {
           fail(new Error('OAuth popup closed before login finished'));
         }
       }, 250);
@@ -571,6 +572,13 @@ export default class OnlineAccountScene extends Phaser.Scene {
   }
 
   async oauthLogin(url) {
+    if (this.oauthLoginInProgress) {
+      if (this.oauthPopup && !this.oauthPopup.closed) {
+        try { this.oauthPopup.focus(); } catch (e) { /* ignore */ }
+      }
+      return;
+    }
+    this.oauthLoginInProgress = true;
     try {
       if (this.debugger) this.debugger.log('oauth login start', { url });
       this._clearOAuthState(true);
@@ -588,7 +596,8 @@ export default class OnlineAccountScene extends Phaser.Scene {
       const popupUrl = `${server.replace(/\/$/, '')}${popupUrlPath.startsWith('/') ? '' : '/'}${popupUrlPath}`;
       const topLevelUrl = popupUrl;
       const popupFeatures = 'popup=yes,width=520,height=720,menubar=no,toolbar=no,status=no,resizable=yes,scrollbars=yes';
-      this.oauthPopup = window.open(popupUrl, 'fives_oauth', popupFeatures);
+      const popupName = `fives_oauth_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      this.oauthPopup = window.open(popupUrl, popupName, popupFeatures);
 
       // Popup blocked: fallback to top-level redirect (required for OAuth on strict browsers).
       if (!this.oauthPopup || typeof this.oauthPopup.closed === 'undefined') {
@@ -654,6 +663,8 @@ export default class OnlineAccountScene extends Phaser.Scene {
 
       const msg = err.message || t('ACCOUNT_NETWORK_ERROR_FALLBACK', 'Could not connect to server');
       alert(tf('ACCOUNT_NETWORK_ERROR', 'Network error: {0}', msg));
+    } finally {
+      this.oauthLoginInProgress = false;
     }
   }
 
