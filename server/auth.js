@@ -287,8 +287,17 @@ async function findOAuthUser(providerField, providerName, providerId) {
     if (byDeterministicId) return byDeterministicId;
   }
 
-  // Backward-compatible lookup: legacy rows keyed by oauth field.
-  const users = await loadUsers();
+  // Backward-compatible lookup: legacy rows keyed by oauth field. A failure
+  // here must not reject an otherwise valid OAuth callback; the deterministic
+  // id lookup above already covers accounts created by the current flow.
+  let users;
+  try {
+    users = await loadUsers();
+  } catch (err) {
+    console.warn('[OAuth] Legacy user lookup failed; continuing with a new account:', err?.message || err);
+    return null;
+  }
+
   return (
     Object.values(users || {}).find(
       (u) => String(u?.[providerField] || '') === normalizedProviderId
@@ -873,32 +882,41 @@ async function saveOAuthUserOrThrow(user, providerField) {
     throw new Error('Invalid OAuth user payload');
   }
 
-  const saved = await saveUser(user);
-  const persisted = await loadUser(saved.id);
-  if (!persisted) {
-    // saveUser already stores the record in the memory cache and logs any
-    // durable-storage failure. A failed read-back must not turn a completed
-    // account creation into a false "sign in failed" response.
-    console.warn('[OAuth] Saved OAuth user could not be re-read; continuing with the saved record', {
-      userId: saved.id
-    });
-    return saved;
-  }
-
-  if (providerField && saved[providerField] && persisted[providerField] !== saved[providerField]) {
-    const repaired = { ...persisted, [providerField]: saved[providerField] };
-    await saveUser(repaired);
-    const verified = await loadUser(saved.id);
-    if (verified && verified[providerField] === saved[providerField]) {
-      return verified;
+  // Persistence is best-effort here. The provider has already verified the
+  // identity and the account is in the in-memory cache, so a Supabase or local
+  // storage error must not turn a completed login into "sign in failed".
+  let saved = user;
+  try {
+    saved = await saveUser(user);
+    const persisted = await loadUser(saved.id);
+    if (!persisted) {
+      console.warn('[OAuth] Saved OAuth user could not be re-read; continuing with the saved record', {
+        userId: saved.id
+      });
+      return saved;
     }
-    console.warn(`[OAuth] Persisted user missing ${providerField}; continuing with deterministic OAuth ID`, {
-      userId: saved.id
-    });
-    return verified || persisted;
-  }
 
-  return persisted;
+    if (providerField && saved[providerField] && persisted[providerField] !== saved[providerField]) {
+      const repaired = { ...persisted, [providerField]: saved[providerField] };
+      await saveUser(repaired);
+      const verified = await loadUser(saved.id);
+      if (verified && verified[providerField] === saved[providerField]) {
+        return verified;
+      }
+      console.warn(`[OAuth] Persisted user missing ${providerField}; continuing with deterministic OAuth ID`, {
+        userId: saved.id
+      });
+      return verified || persisted;
+    }
+
+    return persisted;
+  } catch (err) {
+    console.error('[OAuth] User persistence failed; continuing with the in-memory OAuth user', {
+      userId: saved?.id || user.id,
+      error: err?.message || err
+    });
+    return saved || user;
+  }
 }
 
 // ----------------- GOOGLE OAUTH -----------------

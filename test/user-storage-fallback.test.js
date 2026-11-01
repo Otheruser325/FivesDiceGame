@@ -13,7 +13,7 @@ process.env.USER_DATA_FILE = tempDir;
 process.env.SUPABASE_URL = '';
 process.env.SUPABASE_SERVICE_ROLE_KEY = '';
 
-const { saveUser, loadUser } = await import('../server/utils/userStorage.js');
+const { saveUser, loadUser, loadUsers } = await import('../server/utils/userStorage.js');
 
 test('a new OAuth user survives a local persistence failure via the memory cache', async () => {
   const id = randomUUID();
@@ -37,6 +37,11 @@ test('a new OAuth user survives a local persistence failure via the memory cache
   const loaded = await loadUser(id);
   assert.equal(loaded?.id, id);
   assert.equal(loaded?.type, 'discord');
+
+  // OAuth account lookup falls back to loadUsers(); it must also survive the
+  // unreadable local file instead of rejecting the provider callback.
+  const users = await loadUsers();
+  assert.equal(users[id]?.type, 'discord');
 });
 
 after(() => {

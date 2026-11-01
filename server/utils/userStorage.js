@@ -358,8 +358,13 @@ export async function loadUsers() {
     }
   }
 
-  // Local fallback
-  await usersDb.read();
+  // Local fallback. A corrupt or unreadable local DB must not fail OAuth
+  // account lookup; the memory cache may already hold the user.
+  try {
+    await usersDb.read();
+  } catch (err) {
+    console.warn('[userStorage] Local loadUsers read failed, continuing with in-memory cache:', err?.message || err);
+  }
   usersDb.data ||= {};
   usersDb.data.users ||= {};
   return _mergeMemoryUsers({ ...(usersDb.data.users || {}) });
