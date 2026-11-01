@@ -24,11 +24,13 @@ let prodBase;
 let provider;
 let providerOrigin;
 let dataDir;
+let appChild;
 
 const providerState = {
   googleId: 'google-e2e-user',
   discordId: '123456789012345678',
   failTokenFor: null,
+  failTokenBody: null,
   failUserinfoFor: null,
   tokenRequests: [],
   userinfoRequests: [],
@@ -37,6 +39,7 @@ const providerState = {
 
 function resetProviderState() {
   providerState.failTokenFor = null;
+  providerState.failTokenBody = null;
   providerState.failUserinfoFor = null;
   providerState.tokenRequests.length = 0;
   providerState.userinfoRequests.length = 0;
@@ -99,6 +102,10 @@ function startFakeProvider() {
         authorization: req.headers.authorization || null
       });
       if (providerState.failTokenFor === providerName) {
+        if (providerState.failTokenBody !== null) {
+          res.writeHead(403, { 'Content-Type': 'text/plain' });
+          return res.end(providerState.failTokenBody);
+        }
         return sendJson(400, {
           error: 'invalid_grant',
           error_description: 'authorization code was already used'
@@ -343,6 +350,8 @@ before(async () => {
     OAUTH_SESSION_SAVE_TIMEOUT_MS: '1500'
   });
 
+  appChild = app;
+
   const prodApp = startApp(prodPort, {
     NODE_ENV: 'production',
     SESSION_SECRET: 'oauth-flow-prod-secret',
@@ -492,6 +501,7 @@ test('full-page Google flow redirects to the exact tab URL and registers no popu
 test('a provider token failure renders a popup error and publishes a terminal claim', async () => {
   resetProviderState();
   providerState.failTokenFor = 'google';
+  const logStart = appChild.output.length;
 
   const flow = await beginFlow('google');
   const { callbackResponse, cookie } = await completeFlow(flow);
@@ -516,6 +526,44 @@ test('a provider token failure renders a popup error and publishes a terminal cl
   assert.equal(body.ok, false);
   assert.match(body.error, /Google sign in failed/i);
   assert.equal((await claimLogin(flow.nonce)).status, 401, 'a failure ticket was claimable twice');
+
+  let log = '';
+  for (let attempt = 0; attempt < 20; attempt++) {
+    log = appChild.output.slice(logStart).join('');
+    if (log.includes('[Google callback] Authentication error:')) break;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.match(log, /TokenError/);
+  assert.match(log, /oauthCode: 'invalid_grant'/);
+  assert.ok(!log.includes('authorization code was already used'), 'provider response leaked into logs');
+});
+
+test('Discord token transport errors log safe diagnostics without provider response text', async () => {
+  resetProviderState();
+  providerState.failTokenFor = 'discord';
+  providerState.failTokenBody = 'error code: 1010 PRIVATE_RESPONSE_MARKER';
+  const logStart = appChild.output.length;
+
+  const flow = await beginFlow('discord');
+  const { callbackResponse } = await completeFlow(flow);
+  const html = await callbackResponse.text();
+  assert.equal(payloadOf(html).type, 'fives-oauth-error');
+  assert.ok(!html.includes('PRIVATE_RESPONSE_MARKER'));
+  assert.match((await (await claimLogin(flow.nonce)).json()).error, /Discord sign in failed/i);
+
+  // Child-process output is delivered asynchronously relative to the response.
+  let log = '';
+  for (let attempt = 0; attempt < 20; attempt++) {
+    log = appChild.output.slice(logStart).join('');
+    if (log.includes('[Discord callback] Authentication error:')) break;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.match(log, /InternalOAuthError/);
+  assert.match(log, /httpStatus: 403/);
+  assert.match(log, /cloudflareCode: 1010/);
+  assert.ok(!log.includes('PRIVATE_RESPONSE_MARKER'), 'provider response leaked into logs');
+  assert.ok(!log.includes('discord-authorization-code'), 'authorization code leaked into logs');
+  assert.ok(!log.includes('test-discord-client-secret'), 'client secret leaked into logs');
 });
 
 test('a cancelled Discord authorization is terminal instead of leaving the tab waiting', async () => {

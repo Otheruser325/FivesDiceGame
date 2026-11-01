@@ -919,6 +919,28 @@ async function saveOAuthUserOrThrow(user, providerField) {
   }
 }
 
+// Passport wraps token transport errors in oauthError; never log the raw
+// provider response, which may contain credentials or authorization codes.
+function logOAuthAuthenticationError(provider, err) {
+  const names = new Set(['InternalOAuthError', 'TokenError', 'AuthorizationError', 'Error']);
+  const oauthCodes = new Set(['invalid_request', 'invalid_client', 'invalid_grant', 'unauthorized_client', 'unsupported_grant_type', 'invalid_scope', 'access_denied', 'server_error', 'temporarily_unavailable']);
+  const networkCodes = new Set(['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'CERT_HAS_EXPIRED', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE']);
+  const safeMessages = new Set(['Failed to obtain access token', 'Failed to fetch user profile', 'Failed to parse user profile', 'Invalid Google profile id', 'Invalid Discord user response']);
+  const cause = err?.oauthError;
+  const status = Number(cause?.statusCode);
+  const details = {
+    name: names.has(err?.name) ? err.name : 'OtherError',
+    message: safeMessages.has(err?.message) ? err.message : undefined,
+    oauthCode: oauthCodes.has(err?.code) ? err.code : undefined,
+    httpStatus: Number.isInteger(status) && status >= 100 && status <= 599 ? status : undefined,
+    networkCode: networkCodes.has(cause?.code) ? cause.code : undefined
+  };
+  // Only identify known Cloudflare error numbers, never log the response text.
+  if (typeof cause?.data === 'string' && /\berror code:\s*1010\b/i.test(cause.data)) details.cloudflareCode = 1010;
+  if (typeof cause?.data === 'string' && /\berror code:\s*1020\b/i.test(cause.data)) details.cloudflareCode = 1020;
+  console.error(`[${provider} callback] Authentication error:`, details);
+}
+
 // ----------------- GOOGLE OAUTH -----------------
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   passport.use(
@@ -1231,7 +1253,7 @@ router.get(
 
     passport.authenticate("google", { callbackURL }, (err, user) => {
       if (err) {
-        console.error('[Google callback] Authentication error:', err?.message || err);
+        logOAuthAuthenticationError('Google', err);
         return sendOAuthFailure(req, res, 'google', 'Google sign in failed. Please try again.');
       }
 
@@ -1337,7 +1359,7 @@ router.get(
     // Add custom error handler for Discord auth
     passport.authenticate("discord", { callbackURL }, (err, user, info) => {
       if (err) {
-        console.error('[Discord callback] Authentication error:', err?.message || err);
+        logOAuthAuthenticationError('Discord', err);
         return sendOAuthFailure(req, res, 'discord', 'Discord sign in failed. Please try again.');
       }
       
