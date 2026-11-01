@@ -10,7 +10,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Lowdb (local fallback) setup - with in-memory cache
-const usersFile = path.join(__dirname, "../data/users.json");
+// The fallback file can be moved outside the source tree for tests or a host
+// with a writable data volume. Deployments keep the existing default.
+const usersFile = process.env.USER_DATA_FILE
+  ? path.resolve(process.env.USER_DATA_FILE)
+  : path.join(__dirname, "../data/users.json");
 const usersAdapter = new JSONFile(usersFile);
 const usersDb = new Low(usersAdapter);
 usersDb.data = { users: {} };

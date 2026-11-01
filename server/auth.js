@@ -249,6 +249,17 @@ const DEFAULT_RENDER_DISCORD_CALLBACK_URL = 'https://fivesapi.onrender.com/auth/
 const DISCORD_CALLBACK_URL = process.env.DISCORD_CALLBACK_URL || DISCORD_CALLBACK_PATH;
 const OAUTH_USER_ID_NAMESPACE = 'd6e3e4be-9493-47e9-ab88-46fbcfef5c4a';
 
+// End-to-end tests point the real strategies at a fake provider. Only the test
+// environment may do that: a stray variable in development, staging or
+// production cannot redirect a token exchange away from the provider.
+function providerEndpoint(envName, fallback) {
+  if (process.env.NODE_ENV !== 'test') return fallback;
+  const override = typeof process.env[envName] === 'string' ? process.env[envName].trim() : '';
+  return /^https?:\/\//i.test(override) ? override : fallback;
+}
+
+const DISCORD_USERINFO_URL = providerEndpoint('DISCORD_USERINFO_URL', 'https://discord.com/api/users/@me');
+
 function normalizeOAuthProviderId(providerId) {
   const normalized = String(providerId || '').trim();
   return normalized || null;
@@ -888,6 +899,9 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         clientID: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
         callbackURL: resolveOAuthCallbackUrl('google'),
+        authorizationURL: providerEndpoint('GOOGLE_AUTHORIZATION_URL', 'https://accounts.google.com/o/oauth2/v2/auth'),
+        tokenURL: providerEndpoint('GOOGLE_TOKEN_URL', 'https://www.googleapis.com/oauth2/v4/token'),
+        userProfileURL: providerEndpoint('GOOGLE_USERINFO_URL', 'https://www.googleapis.com/oauth2/v3/userinfo'),
       },
       async (accessToken, refreshToken, profile, done) => {
         try {
@@ -944,8 +958,8 @@ if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
     "discord",
     new OAuth2Strategy(
       {
-        authorizationURL: "https://discord.com/api/oauth2/authorize",
-        tokenURL: "https://discord.com/api/oauth2/token",
+        authorizationURL: providerEndpoint('DISCORD_AUTHORIZATION_URL', 'https://discord.com/api/oauth2/authorize'),
+        tokenURL: providerEndpoint('DISCORD_TOKEN_URL', 'https://discord.com/api/oauth2/token'),
         clientID: process.env.DISCORD_CLIENT_ID,
         clientSecret: process.env.DISCORD_CLIENT_SECRET,
         callbackURL: DISCORD_CALLBACK_URL,
@@ -953,7 +967,7 @@ if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
       },
       async (accessToken, refreshToken, params, done) => {
         try {
-          const response = await fetch("https://discord.com/api/users/@me", {
+          const response = await fetch(DISCORD_USERINFO_URL, {
             headers: { Authorization: `Bearer ${accessToken}` },
             signal: AbortSignal.timeout(5000)
           });

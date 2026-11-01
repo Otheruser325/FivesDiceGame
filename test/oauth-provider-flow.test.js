@@ -1,0 +1,612 @@
+import test, { before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import http from 'node:http';
+import net from 'node:net';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+
+// End-to-end regression tests for the Google and Discord OAuth flows. Only the
+// provider is fake: the app's real Passport strategies, token exchange, profile
+// fetch, session, popup completion page, redirect builder and handoff claim
+// endpoint all run unchanged.
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const SERVER_DIR = path.join(ROOT, 'server');
+const CLIENT_ORIGIN = 'http://127.0.0.1:43210';
+const OTHER_LOCAL_ORIGIN = 'http://127.0.0.1:43211';
+
+const children = [];
+let appBase;
+let prodBase;
+let provider;
+let providerOrigin;
+let dataDir;
+
+const providerState = {
+  googleId: 'google-e2e-user',
+  discordId: '123456789012345678',
+  failTokenFor: null,
+  failUserinfoFor: null,
+  tokenRequests: [],
+  userinfoRequests: [],
+  authorizeRequests: []
+};
+
+function resetProviderState() {
+  providerState.failTokenFor = null;
+  providerState.failUserinfoFor = null;
+  providerState.tokenRequests.length = 0;
+  providerState.userinfoRequests.length = 0;
+  providerState.authorizeRequests.length = 0;
+}
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(port));
+    });
+  });
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
+function startFakeProvider() {
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url || '/', 'http://127.0.0.1');
+    const providerName = url.pathname.startsWith('/discord') ? 'discord' : 'google';
+    const sendJson = (status, body) => {
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(body));
+    };
+
+    if (url.pathname.endsWith('/authorize')) {
+      const redirectUri = url.searchParams.get('redirect_uri');
+      const state = url.searchParams.get('state');
+      providerState.authorizeRequests.push({
+        provider: providerName,
+        redirectUri,
+        state,
+        scope: url.searchParams.get('scope')
+      });
+      if (!redirectUri) return sendJson(400, { error: 'invalid_request' });
+
+      const target = new URL(redirectUri);
+      target.searchParams.set('code', `${providerName}-authorization-code`);
+      if (state) target.searchParams.set('state', state);
+      res.writeHead(302, { Location: target.toString() });
+      res.end();
+      return;
+    }
+
+    if (url.pathname.endsWith('/token') && req.method === 'POST') {
+      const form = new URLSearchParams(await readBody(req));
+      providerState.tokenRequests.push({
+        provider: providerName,
+        form,
+        authorization: req.headers.authorization || null
+      });
+      if (providerState.failTokenFor === providerName) {
+        return sendJson(400, {
+          error: 'invalid_grant',
+          error_description: 'authorization code was already used'
+        });
+      }
+      return sendJson(200, {
+        access_token: `${providerName}-access-token`,
+        refresh_token: `${providerName}-refresh-token`,
+        token_type: 'Bearer',
+        expires_in: 3600
+      });
+    }
+
+    if (url.pathname === '/google/userinfo') {
+      providerState.userinfoRequests.push({
+        provider: 'google',
+        authorization: req.headers.authorization || null,
+        // passport-google-oauth20 sends the token as a query parameter rather
+        // than a Bearer header.
+        accessToken: url.searchParams.get('access_token')
+      });
+      if (providerState.failUserinfoFor === 'google') {
+        return sendJson(500, { error: 'server_error' });
+      }
+      return sendJson(200, {
+        sub: providerState.googleId,
+        name: 'Google Tester',
+        given_name: 'Google',
+        family_name: 'Tester',
+        picture: 'https://example.com/google-avatar.png',
+        email: 'google-tester@example.com',
+        email_verified: true
+      });
+    }
+
+    if (url.pathname === '/discord/users/@me') {
+      providerState.userinfoRequests.push({
+        provider: 'discord',
+        authorization: req.headers.authorization || null
+      });
+      if (providerState.failUserinfoFor === 'discord') {
+        return sendJson(500, { error: 'server_error' });
+      }
+      return sendJson(200, {
+        id: providerState.discordId,
+        username: 'discord_tester',
+        avatar: null
+      });
+    }
+
+    sendJson(404, { error: 'not_found' });
+  });
+
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => {
+      resolve({ server, origin: `http://127.0.0.1:${server.address().port}` });
+    });
+  });
+}
+
+function startApp(port, extraEnv) {
+  // The server reads the fallback store during startup, so the file must exist
+  // before it is spawned.
+  fs.writeFileSync(path.join(dataDir, `users-${port}.json`), JSON.stringify({ users: {} }), 'utf8');
+
+  const child = spawn(process.execPath, ['index.js'], {
+    cwd: SERVER_DIR,
+    env: {
+      ...process.env,
+      NODE_ENV: 'test',
+      SESSION_SECRET: 'oauth-flow-test-secret',
+      PORT: String(port),
+      USER_DATA_FILE: path.join(dataDir, `users-${port}.json`),
+      SUPABASE_URL: '',
+      SUPABASE_SERVICE_ROLE_KEY: '',
+      REDIS_URL: '',
+      CLIENT_ORIGINS: CLIENT_ORIGIN,
+      GOOGLE_CLIENT_ID: 'test-google-client-id',
+      GOOGLE_CLIENT_SECRET: 'test-google-client-secret',
+      DISCORD_CLIENT_ID: 'test-discord-client-id',
+      DISCORD_CLIENT_SECRET: 'test-discord-client-secret',
+      GOOGLE_CALLBACK_URL: '',
+      DISCORD_CALLBACK_URL: '',
+      AUTH_SUCCESS_REDIRECT_URL: '',
+      GAME_CLIENT_URL: '',
+      ...extraEnv
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  child.output = [];
+  child.stdout.on('data', (chunk) => child.output.push(String(chunk)));
+  child.stderr.on('data', (chunk) => child.output.push(String(chunk)));
+  children.push(child);
+
+  return child;
+}
+
+async function waitForHealth(base, child) {
+  for (let attempt = 0; attempt < 160; attempt += 1) {
+    if (child.exitCode !== null) {
+      throw new Error(`server exited early:\n${child.output.join('')}`);
+    }
+    try {
+      const res = await fetch(`${base}/health`);
+      if (res.ok) return;
+    } catch (e) {
+      // not listening yet
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`server at ${base} never became healthy:\n${child.output.join('')}`);
+}
+
+function cookieFrom(res) {
+  const cookies = typeof res.headers.getSetCookie === 'function'
+    ? res.headers.getSetCookie()
+    : [res.headers.get('set-cookie')].filter(Boolean);
+  return cookies.map((cookie) => String(cookie).split(';')[0]).join('; ');
+}
+
+function payloadOf(html) {
+  const match = String(html).match(/var payload = (\{.*?\});/s);
+  assert.ok(match, 'completion page did not embed a payload');
+  return JSON.parse(match[1]);
+}
+
+function newNonce() {
+  return crypto.randomBytes(24).toString('base64url');
+}
+
+async function beginFlow(providerName, options = {}) {
+  const {
+    mode = 'popup',
+    clientPath = '/play/?room=ABC#lobby',
+    clientOrigin = CLIENT_ORIGIN
+  } = options;
+
+  const nonce = newNonce();
+  const clientState = `popup.${Buffer.from(JSON.stringify({
+    clientOrigin,
+    clientPath,
+    mode,
+    clientNonce: nonce
+  }), 'utf8').toString('base64url')}`;
+
+  const start = await fetch(`${appBase}/auth/${providerName}?state=${encodeURIComponent(clientState)}`, {
+    redirect: 'manual',
+    headers: { Origin: clientOrigin }
+  });
+  assert.equal(start.status, 302, 'authorize request did not redirect');
+
+  const cookie = cookieFrom(start);
+  assert.ok(cookie.includes('fives.sid='), 'authorize response did not set a session cookie');
+
+  const authorizeLocation = start.headers.get('location');
+  assert.ok(authorizeLocation, 'authorize response has no location');
+  const authorizeUrl = new URL(authorizeLocation);
+  assert.equal(authorizeUrl.origin, providerOrigin, 'authorize request left the configured provider');
+
+  const redirectUri = authorizeUrl.searchParams.get('redirect_uri');
+  const providerStateValue = authorizeUrl.searchParams.get('state');
+  assert.ok(providerStateValue, 'authorize URL lost the state');
+  assert.ok(!providerStateValue.includes(nonce), 'the handoff nonce leaked into the provider');
+
+  return {
+    provider: providerName,
+    nonce,
+    cookie,
+    clientState,
+    authorizeLocation,
+    authorizeUrl,
+    redirectUri,
+    providerState: providerStateValue,
+    mode,
+    clientOrigin,
+    clientPath
+  };
+}
+
+async function completeFlow(flow, { deny = false } = {}) {
+  let callbackLocation;
+
+  if (deny) {
+    const url = new URL(flow.redirectUri);
+    url.searchParams.set('error', 'access_denied');
+    url.searchParams.set('error_description', 'The user denied access');
+    url.searchParams.set('state', flow.providerState);
+    callbackLocation = url.toString();
+  } else {
+    const providerResponse = await fetch(flow.authorizeLocation, { redirect: 'manual' });
+    assert.equal(providerResponse.status, 302, 'fake provider did not redirect to the callback');
+    callbackLocation = providerResponse.headers.get('location');
+    assert.ok(callbackLocation, 'fake provider sent no callback location');
+  }
+
+  const callbackResponse = await fetch(callbackLocation, {
+    redirect: 'manual',
+    headers: { Cookie: flow.cookie }
+  });
+  const updatedCookie = cookieFrom(callbackResponse);
+
+  return {
+    callbackResponse,
+    callbackLocation,
+    cookie: updatedCookie.includes('fives.sid=') ? updatedCookie : flow.cookie
+  };
+}
+
+async function claimLogin(nonce, origin = CLIENT_ORIGIN) {
+  return fetch(`${appBase}/auth/oauth/claim`, {
+    method: 'POST',
+    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nonce })
+  });
+}
+
+async function sessionUser(cookie) {
+  const res = await fetch(`${appBase}/auth/me`, { headers: { Cookie: cookie } });
+  assert.equal(res.status, 200);
+  return res.json();
+}
+
+before(async () => {
+  provider = await startFakeProvider();
+  providerOrigin = provider.origin;
+
+  dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fives-oauth-flow-'));
+
+  const appPort = await freePort();
+  const prodPort = await freePort();
+  appBase = `http://127.0.0.1:${appPort}`;
+  prodBase = `http://127.0.0.1:${prodPort}`;
+
+  const app = startApp(appPort, {
+    PUBLIC_SERVER_URL: appBase,
+    GOOGLE_AUTHORIZATION_URL: `${providerOrigin}/google/authorize`,
+    GOOGLE_TOKEN_URL: `${providerOrigin}/google/token`,
+    GOOGLE_USERINFO_URL: `${providerOrigin}/google/userinfo`,
+    DISCORD_AUTHORIZATION_URL: `${providerOrigin}/discord/authorize`,
+    DISCORD_TOKEN_URL: `${providerOrigin}/discord/token`,
+    DISCORD_USERINFO_URL: `${providerOrigin}/discord/users/@me`,
+    OAUTH_SESSION_SAVE_TIMEOUT_MS: '1500'
+  });
+
+  const prodApp = startApp(prodPort, {
+    NODE_ENV: 'production',
+    SESSION_SECRET: 'oauth-flow-prod-secret',
+    PUBLIC_SERVER_URL: 'https://fivesapi.onrender.com',
+    GOOGLE_AUTHORIZATION_URL: 'http://127.0.0.1:1/must-not-be-used',
+    DISCORD_AUTHORIZATION_URL: 'http://127.0.0.1:1/must-not-be-used'
+  });
+
+  await Promise.all([waitForHealth(appBase, app), waitForHealth(prodBase, prodApp)]);
+});
+
+after(async () => {
+  for (const child of children) {
+    try { child.kill('SIGTERM'); } catch (e) { /* already gone */ }
+  }
+  if (provider?.server) {
+    await new Promise((resolve) => {
+      provider.server.closeAllConnections?.();
+      provider.server.close(resolve);
+    });
+  }
+  if (dataDir) fs.rmSync(dataDir, { recursive: true, force: true });
+});
+
+test('Google popup: real exchange, completion page, session, and single-use handoff', async () => {
+  resetProviderState();
+
+  const flow = await beginFlow('google');
+  const { callbackResponse, cookie } = await completeFlow(flow);
+
+  assert.equal(callbackResponse.status, 200);
+  assert.match(callbackResponse.headers.get('content-type') || '', /text\/html/i);
+  const html = await callbackResponse.text();
+  const payload = payloadOf(html);
+
+  assert.equal(payload.type, 'fives-oauth-success');
+  assert.equal(payload.provider, 'google');
+  assert.equal(payload.user.type, 'google');
+  assert.equal(payload.user.name, 'Google Tester');
+  assert.equal(payload.user.avatar, 'https://example.com/google-avatar.png');
+  assert.ok(payload.user.id);
+  assert.ok(html.includes(`var openerOrigin = "${CLIENT_ORIGIN}"`));
+  assert.ok(!html.includes('window.location.replace'), 'popup navigates itself into the game');
+  assert.ok(!html.includes('window.opener.location'), 'popup navigates the opener');
+  assert.ok(!html.includes('google-access-token'), 'provider token leaked into the page');
+  assert.ok(!html.includes('test-google-client-secret'), 'client secret leaked into the page');
+  assert.ok(!html.includes('google-tester@example.com'), 'provider email leaked into the page');
+
+  const tokenRequest = providerState.tokenRequests.find((entry) => entry.provider === 'google');
+  assert.ok(tokenRequest, 'the server never exchanged the authorization code');
+  assert.equal(tokenRequest.form.get('grant_type'), 'authorization_code');
+  assert.equal(tokenRequest.form.get('code'), 'google-authorization-code');
+  assert.equal(tokenRequest.form.get('redirect_uri'), `${appBase}/auth/google/callback`);
+  assert.equal(tokenRequest.form.get('client_id'), 'test-google-client-id');
+
+  const profileRequest = providerState.userinfoRequests.find((entry) => entry.provider === 'google');
+  assert.ok(profileRequest, 'the server never fetched the Google profile');
+  assert.equal(profileRequest.accessToken, 'google-access-token');
+
+  const me = await sessionUser(cookie);
+  assert.equal(me.ok, true);
+  assert.equal(me.user.id, payload.user.id);
+  assert.equal(me.user.type, 'google');
+
+  // A claim from another origin must not burn the ticket.
+  const wrongOrigin = await claimLogin(flow.nonce, OTHER_LOCAL_ORIGIN);
+  assert.equal(wrongOrigin.status, 401);
+
+  const claim = await claimLogin(flow.nonce);
+  assert.equal(claim.status, 200);
+  const claimed = await claim.json();
+  assert.equal(claimed.ok, true);
+  assert.equal(claimed.user.id, payload.user.id);
+  assert.ok(!('email' in claimed.user), 'claim leaked the provider email');
+  assert.ok(!('oauthGoogle' in claimed.user), 'claim leaked the provider account id');
+
+  assert.equal((await claimLogin(flow.nonce)).status, 401, 'a ticket was claimable twice');
+  assert.equal((await claimLogin(flow.nonce, 'https://evil.example')).status, 403);
+});
+
+test('Discord popup: real exchange, stable account on repeat, and claimable handoff', async () => {
+  resetProviderState();
+
+  const flow = await beginFlow('discord');
+  const { callbackResponse, cookie } = await completeFlow(flow);
+
+  assert.equal(callbackResponse.status, 200);
+  const html = await callbackResponse.text();
+  const payload = payloadOf(html);
+
+  assert.equal(payload.type, 'fives-oauth-success');
+  assert.equal(payload.provider, 'discord');
+  assert.equal(payload.user.type, 'discord');
+  assert.equal(payload.user.name, 'discord_tester');
+  assert.ok(payload.user.id);
+  assert.ok(!('avatar' in payload.user), 'null avatar should be omitted');
+
+  const tokenRequest = providerState.tokenRequests.find((entry) => entry.provider === 'discord');
+  assert.ok(tokenRequest);
+  assert.equal(tokenRequest.form.get('code'), 'discord-authorization-code');
+  assert.equal(tokenRequest.form.get('redirect_uri'), `${appBase}/auth/discord/callback`);
+  const profileRequest = providerState.userinfoRequests.find((entry) => entry.provider === 'discord');
+  assert.ok(profileRequest);
+  assert.equal(profileRequest.authorization, 'Bearer discord-access-token');
+
+  const me = await sessionUser(cookie);
+  assert.equal(me.ok, true);
+  assert.equal(me.user.id, payload.user.id);
+
+  const claim = await claimLogin(flow.nonce);
+  assert.equal(claim.status, 200);
+  assert.equal((await claim.json()).user.id, payload.user.id);
+
+  const second = await beginFlow('discord');
+  const secondResult = await completeFlow(second);
+  const secondPayload = payloadOf(await secondResult.callbackResponse.text());
+  assert.equal(secondPayload.user.id, payload.user.id, 'repeat login created a duplicate account');
+  assert.equal((await claimLogin(second.nonce)).status, 200);
+
+  const stored = JSON.parse(fs.readFileSync(path.join(dataDir, `users-${new URL(appBase).port}.json`), 'utf8'));
+  const discordUsers = Object.values(stored.users || {}).filter((user) => user.type === 'discord');
+  assert.equal(discordUsers.length, 1, 'repeat login persisted more than one Discord user');
+});
+
+test('full-page Google flow redirects to the exact tab URL and registers no popup ticket', async () => {
+  resetProviderState();
+
+  const flow = await beginFlow('google', {
+    mode: 'top',
+    clientPath: '/FivesDiceGame/?room=ABC#lobby'
+  });
+  const { callbackResponse, cookie } = await completeFlow(flow);
+
+  assert.equal(callbackResponse.status, 302);
+  const location = callbackResponse.headers.get('location') || '';
+  assert.ok(location.startsWith(`${CLIENT_ORIGIN}/FivesDiceGame/?room=ABC&auth=success`), location);
+  assert.ok(location.endsWith('#lobby'), location);
+  assert.match(location, /provider=google/);
+  assert.ok(!location.includes('code='), 'the callback leaked the authorization code');
+  assert.ok(!location.includes('access-token'), 'the callback leaked the provider token');
+
+  const me = await sessionUser(cookie);
+  assert.equal(me.ok, true);
+  assert.equal((await claimLogin(flow.nonce)).status, 401, 'a top-level flow left a claimable ticket');
+});
+
+test('a provider token failure renders a popup error and publishes a terminal claim', async () => {
+  resetProviderState();
+  providerState.failTokenFor = 'google';
+
+  const flow = await beginFlow('google');
+  const { callbackResponse, cookie } = await completeFlow(flow);
+
+  assert.equal(callbackResponse.status, 200);
+  const html = await callbackResponse.text();
+  const payload = payloadOf(html);
+
+  assert.equal(payload.type, 'fives-oauth-error');
+  assert.equal(payload.provider, 'google');
+  assert.match(payload.error, /Google sign in failed/i);
+  assert.ok(!html.includes('window.location.replace'), 'error popup navigated into the game');
+  assert.ok(!html.includes('invalid_grant'), 'raw provider error leaked into the page');
+  assert.ok(!html.includes('authorization code was already used'), 'provider description leaked into the page');
+
+  const me = await sessionUser(cookie);
+  assert.equal(me.ok, false, 'a failed exchange must not create a session');
+
+  const claim = await claimLogin(flow.nonce);
+  assert.equal(claim.status, 200);
+  const body = await claim.json();
+  assert.equal(body.ok, false);
+  assert.match(body.error, /Google sign in failed/i);
+  assert.equal((await claimLogin(flow.nonce)).status, 401, 'a failure ticket was claimable twice');
+});
+
+test('a cancelled Discord authorization is terminal instead of leaving the tab waiting', async () => {
+  resetProviderState();
+
+  const flow = await beginFlow('discord');
+  const { callbackResponse, cookie } = await completeFlow(flow, { deny: true });
+
+  assert.equal(callbackResponse.status, 200);
+  const payload = payloadOf(await callbackResponse.text());
+  assert.equal(payload.type, 'fives-oauth-error');
+  assert.equal(payload.provider, 'discord');
+  assert.equal(payload.error, 'Discord login failed');
+  assert.equal(providerState.tokenRequests.length, 0, 'a denied authorization still attempted a token exchange');
+
+  assert.equal((await sessionUser(cookie)).ok, false);
+
+  const claim = await claimLogin(flow.nonce);
+  assert.equal(claim.status, 200);
+  const body = await claim.json();
+  assert.equal(body.ok, false);
+  assert.equal(body.error, 'Discord login failed');
+  assert.equal((await claimLogin(flow.nonce)).status, 401);
+});
+
+test('a replayed callback is rejected without consuming the valid handoff', async () => {
+  resetProviderState();
+
+  const flow = await beginFlow('google');
+  const first = await completeFlow(flow);
+  assert.equal(first.callbackResponse.status, 200);
+  assert.equal(payloadOf(await first.callbackResponse.text()).type, 'fives-oauth-success');
+
+  const replay = await fetch(first.callbackLocation, {
+    redirect: 'manual',
+    headers: { Cookie: first.cookie }
+  });
+  assert.equal(replay.status, 200);
+  const replayPayload = payloadOf(await replay.text());
+  assert.equal(replayPayload.type, 'fives-oauth-error');
+  assert.match(replayPayload.error, /session expired/i);
+
+  const claim = await claimLogin(flow.nonce);
+  assert.equal(claim.status, 200, 'the replay consumed the original login');
+  assert.equal((await claim.json()).ok, true);
+  assert.equal((await sessionUser(first.cookie)).ok, true);
+});
+
+test('concurrent claims deliver the login exactly once', async () => {
+  resetProviderState();
+
+  const flow = await beginFlow('google');
+  const { callbackResponse } = await completeFlow(flow);
+  assert.equal(payloadOf(await callbackResponse.text()).type, 'fives-oauth-success');
+
+  const [first, second] = await Promise.all([
+    claimLogin(flow.nonce),
+    claimLogin(flow.nonce)
+  ]);
+  assert.deepEqual([first.status, second.status].sort(), [200, 401]);
+  const winner = first.status === 200 ? first : second;
+  assert.equal((await winner.json()).ok, true);
+});
+
+test('a hostile client origin cannot receive the login or a handoff ticket', async () => {
+  resetProviderState();
+
+  const flow = await beginFlow('google', { clientOrigin: 'https://evil.example' });
+  const { callbackResponse } = await completeFlow(flow);
+  assert.equal(callbackResponse.status, 200);
+
+  const html = await callbackResponse.text();
+  const payload = payloadOf(html);
+  assert.equal(payload.type, 'fives-oauth-success');
+  assert.ok(!html.includes('evil.example'), 'completion page reflected the hostile origin');
+  assert.ok(html.includes('var openerOrigin = ""'), 'completion page kept a target for a hostile origin');
+
+  assert.equal((await claimLogin(flow.nonce)).status, 401, 'a hostile-start flow left a claimable ticket');
+  assert.equal((await claimLogin(flow.nonce, 'https://evil.example')).status, 403);
+});
+
+test('production ignores provider endpoint overrides', async () => {
+  const google = await fetch(`${prodBase}/auth/google?state=popup`, { redirect: 'manual' });
+  assert.equal(google.status, 302);
+  const googleLocation = google.headers.get('location') || '';
+  assert.match(googleLocation, /^https:\/\/accounts\.google\.com\//);
+  assert.ok(!googleLocation.includes('127.0.0.1:1'), googleLocation);
+
+  const discord = await fetch(`${prodBase}/auth/discord?state=popup`, { redirect: 'manual' });
+  assert.equal(discord.status, 302);
+  const discordLocation = discord.headers.get('location') || '';
+  assert.match(discordLocation, /^https:\/\/discord\.com\//);
+  assert.ok(!discordLocation.includes('127.0.0.1:1'), discordLocation);
+});
