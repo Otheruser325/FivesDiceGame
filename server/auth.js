@@ -265,6 +265,10 @@ function normalizeOAuthProviderId(providerId) {
   return normalized || null;
 }
 
+// Provider identity is keyed on provider + immutable provider id, never on an
+// email address. Two providers that report the same email still produce two
+// separate accounts; automatic email linking would let one provider claim the
+// other's account and is intentionally not implemented.
 function buildOAuthUserId(provider, providerId) {
   const normalizedProvider = String(provider || 'oauth').trim().toLowerCase();
   const normalizedProviderId = normalizeOAuthProviderId(providerId);
@@ -872,7 +876,13 @@ async function saveOAuthUserOrThrow(user, providerField) {
   const saved = await saveUser(user);
   const persisted = await loadUser(saved.id);
   if (!persisted) {
-    throw new Error('OAuth user persistence verification failed');
+    // saveUser already stores the record in the memory cache and logs any
+    // durable-storage failure. A failed read-back must not turn a completed
+    // account creation into a false "sign in failed" response.
+    console.warn('[OAuth] Saved OAuth user could not be re-read; continuing with the saved record', {
+      userId: saved.id
+    });
+    return saved;
   }
 
   if (providerField && saved[providerField] && persisted[providerField] !== saved[providerField]) {

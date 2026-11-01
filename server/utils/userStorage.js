@@ -528,68 +528,29 @@ export async function saveUser(user) {
   if (supabase) {
     try {
       console.log('[userStorage] Attempting to save user to Supabase...');
-      
-      // ⚠️ Upsert with proper data serialization
-      // Supabase expects all fields including id, and will use RLS policies
-      // Service role key bypasses RLS, so this should always work if table exists
-      const { data, error } = await _withTimeout(
-        supabase
-          .from('users')
-          .upsert([row], { onConflict: 'id' })
-          .select(),
-        SUPABASE_OPERATION_TIMEOUT_MS,
+
+      // Reuse the same missing-column recovery as saveUsers. Older Supabase
+      // deployments can lack optional OAuth columns; dropping only the
+      // unsupported column lets a first-time OAuth login persist instead of
+      // silently becoming a process-local account.
+      const { data, removedColumns } = await _upsertUsersWithColumnFallback(
+        [row],
         'Supabase saveUser'
       );
-      
-      // Check for RLS/policy errors vs table errors
-      if (error) {
-        const errorMsg = error?.message || String(error);
-        const errorCode = error?.code || '';
-        
-        // RLS Policy errors - service role should bypass these, but log them
-        if (errorCode === 'PGRST116' || errorMsg.includes('new row violates row-level security')) {
-          console.error('[userStorage] ⚠️ RLS POLICY BLOCKING: Service role cannot write to users table');
-          console.error('[userStorage] Error details:', { code: errorCode, message: errorMsg });
-          console.error('[userStorage] Fix: Check Supabase RLS policies, ensure service role has INSERT permission');
-        }
-        // Table/schema missing errors
-        else if (errorCode === '42P01' || errorMsg.includes('does not exist') ||
-                 errorMsg.includes('relation') || errorMsg.includes('schema')) {
-          console.warn('[userStorage] Table "users" missing in Supabase, data will persist in memory only');
-          console.warn('[userStorage] To fix: Run "npm run migrate" to create the users table');
-        }
-        // Column missing errors
-        else if (errorCode === '42703' || errorMsg.includes('column') && errorMsg.includes('does not exist')) {
-          console.error('[userStorage] ⚠️ COLUMN MISSING in Supabase users table:', errorMsg);
-          console.error('[userStorage] To fix: Run "npm run migrate" to update the table schema');
-        }
-        // Authorization/credential errors
-        else if (errorCode === '401' || errorMsg.includes('Unauthorized') || errorMsg.includes('invalid') && errorMsg.includes('JWT')) {
-          console.error('[userStorage] ⚠️ SUPABASE AUTH ERROR: Invalid service role key');
-          console.error('[userStorage] Fix: Verify SUPABASE_SERVICE_ROLE_KEY environment variable');
-        }
-        // Connection/network errors
-        else if (errorMsg.includes('Failed to fetch') || errorMsg.includes('network') || errorMsg.includes('timeout')) {
-          console.warn('[userStorage] Network error connecting to Supabase, data cached locally');
-        }
-        // Unexpected errors
-        else {
-          console.error('[userStorage] Supabase saveUser error:', { code: errorCode, message: errorMsg });
-        }
-        throw error;
-      }
-      
-      // Verify the data was actually saved by reading it back
+
       if (data && data.length > 0) {
+        if (removedColumns.size > 0) {
+          console.warn('[userStorage] Saved user without unsupported columns:', [...removedColumns].join(', '));
+        }
         const saved = _rowToUser(data[0]);
         console.info('[userStorage] ✅ Successfully saved user', user.id, 'to Supabase');
         console.log('[userStorage] Verification - saved user data:', { id: saved.id, name: saved.name, type: saved.type });
         supabaseSuccess = true;
         return saved;
-      } else {
-        console.warn('[userStorage] Supabase returned no data after save, falling back to local');
-        throw new Error('No data returned from Supabase after save');
       }
+
+      console.warn('[userStorage] Supabase returned no data after save, falling back to local');
+      throw new Error('No data returned from Supabase after save');
     } catch (err) {
       // Supabase failed - data is cached in memory, try local fallback
       console.warn('[userStorage] Supabase write failed, falling back to local cache:', err?.message || err);
@@ -597,21 +558,26 @@ export async function saveUser(user) {
     }
   }
 
-  // Local fallback write
+  // Local fallback write. A read/write failure here must not turn an account
+  // that is already in the memory cache into a failed OAuth registration.
   console.log('[userStorage] Saving user to local fallback...');
-  await usersDb.read();
-  usersDb.data ||= {};
-  usersDb.data.users ||= {};
-  usersDb.data.users[String(row.id)] = row;
-  
-  // Try to write to filesystem (may fail on Vercel)
   try {
-    await _safeLocalWrite();
-    console.info('[userStorage] ✅ Saved user to local DB');
-    localSuccess = true;
+    await usersDb.read();
+    usersDb.data ||= {};
+    usersDb.data.users ||= {};
+    usersDb.data.users[String(row.id)] = row;
+
+    // Try to write to filesystem (may fail on serverless/read-only hosts)
+    try {
+      await _safeLocalWrite();
+      console.info('[userStorage] ✅ Saved user to local DB');
+      localSuccess = true;
+    } catch (err) {
+      // Write to filesystem failed - but we have it in memory cache, so it's ok
+      console.warn('[userStorage] Local write failed, but user cached in memory:', err?.message);
+    }
   } catch (err) {
-    // Write to filesystem failed - but we have it in memory cache, so it's ok
-    console.warn('[userStorage] Local write failed, but user cached in memory:', err?.message);
+    console.warn('[userStorage] Local fallback read/write failed, but user is cached in memory:', err?.message);
   }
   
   // Verify the user can be retrieved from cache
