@@ -11,25 +11,17 @@
     <!-- Favicon -->
     <link rel="icon" type="image/ico" href="favicon.ico" />
 
-    <!-- Phaser CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/phaser@3/dist/phaser.min.js"></script>
-    <!-- Socket.io client library - loaded dynamically from correct server -->
+    <!-- Pin CDN bytes so a changed dependency cannot execute unnoticed. -->
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.90.0/dist/phaser.min.js" integrity="sha384-AvQiDMZAVLda3VtAoU5MCfBz8pzXhteb2CiUJeKBmPlWzpXj1uJ96Km11+YuFNu/" crossorigin="anonymous"></script>
+    <!-- Socket.IO fallbacks must pass the same integrity check. -->
     <script>
       // Determine server URL and load socket.io from there
       (function() {
-        // Try multiple paths to load socket.io.
-        // IMPORTANT: CDN first in production to avoid backend script endpoint outages.
-        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-        const paths = isLocalhost ? [
-          'https://cdn.socket.io/4.8.1/socket.io.min.js',
-          '/socket.io/socket.io.min.js',
-          '/socket.io.js',
-          'http://localhost:8080/socket.io/socket.io.min.js',
-          'http://localhost:8080/socket.io.js'
-        ] : [
+        const paths = [
           'https://cdn.socket.io/4.8.1/socket.io.min.js',
           'https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.8.1/socket.io.min.js'
         ];
+        const integrity = 'sha384-mkQ3/7FUtcGyoppY6bz/PORYoGqOl7/aSUMn2ymDOJcapfS6PHqxhRTMh1RR0Q6+';
         
         let loaded = false;
         const loadSocketIO = (index) => {
@@ -45,6 +37,8 @@
           const script = document.createElement('script');
           const path = paths[index];
           script.src = path;
+          script.integrity = integrity;
+          script.crossOrigin = 'anonymous';
           
           script.onload = () => {
             loaded = true;

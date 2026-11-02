@@ -557,6 +557,68 @@ test('a fresh socket handshake picks up a completed Google session and rejects i
   }
 });
 
+test('malformed socket payloads do not crash the server and logout revokes existing sockets', async () => {
+  const guestResponse = await fetch(`${appBase}/auth/guest/register`, {
+    method: 'POST', headers: { Origin: CLIENT_ORIGIN, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: 'sample-password' })
+  });
+  const guest = await guestResponse.json();
+  assert.equal(guest.ok, true);
+  const cookie = cookieFrom(guestResponse);
+  const socket = createSocket(appBase, { transports: ['websocket'], extraHeaders: { Cookie: cookie }, forceNew: true, reconnection: false });
+  const once = (name) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${name}`)), 5000);
+    socket.once(name, value => { clearTimeout(timer); resolve(value); });
+  });
+  try {
+    const auth = once('auth-success');
+    assert.equal((await auth).user.id, guest.user.id);
+    for (const name of ['player-roll', 'player-end-turn', 'player-timeout', 'team-changed']) socket.emit(name, null);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal((await fetch(`${appBase}/health`)).status, 200);
+    const disconnected = once('disconnect');
+    const logout = await fetch(`${appBase}/auth/logout`, { method: 'POST', headers: { Origin: CLIENT_ORIGIN, Cookie: cookie } });
+    assert.equal((await logout.json()).ok, true);
+    await disconnected;
+    assert.equal((await sessionUser(cookie)).ok, false);
+    assert.equal(appChild.exitCode, null);
+  } finally { socket.close(); }
+});
+
+test('leaderboard response rate limit is shared across HTTP, socket connections and reconnects', async () => {
+  const socket = createSocket(appBase, { transports: ['websocket'], forceNew: true, reconnection: false });
+  const once = (name) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${name}`)), 5000);
+    socket.once(name, value => { clearTimeout(timer); resolve(value); });
+  });
+  try {
+    await once('connect');
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const first = await fetch(`${appBase}/leaderboard?sortBy=total`);
+    assert.equal(first.status, 200);
+    const board = await first.json();
+    assert.ok(board.topPlayers.length <= 100);
+    assert.equal(board.sortBy, 'total');
+    const denied = await fetch(`${appBase}/leaderboard?sortBy=wins`);
+    assert.equal(denied.status, 429);
+    assert.equal(denied.headers.get('retry-after'), '1');
+    const blocked = once('leaderboard-error');
+    socket.emit('get-leaderboard', { sortBy: 'total' });
+    assert.match(await blocked, /Too many/);
+    socket.disconnect();
+    const connected = once('connect');
+    socket.connect();
+    await connected;
+    const stillBlocked = once('leaderboard-error');
+    socket.emit('get-leaderboard', { sortBy: 'total' });
+    assert.match(await stillBlocked, /Too many/);
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    const resumed = await fetch(`${appBase}/leaderboard?sortBy=total`);
+    assert.equal(resumed.status, 200);
+    assert.deepEqual((await resumed.json()).topPlayers, board.topPlayers);
+  } finally { socket.close(); }
+});
+
 test('both providers exchange the exact callback selected at start, even if the callback host differs', async () => {
   for (const providerName of ['google', 'discord']) {
     resetProviderState();

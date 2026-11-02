@@ -338,6 +338,50 @@ io.use(wrapSocketMiddleware(sessionMiddleware));
 io.use(wrapSocketMiddleware(passport.initialize()));
 io.use(wrapSocketMiddleware(passport.session()));
 
+// Passport regenerates the session during logout. Disconnect every socket
+// using the old session, including idle sockets receiving room broadcasts.
+app.set('revokeSessionSockets', (sessionId) => {
+  if (sessionId) io.in(`session:${sessionId}`).disconnectSockets(true);
+});
+io.use((socket, next) => {
+  if (socket.request.sessionID) socket.join(`session:${socket.request.sessionID}`);
+  next();
+});
+
+// A socket's handshake user is only a snapshot. Reload the backing session for
+// every packet from an authenticated socket so logout, expiry or revocation
+// cannot leave an already-open socket authorized.
+io.use((socket, next) => {
+  const originalUserId = socket.request.user?.id;
+  let checks = Promise.resolve();
+  socket.use((packet, done) => {
+    if (!originalUserId) return done();
+    // Socket.IO middleware runs concurrently for separate packets. Serialize
+    // session checks so slow store responses cannot reorder game actions.
+    checks = checks.then(() => new Promise((resolve) => {
+      const session = socket.request.session;
+      if (!socket.connected || !session || typeof session.reload !== 'function') {
+        if (socket.connected) socket.disconnect(true);
+        done(new Error('Session unavailable'));
+        return resolve();
+      }
+      session.reload((err) => {
+        const current = socket.request.session;
+        const expires = current?.cookie?.expires ? new Date(current.cookie.expires).getTime() : null;
+        if (!socket.connected || err || !current?.passport?.user || String(current.passport.user) !== String(originalUserId) ||
+            (expires !== null && (!Number.isFinite(expires) || expires <= Date.now()))) {
+          if (socket.connected) socket.disconnect(true);
+          done(new Error('Session expired'));
+        } else {
+          done();
+        }
+        resolve();
+      });
+    }));
+  });
+  next();
+});
+
 // CORS middleware
 app.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -378,29 +422,35 @@ app.use((req, res, next) => {
 app.use('/auth', authRouter);
 
 // throttle public board reads so one client can't force repeated full-table scans
-const LEADERBOARD_RATE_WINDOW_MS = 60 * 1000;
-const LEADERBOARD_RATE_MAX_REQUESTS = 30;
+const LEADERBOARD_RATE_WINDOW_MS = 1000;
+const LEADERBOARD_MAX_BUCKETS = 2000;
 const LEADERBOARD_SORT_OPTIONS = ['total', 'highest', 'combos', 'wins', 'best'];
 const leaderboardRateBuckets = new Map();
 
-function isLeaderboardRateLimited(bucketKey) {
+function leaderboardClientKey(req) {
+    // Use the same trusted-proxy policy for Express and Socket.IO handshakes.
+    // A socket ID is not a client identity: reconnects would bypass the limit.
+    const request = Object.assign(Object.create(app.request), { headers: req.headers, socket: req.socket });
+    const address = request.ip || 'unknown';
+    return String(address).replace(/^::ffff:/, '');
+}
+
+function isLeaderboardRateLimited(req) {
     const now = Date.now();
-    if (leaderboardRateBuckets.size > 2000) {
-        for (const [key, bucket] of leaderboardRateBuckets) {
-            if (!bucket || (now - bucket.startedAt) >= LEADERBOARD_RATE_WINDOW_MS) {
-                leaderboardRateBuckets.delete(key);
-            }
-        }
-    }
+    const key = leaderboardClientKey(req);
+    const lastRequest = leaderboardRateBuckets.get(key);
+    if (lastRequest !== undefined && now - lastRequest < LEADERBOARD_RATE_WINDOW_MS) return true;
+    if (lastRequest !== undefined) leaderboardRateBuckets.delete(key);
 
-    const bucket = leaderboardRateBuckets.get(bucketKey);
-    if (!bucket || (now - bucket.startedAt) >= LEADERBOARD_RATE_WINDOW_MS) {
-        leaderboardRateBuckets.set(bucketKey, { startedAt: now, count: 1 });
-        return false;
+    // In insertion order, the oldest timestamps are first. Never evict an
+    // active bucket to make room: deny new identities if the bound is full.
+    for (const [oldKey, timestamp] of leaderboardRateBuckets) {
+        if (now - timestamp < LEADERBOARD_RATE_WINDOW_MS) break;
+        leaderboardRateBuckets.delete(oldKey);
     }
-
-    bucket.count += 1;
-    return bucket.count > LEADERBOARD_RATE_MAX_REQUESTS;
+    if (leaderboardRateBuckets.size >= LEADERBOARD_MAX_BUCKETS) return true;
+    leaderboardRateBuckets.set(key, now);
+    return false;
 }
 
 // Leaderboard endpoint
@@ -411,7 +461,8 @@ app.get('/leaderboard', async (req, res) => {
         return res.status(400).json({ error: 'Invalid sort option' });
     }
 
-    if (isLeaderboardRateLimited(`http:${req.ip || req.socket?.remoteAddress || 'unknown'}`)) {
+    if (isLeaderboardRateLimited(req)) {
+        res.setHeader('Retry-After', '1');
         return res.status(429).json({ error: 'Too many leaderboard requests. Please try again shortly.' });
     }
 
@@ -491,7 +542,7 @@ io.on('connection', async (socket) => {
 
   // ✅ NEW: Leaderboard handler with enhanced error handling
   socket.on('get-leaderboard', async (options) => {
-    if (isLeaderboardRateLimited(`socket:${socket.id}`)) {
+    if (isLeaderboardRateLimited(socket.request)) {
       return socket.emit('leaderboard-error', 'Too many leaderboard requests. Please try again shortly.');
     }
 

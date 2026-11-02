@@ -146,6 +146,25 @@ DISCORD_CLIENT_ID=your-id
 DISCORD_CLIENT_SECRET=your-secret
 ```
 
+### Durable accounts
+
+In production, configure `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` for the
+`users` table. Account creation fails if storage is unavailable or the table
+cannot retain the account fields; it no longer silently creates memory-only
+accounts. Before deploying, check that the existing table supports the fields
+used by guest and OAuth accounts, including `guestpassword`, `oauthGoogle`,
+`oauthDiscord`, `oauthProvider`, and `oauthProviderId` (with their exact case).
+An existing database may require a schema migration; test it before rollout.
+For multiple server instances, enforce unique new guest names in the database,
+after resolving any historical duplicates; local files are single-instance only.
+
+Alternatively, on a single persistent server, set `USER_STORAGE_MODE=local` and
+`USER_DATA_FILE` to an absolute path on a persistent writable volume, with its
+parent directory already present. Do not use ephemeral hosting filesystems or
+Vercel for local accounts. Back up and migrate any existing user data to the
+chosen store before switching; memory-only accounts cannot be recovered after a
+restart. Test account creation and login across a restart after configuration.
+
 `CLIENT_ORIGINS` is a comma-separated list of allowed **game client** origins.
 OAuth callbacks instead point to the **API**, not the game client. The server
 selects the callback matching the API origin the client is using, so a Render

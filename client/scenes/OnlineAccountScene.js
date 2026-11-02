@@ -949,7 +949,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
         this.scene.stop();
       } else {
         if (this.debugger) this.debugger.warn('guest register failed', { error: j?.error || 'unknown' });
-        alert(t('ACCOUNT_GUEST_CREATE_FAILED', 'Guest creation failed'));
+        alert(j.error || t('ACCOUNT_GUEST_CREATE_FAILED', 'Guest creation failed'));
       }
     } catch (err) {
       console.error(err);

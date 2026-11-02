@@ -33,11 +33,18 @@ const LOCAL_DB_PATH = usersFile;
 // In-memory cache for users (needed for Vercel read-only filesystem)
 const userMemoryCache = new Map();
 const isVercel = process.env.VERCEL === '1';
+// Production local storage must be explicitly pointed at a persistent volume.
+function localDurable() {
+  return process.env.NODE_ENV !== 'production' ||
+    (process.env.USER_STORAGE_MODE === 'local' && !!process.env.USER_DATA_FILE && !isVercel);
+}
+let userWriteQueue = Promise.resolve();
 const SUPABASE_OPERATION_TIMEOUT_MS = Number(process.env.SUPABASE_OPERATION_TIMEOUT_MS || 1200);
 
 // Supabase client (optional)
 const SUPA_URL = process.env.SUPABASE_URL;
 const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseConfigured = !!(SUPA_URL || SUPA_KEY);
 let supabase = null;
 
 function _withTimeout(promise, timeoutMs, operationName = 'Supabase operation') {
@@ -91,7 +98,7 @@ if (SUPA_URL && SUPA_KEY) {
     });
   } catch (err) {
     console.error('[userStorage] ❌ Supabase client initialization failed:', err?.message || err);
-    console.error('[userStorage] Falling back to local DB only');
+    console.error('[userStorage] User storage will fail closed');
     supabase = null;
   }
 } else {
@@ -102,8 +109,7 @@ if (SUPA_URL && SUPA_KEY) {
 async function _safeLocalWrite() {
   // On Vercel/serverless, filesystem is read-only, so skip writes
   if (isVercel) {
-    console.debug('[userStorage] Vercel environment: skipping filesystem write (read-only)');
-    return;
+    throw new Error('Local user storage is unavailable on Vercel');
   }
 
   // attempt lowdb write with simple backoff
@@ -115,8 +121,7 @@ async function _safeLocalWrite() {
     } catch (err) {
       // Read-only filesystem - give up and use memory cache
       if (err && (err.code === 'EROFS' || err.code === 'EACCES')) {
-        console.warn(`[userStorage] Filesystem is read-only (${err.code}), using memory cache only`);
-        return; // Don't throw - just use memory cache
+        throw err;
       }
 
       // transient-ish errors we want to retry
@@ -168,6 +173,9 @@ function _userToRow(user) {
     row.guestpassword = '';  // Ensure field exists for guest users
   }
   
+  for (const key of Object.keys(row)) {
+    if (row[key] === undefined) delete row[key];
+  }
   return row;
 }
 
@@ -282,7 +290,7 @@ async function _upsertUsersWithColumnFallback(rows, operationName = 'Supabase sa
 // Public API
 // ----------------
 
-export async function loadUsers() {
+export async function loadUsers({ strict = false } = {}) {
   // Try Supabase if available
   if (supabase) {
     try {
@@ -354,20 +362,24 @@ export async function loadUsers() {
       console.info('[userStorage] Loaded', Object.keys(map).length, 'users from Supabase');
       return _mergeMemoryUsers(map);
     } catch (err) {
+      if (strict) throw err;
       console.warn('[userStorage] Supabase loadUsers failed, falling back to local DB:', err?.message || err);
     }
   }
+  if (strict && (supabaseConfigured || !localDurable())) throw new Error('Durable user storage is not configured');
 
-  // Local fallback. A corrupt or unreadable local DB must not fail OAuth
-  // account lookup; the memory cache may already hold the user.
+  // Strict identity lookups must read the durable file, never stale cache.
   try {
+    if (strict) await userWriteQueue.catch(() => {});
     await usersDb.read();
   } catch (err) {
+    if (strict) throw err;
     console.warn('[userStorage] Local loadUsers read failed, continuing with in-memory cache:', err?.message || err);
   }
   usersDb.data ||= {};
   usersDb.data.users ||= {};
-  return _mergeMemoryUsers({ ...(usersDb.data.users || {}) });
+  const users = { ...(usersDb.data.users || {}) };
+  return strict ? users : _mergeMemoryUsers(users);
 }
 
 export async function saveUsers(users) {
@@ -458,11 +470,38 @@ export async function saveUsers(users) {
   return { ...(usersDb.data.users || {}) };
 }
 
-export async function loadUser(id) {
+// Query exact identity fields rather than relying on a potentially paginated
+// full-table scan. PostgREST can return fewer rows than requested, so continue
+// until an empty page and fail closed if the configured page size cannot advance.
+async function selectUsersByField(field, value) {
+  const rows = [];
+  const pageSize = 1000;
+  for (let offset = 0; ; ) {
+    const { data, error } = await _withTimeout(
+      supabase.from('users').select('*').eq(field, value).order('id').range(offset, offset + pageSize - 1),
+      SUPABASE_OPERATION_TIMEOUT_MS,
+      'Supabase identity lookup'
+    );
+    if (error) throw error;
+    if (!Array.isArray(data)) throw new Error('User storage returned an invalid lookup result');
+    if (!data.length) return rows.map(_rowToUser);
+    rows.push(...data);
+    offset += data.length;
+  }
+}
+
+export async function findUsersByField(field, value) {
+  if (!['name', 'oauthGoogle', 'oauthDiscord'].includes(field)) throw new Error('Unsupported identity field');
+  if (supabase) return selectUsersByField(field, value);
+  const users = await loadUsers({ strict: true });
+  return Object.values(users).filter(user => user?.[field] === value);
+}
+
+export async function loadUser(id, { strict = false } = {}) {
   if (!id) return null;
   
   // Check memory cache first (fastest for Vercel)
-  const cached = userMemoryCache.get(String(id));
+  const cached = !strict && userMemoryCache.get(String(id));
   if (cached) {
     return _rowToUser(cached);
   }
@@ -494,14 +533,18 @@ export async function loadUser(id) {
       userMemoryCache.set(String(id), data[0]);
       return user;
     } catch (err) {
+      if (strict) throw err;
       console.warn('[userStorage] Supabase loadUser failed, trying local:', err?.message || err);
     }
   }
+  if (strict && (supabaseConfigured || !localDurable())) throw new Error('Durable user storage is not configured');
 
   // local fallback
   try {
+    if (strict) await userWriteQueue.catch(() => {});
     await usersDb.read();
   } catch (err) {
+    if (strict) throw err;
     console.warn('[userStorage] Failed to read local DB:', err?.message);
   }
   
@@ -521,77 +564,48 @@ export async function saveUser(user) {
   if (!user || !user.id) throw new Error('saveUser expects user with id');
   const row = _userToRow(user);
 
-  console.log('[userStorage] Saving user:', { id: user.id, name: user.name, type: user.type });
-
-  // CRITICAL: Always cache in memory FIRST (for Vercel read-only filesystem)
-  // This ensures data is available even if Supabase fails
-  userMemoryCache.set(String(row.id), row);
-
-  let supabaseSuccess = false;
-  let localSuccess = false;
-
   if (supabase) {
-    try {
-      console.log('[userStorage] Attempting to save user to Supabase...');
-
-      // Reuse the same missing-column recovery as saveUsers. Older Supabase
-      // deployments can lack optional OAuth columns; dropping only the
-      // unsupported column lets a first-time OAuth login persist instead of
-      // silently becoming a process-local account.
-      const { data, removedColumns } = await _upsertUsersWithColumnFallback(
-        [row],
-        'Supabase saveUser'
-      );
-
-      if (data && data.length > 0) {
-        if (removedColumns.size > 0) {
-          console.warn('[userStorage] Saved user without unsupported columns:', [...removedColumns].join(', '));
-        }
-        const saved = _rowToUser(data[0]);
-        console.info('[userStorage] ✅ Successfully saved user', user.id, 'to Supabase');
-        console.log('[userStorage] Verification - saved user data:', { id: saved.id, name: saved.name, type: saved.type });
-        supabaseSuccess = true;
-        return saved;
+    // Do not remove columns or fall back to process memory: profile, identity
+    // and password fields must either persist together or the write fails.
+    const { data, error } = await _withTimeout(
+      supabase.from('users').upsert([row], { onConflict: 'id' }).select(),
+      SUPABASE_OPERATION_TIMEOUT_MS,
+      'Supabase saveUser'
+    );
+    if (error) throw error;
+    if (!Array.isArray(data) || !data[0]) throw new Error('User storage did not confirm the write');
+    const saved = data[0];
+    for (const key of Object.keys(row)) {
+      const identityFields = ['id', 'name', 'type', 'guestpassword', 'oauthGoogle', 'oauthDiscord', 'oauthProvider', 'oauthProviderId'];
+      if (!Object.hasOwn(saved, key) || (row[key] !== null && saved[key] == null) ||
+          (identityFields.includes(key) && saved[key] !== row[key])) {
+        throw new Error(`User storage did not retain required field: ${key}`);
       }
-
-      console.warn('[userStorage] Supabase returned no data after save, falling back to local');
-      throw new Error('No data returned from Supabase after save');
-    } catch (err) {
-      // Supabase failed - data is cached in memory, try local fallback
-      console.warn('[userStorage] Supabase write failed, falling back to local cache:', err?.message || err);
-      // Don't rethrow - memory cache is sufficient
     }
+    userMemoryCache.set(String(row.id), saved);
+    return _rowToUser(saved);
   }
 
-  // Local fallback write. A read/write failure here must not turn an account
-  // that is already in the memory cache into a failed OAuth registration.
-  console.log('[userStorage] Saving user to local fallback...');
-  try {
+  if (supabaseConfigured || !localDurable()) throw new Error('Durable user storage is not configured');
+  // Serialize the complete read/modify/write cycle to avoid concurrent account
+  // creation or profile updates silently overwriting each other.
+  const write = userWriteQueue.catch(() => {}).then(async () => {
+    await usersDbReady;
     await usersDb.read();
     usersDb.data ||= {};
     usersDb.data.users ||= {};
+    const previous = usersDb.data.users[String(row.id)];
     usersDb.data.users[String(row.id)] = row;
-
-    // Try to write to filesystem (may fail on serverless/read-only hosts)
     try {
       await _safeLocalWrite();
-      console.info('[userStorage] ✅ Saved user to local DB');
-      localSuccess = true;
     } catch (err) {
-      // Write to filesystem failed - but we have it in memory cache, so it's ok
-      console.warn('[userStorage] Local write failed, but user cached in memory:', err?.message);
+      if (previous === undefined) delete usersDb.data.users[String(row.id)];
+      else usersDb.data.users[String(row.id)] = previous;
+      throw err;
     }
-  } catch (err) {
-    console.warn('[userStorage] Local fallback read/write failed, but user is cached in memory:', err?.message);
-  }
-  
-  // Verify the user can be retrieved from cache
-  const cachedUser = userMemoryCache.get(String(row.id));
-  if (cachedUser) {
-    console.log('[userStorage] ✅ User verified in memory cache:', { id: cachedUser.id, name: cachedUser.name });
-    return _rowToUser(cachedUser);
-  } else {
-    console.error('[userStorage] ❌ User not found in cache after save - this should not happen');
-    throw new Error('User save verification failed');
-  }
+    userMemoryCache.set(String(row.id), row);
+    return _rowToUser(row);
+  });
+  userWriteQueue = write;
+  return write;
 }

@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import bcrypt from '../server/node_modules/bcryptjs/index.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DATA_DIR = path.join(ROOT, 'server', 'data');
@@ -32,6 +33,10 @@ function startServer(port, extraEnv = {}) {
     env: {
       ...process.env,
       NODE_ENV: 'production',
+      USER_STORAGE_MODE: 'local',
+      USER_DATA_FILE: path.join(DATA_DIR, 'users.json'),
+      SUPABASE_URL: '',
+      SUPABASE_SERVICE_ROLE_KEY: '',
       SESSION_SECRET: 'auth-regression-secret',
       PUBLIC_SERVER_URL: RENDER_CALLBACK,
       PORT: String(port),
@@ -278,6 +283,13 @@ test('guest login accepts the right password and rejects the wrong one generical
   assert.equal(okBody.ok, true);
   assert.equal(okBody.user.name, name);
 
+  const numeric = await fetch(`${base}/auth/guest/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: CLIENT_ORIGIN },
+    body: JSON.stringify({ username: name.slice(5), password: 'secret123' })
+  });
+  assert.equal((await numeric.json()).user.id, okBody.user.id);
+
   const bad = await fetch(`${base}/auth/guest/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Origin: CLIENT_ORIGIN },
@@ -296,6 +308,55 @@ test('guest login accepts the right password and rejects the wrong one generical
   const unknownBody = await unknown.json();
   assert.equal(unknownBody.ok, false);
   assert.equal(unknownBody.error, badBody.error);
+});
+
+test('new passwords use every byte and legacy bcrypt remains usable', async () => {
+  const password = 'a'.repeat(72) + 'correct';
+  const register = await fetch(`${base}/auth/guest/register`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Origin: CLIENT_ORIGIN, 'X-Forwarded-Proto': 'https' },
+    body: JSON.stringify({ password })
+  });
+  const account = await register.json();
+  assert.equal(account.ok, true);
+  const login = async (username, value) => (await fetch(`${base}/auth/guest/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Origin: CLIENT_ORIGIN },
+    body: JSON.stringify({ username, password: value })
+  })).json();
+  assert.equal((await login(account.user.name, 'a'.repeat(72) + 'wrong')).ok, false);
+  assert.equal((await login(account.user.name.slice(5), password)).ok, true);
+
+  // Seed a legacy bcrypt record; the server must authenticate and upgrade it.
+  const file = path.join(DATA_DIR, 'users.json');
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  data.users['legacy-user'] = { id: 'legacy-user', name: 'Guest1234', type: 'guest', guestpassword: await bcrypt.hash('secret123', 10) };
+  fs.writeFileSync(file, JSON.stringify(data));
+  assert.equal((await login('1234', 'secret123')).user.id, 'legacy-user');
+  const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.match(stored.users['legacy-user'].guestpassword, /^scrypt\$/);
+});
+
+test('guest accounts survive a server restart and duplicate names require one password match', async () => {
+  const port = await freePort();
+  startServer(port);
+  const restarted = `http://127.0.0.1:${port}`;
+  await waitForHealth(restarted);
+  const login = async (username, password) => (await fetch(`${restarted}/auth/guest/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Origin: CLIENT_ORIGIN },
+    body: JSON.stringify({ username, password })
+  })).json();
+  assert.equal((await login(globalThis.__registeredGuest.name.slice(5), 'secret123')).user.id, globalThis.__registeredGuest.id);
+
+  const file = path.join(DATA_DIR, 'users.json');
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  data.users.duplicate1 = { id: 'duplicate1', name: 'Guest9876', type: 'guest', guestpassword: await bcrypt.hash('password1', 10) };
+  data.users.duplicate2 = { id: 'duplicate2', name: 'Guest9876', type: 'guest', guestpassword: await bcrypt.hash('password2', 10) };
+  fs.writeFileSync(file, JSON.stringify(data));
+  assert.equal((await login('9876', 'password1')).user.id, 'duplicate1');
+  assert.equal((await login('Guest9876', 'password2')).user.id, 'duplicate2');
+  const updated = JSON.parse(fs.readFileSync(file, 'utf8'));
+  updated.users.duplicate2.guestpassword = updated.users.duplicate1.guestpassword;
+  fs.writeFileSync(file, JSON.stringify(updated));
+  assert.equal((await login('9876', 'password1')).ok, false);
 });
 
 test('cross-origin auth requests are blocked', async () => {

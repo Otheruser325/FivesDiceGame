@@ -139,10 +139,13 @@ export default class LobbyManager {
   async load() {
     try {
       const raw = await loadLobbies();
-      if (!raw) {
-        this.lobbies = {};
-        return;
-      }
+      if (!raw) return;
+
+      // A storage refresh must not replace live lobby objects with stale
+      // snapshots while a game is running or being started.
+      const liveLobbies = Object.fromEntries(Object.entries(this.lobbies).filter(
+        ([code, lobby]) => this.activeGames[code] || lobby?.starting
+      ));
 
       // If storage returned an array (e.g. supabase rows), convert into map keyed by code
       if (Array.isArray(raw)) {
@@ -170,6 +173,8 @@ export default class LobbyManager {
         this.lobbies = {};
       }
 
+      Object.assign(this.lobbies, liveLobbies);
+
       // Basic cleanup: ensure shapes are valid
       const now = Date.now();
       const EXPIRE_MS = 1000 * 60 * 60 * 3; // 3 hours
@@ -187,7 +192,7 @@ export default class LobbyManager {
           changed = true;
           continue;
         }
-        if (now - (lobby.createdAt || 0) > EXPIRE_MS) {
+        if (!this.activeGames[code] && !lobby.starting && now - (lobby.createdAt || 0) > EXPIRE_MS) {
           delete this.lobbies[code];
           changed = true;
           continue;
@@ -269,7 +274,7 @@ export default class LobbyManager {
   ensureSessionAuthenticated(socket, emitSuccess = true) {
     if (socket.data.user && socket.data.user.id) {
       const authoritativeUser = this.getAuthoritativeSocketUser(socket);
-      if (!authoritativeUser || String(authoritativeUser.id) === String(socket.data.user.id)) {
+      if (authoritativeUser && String(authoritativeUser.id) === String(socket.data.user.id)) {
         return true;
       }
 
@@ -354,7 +359,7 @@ export default class LobbyManager {
   // Register socket connection + handlers
   async registerSocket(socket) {
     // refresh latest lobbies from DB before handling new socket
-    try { await this.load(); } catch (e) { /* already logged */ }
+    this.load().catch(e => console.warn('[LobbyManager] socket refresh failed:', e));
 
     // ensure socket.data.user container exists
     socket.data.user = socket.data.user || null;
@@ -395,10 +400,9 @@ export default class LobbyManager {
     });
 
     socket.on('clear-auth', () => {
-      socket.data.user = null;
-      socket.data.authEmitted = false;
-      socket.emit('auth-cleared', { timestamp: Date.now() });
-      console.log(`[LobbyManager] Cleared socket auth for ${socket.id}`);
+      // Disconnect while identity and room membership are still available to
+      // disconnecting; clearing them first would strand players in games.
+      socket.disconnect(true);
     });
 
     // ---------- AUTH USER ----------
@@ -408,13 +412,7 @@ export default class LobbyManager {
         
         // ✅ CRITICAL: Proper null user handling
         if (!user) {
-          socket.data.user = null;
-          socket.data.authEmitted = false;
-          socket.emit('auth-cleared', {
-            timestamp: Date.now(),
-            attempt: socket.data.authAttempts
-          });
-          console.log(`[LobbyManager] auth-user received null for ${socket.id}, auth state cleared`);
+          socket.disconnect(true);
           return;
         }
 
@@ -607,15 +605,19 @@ export default class LobbyManager {
           return socket.emit("join-failed", { reason: "invalid_user" });
         }
 
-        // check capacity using only present players (not counting left)
+        const existing = lobby.players.find(p => String(p.id) === String(uid));
+        const game = this.activeGames[code];
+        if (game && !game.players.some(p => String(p.id) === String(uid) && !p.left)) {
+          return socket.emit('join-failed', { reason: 'game_started' });
+        }
+        // A present player may open a second connection even in a full lobby.
         const presentCount = (lobby.players || []).filter(p => !p.left).length;
-        if (presentCount >= (lobby.config?.players || 2)) {
+        if ((!existing || existing.left) && presentCount >= (lobby.config?.players || 2)) {
           console.info('[LobbyManager] Lobby full:', code);
           return socket.emit("join-failed", { reason: "full" });
         }
 
         // ✅ FIX: Use uid (which could be from socket.data.user.id or fallback maybeUserId)
-        const existing = lobby.players.find(p => String(p.id) === String(uid));
         if (!existing) {
           // ✅ FIX: Get actual username from DB instead of socket fallback to reduce race condition
           let playerName = socket.data.user?.name;
@@ -756,6 +758,8 @@ export default class LobbyManager {
         avatar: p.avatar,
         playerIcon: p.playerIcon,
         team: p.team || null,
+        left: !!p.left,
+        connected: p.connected !== false,
         score: p.score,
         comboStats: p.comboStats
       }));
@@ -823,8 +827,11 @@ export default class LobbyManager {
     });
 
     // ---------- TEAM CHANGED ----------
-    socket.on("team-changed", async ({ code: codeRaw, playerId, team } = {}) => {
+    socket.on("team-changed", async (payload) => {
       try {
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+        const { code: codeRaw, playerId, team } = payload;
+        if (!this.ensureSessionAuthenticated(socket, false)) return;
         if (typeof codeRaw !== "string") return;
         const code = codeRaw.trim().toUpperCase();
         const lobby = this.lobbies[code];
@@ -869,7 +876,7 @@ export default class LobbyManager {
     socket.on("leave-lobby", async (codeRaw) => {
       if (typeof codeRaw !== "string") return;
       const code = codeRaw.trim().toUpperCase();
-      socket.leave(code);  // ✅ Ensure socket leaves the room
+      if (!this.ensureSessionAuthenticated(socket, false)) return;
       await this.removePlayerFromLobby(code, socket);
     });
 
@@ -900,6 +907,7 @@ export default class LobbyManager {
         }
 
         const hostUserId = lobby.hostuserid || lobby.hostUserId || null;
+        if (this.activeGames[code]) return socket.emit('game-failed', { reason: 'already_started' });
         if (!hostUserId || String(socket.data.user.id) !== String(hostUserId)) {
           socket.emit("game-failed", { reason: "not_host" });
           return;
@@ -920,8 +928,10 @@ export default class LobbyManager {
         // create game state - assign avatars appropriately
         // Guests: use playerIcon
         // Discord/Google: fetch avatar from user profile
+        if (lobby.starting || this.activeGames[code]) return socket.emit('game-failed', { reason: 'already_started' });
+        lobby.starting = true;
         let gamePlayersWithAvatars = [];
-        for (const p of lobby.players) {
+        for (const p of activePlayers) {
           const playerIndex = gamePlayersWithAvatars.length;
           let avatar = null;
           let playerIcon = null;
@@ -976,7 +986,13 @@ export default class LobbyManager {
           updatedAt: Date.now()
         };
 
+        // Players may have left while profile data was loading.
+        if (this.lobbies[code] !== lobby || activePlayers.some(p => p.left)) {
+          lobby.starting = false;
+          return socket.emit('game-failed', { reason: 'players_not_ready' });
+        }
         this.activeGames[code] = game;
+        lobby.starting = false;
 
         // notify clients (invite to transition)
         this.io.to(code).emit("game-starting", { code, config: game.config, players: this.attachLobbyTeams(lobby.players, game.config) });
@@ -1016,17 +1032,21 @@ export default class LobbyManager {
         }
 
         // small delays to allow clients to transition and register handlers
-        setTimeout(() => this.io.to(code).emit("game-state", statePayload), 80);
-        setTimeout(() => this.startTurn(code), 180);
+        setTimeout(() => { if (this.activeGames[code] === game) this.emitGameState(code); }, 80);
+        setTimeout(() => { if (this.activeGames[code] === game && !game.turnStarted && !game.turnAdvancing && !game.turnId) this.startTurn(code); }, 180);
       } catch (err) {
+        const code = typeof codeRaw === 'string' ? codeRaw.trim().toUpperCase() : '';
+        if (this.lobbies[code]) this.lobbies[code].starting = false;
         console.error('[LobbyManager] Error in start-game:', err);
         socket.emit("game-failed", { reason: "server_error" });
       }
     });
 
     // ---------- PLAYER ROLL ----------
-    socket.on("player-roll", ({ code } = {}) => {
-      if (!code || typeof code !== "string") return;
+    socket.on("player-roll", (payload) => {
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+      const { code } = payload;
+      if (!code || typeof code !== "string" || !this.ensureSessionAuthenticated(socket, false)) return;
       const codeU = code.trim().toUpperCase();
       const game = this.activeGames[codeU];
       if (!game) return;
@@ -1040,8 +1060,9 @@ export default class LobbyManager {
 
       // ensure this socket is the active player
       if (player.id !== socket.data.user?.id) return;
-      if (game.rollInProgress) return;
+      if (!game.turnStarted || player.hasRolled || game.rollInProgress || Date.now() >= game.turnExpiresAt) return;
       game.rollInProgress = true;
+      const turnId = game.turnId;
 
       // announce rolling
       this.io.to(codeU).emit("player-rolling", { playerIndex, currentPlayerRolling: true });
@@ -1050,7 +1071,7 @@ export default class LobbyManager {
 
       setTimeout(() => {
         const liveGame = this.activeGames[codeU];
-        if (!liveGame || liveGame !== game) return;
+        if (!liveGame || liveGame !== game || game.turnId !== turnId || player.left || !game.rollInProgress) return;
 
         try {
           const dice = rollDice(5);
@@ -1078,7 +1099,9 @@ export default class LobbyManager {
           });
 
           if (game.turnTimer) { clearTimeout(game.turnTimer); game.turnTimer = null; }
-          game.turnTimer = setTimeout(() => this.advanceTurn(codeU), graceMs);
+          game.turnTimer = setTimeout(() => {
+            if (this.activeGames[codeU] === game && game.turnId === turnId) this.advanceTurn(codeU);
+          }, graceMs);
         } catch (err) {
           game.rollInProgress = false;
           console.error('[LobbyManager] player-roll processing failed:', err);
@@ -1087,18 +1110,18 @@ export default class LobbyManager {
     });
 
     // ---------- PLAYER END TURN ----------
-    socket.on("player-end-turn", ({ code, playerIndex } = {}) => {
-      if (!code || typeof code !== "string") return;
+    socket.on("player-end-turn", (payload) => {
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+      const { code } = payload;
+      if (!code || typeof code !== "string" || !this.ensureSessionAuthenticated(socket, false)) return;
       const codeU = code.trim().toUpperCase();
       const game = this.activeGames[codeU];
-      if (!game) return;
+      if (!game || !game.turnStarted || game.turnAdvancing) return;
 
       const currentPlayer = game.players[game.currentIndex];
 
       // check if the player has left
-      if (currentPlayer.left) return;
-
-      if (!currentPlayer || currentPlayer.id !== socket.data.user?.id) return;
+      if (!currentPlayer || currentPlayer.left || currentPlayer.id !== socket.data.user?.id) return;
       if (!currentPlayer.hasRolled) {
         socket.emit("end-turn-failed", { reason: "not_rolled" });
         return;
@@ -1108,85 +1131,54 @@ export default class LobbyManager {
     });
 
     // ---------- PLAYER TIMEOUT ----------
-    socket.on("player-timeout", ({ code } = {}) => {
-      if (!code || typeof code !== "string") return;
-      const codeU = code.trim().toUpperCase();
-      const game = this.activeGames[codeU];
-      if (!game) return;
-
-      const currentPlayer = game.players[game.currentIndex];
-      if (!currentPlayer || currentPlayer.id !== socket.data.user?.id) return;
-
-      this.handleTimeout(codeU);
-    });
+    // The server's timer alone decides when a turn expires. Client timeout
+    // notifications are intentionally ignored; browser clocks can be wrong.
+    socket.on("player-timeout", () => {});
 
     // ---------- GAME FINISHED ----------
     socket.on("game-finished", async (codeRaw) => {
       if (!codeRaw || typeof codeRaw !== "string") return;
       const code = codeRaw.trim().toUpperCase();
 
-      // Only an authenticated member of this lobby/game may tear it down.
-      const lobby = this.lobbies[code];
-      const game = this.activeGames[code];
-      if (!lobby && !game) return;
-
-      const authenticated = this.ensureSessionAuthenticated(socket, false);
-      const isMember = (lobby && this.isLobbyMember(lobby, socket)) || (game && this.isGameMember(game, socket));
-      if (!authenticated || !isMember) {
-        console.warn(`[LobbyManager] game-finished rejected for ${socket.id}: not a member of ${code}`);
-        socket.emit("game-finished-denied", { code, reason: "not_member" });
-        return;
-      }
-
-      await this.deleteLobby(code);
-      this.io.to(code).emit("lobby-deleted", { code });
-      if (this.activeGames[code]) delete this.activeGames[code];
+      // Game completion is server-authoritative. A player wishing to forfeit
+      // uses leave-lobby instead; knowing a code must never end someone’s game.
+      socket.emit("game-finished-denied", { code, reason: "server_authoritative" });
     });
 
     // ---------- DISCONNECT ----------
-    socket.on("disconnect", async () => {
-      // ✅ Ensure socket is fully removed from all rooms
-      try {
-        socket.leaveAll();
-      } catch (e) {
-        console.warn("[LobbyManager] socket.leaveAll() failed:", e);
-      }
-
+    socket.on("disconnecting", async () => {
       // remove this socket's user from any lobby where they are a member
       const uid = socket.data.user?.id;
       if (!uid) return;
 
       // Iterate lobbies and only call removePlayerFromLobby when this user is present
-      const codes = Object.keys(this.lobbies);
-      for (const code of codes) {
-        const lobby = this.lobbies[code];
-        if (!lobby || !Array.isArray(lobby.players)) continue;
-        const found = lobby.players.find(p => String(p.id) === String(uid));
-        if (found) {
-          try {
-            await this.removePlayerFromLobby(code, socket);
-          } catch (e) {
-            console.warn("[LobbyManager] removePlayerFromLobby during disconnect failed:", e);
-          }
-        }
-      }
+      const codes = [...socket.rooms].filter(code => code !== socket.id && !code.startsWith('session:'));
+      await Promise.all(codes.map(code => this.removePlayerFromLobby(code, socket, { disconnecting: true }).catch(e => {
+        console.warn('[LobbyManager] removePlayerFromLobby during disconnect failed:', e);
+      })));
     });
   }
 
   // Remove player (and handle host transfer / cleanup)
-  async removePlayerFromLobby(codeRaw, socket) {
+  async removePlayerFromLobby(codeRaw, socket, { disconnecting = false } = {}) {
   if (!codeRaw || typeof codeRaw !== "string") return;
   const code = codeRaw.trim().toUpperCase();
   let uid = socket.data.user?.id;
   
   console.log(`[LobbyManager] removePlayerFromLobby called for code=${code}, uid=${uid}, socketId=${socket.id}`);
   
-  // ✅ Ensure socket fully leaves this room
-  try {
-    socket.leave(code);
-  } catch (e) {
-    console.debug("[LobbyManager] socket.leave() during removePlayerFromLobby failed:", e);
-  }
+  // A second connection for the same account must not surrender the first
+  // connection's game when it disconnects or leaves another room.
+  const wasInRoom = !!socket.rooms?.has(code);
+  if (!wasInRoom) return;
+  const room = this.io.sockets.adapter.rooms.get(code);
+  const otherConnections = [...(room || [])].map(id => this.io.sockets.sockets.get(id))
+    .filter(other => other && other.id !== socket.id && other.connected &&
+      other.rooms.has(code) && String(other.data?.user?.id) === String(uid));
+  socket.leave(code);
+  if (disconnecting && otherConnections.length) return;
+  // Explicitly leaving is surrender, even if this account has another tab.
+  for (const other of otherConnections) other.leave(code);
 
   const lobby = this.lobbies[code];
   if (!lobby) {
@@ -1213,6 +1205,7 @@ export default class LobbyManager {
           pl.connected = false;
         }
       }
+      if (!uid || !gameOnly.players.some(p => String(p.id) === String(uid))) return;
       const activeCount = gameOnly.players.filter(p => !p.left).length;
       if (activeCount <= 1) {
         // ✅ NEW: Update leaderboard stats (online games only)
@@ -1225,6 +1218,7 @@ export default class LobbyManager {
           names: gameOnly.players.map(p => p.name),
           players: gameOnly.players
         });
+        if (gameOnly.turnTimer) clearTimeout(gameOnly.turnTimer);
         delete this.activeGames[code];
         
         // ✅ FIX: Also delete the corresponding lobby when game ends with all players gone
@@ -1236,6 +1230,13 @@ export default class LobbyManager {
         }
       } else {
         this.io.to(code).emit("player-left", { id: uid });
+        if (String(gameOnly.players[gameOnly.currentIndex]?.id) === String(uid)) {
+          if (gameOnly.turnTimer) clearTimeout(gameOnly.turnTimer);
+          gameOnly.rollInProgress = false;
+          await this.advanceTurn(code);
+        } else {
+          this.emitGameState(code);
+        }
       }
     }
     return;
@@ -1248,8 +1249,7 @@ export default class LobbyManager {
     return;
   }
   const pl = (lobby.players || []).find(p => String(p.id) === String(uid));
-  if (!pl) {
-    console.warn(`[LobbyManager] Player ${uid} not found in lobby ${code}`);
+  if (!pl || pl.left) {
     return;
   }
 
@@ -1257,11 +1257,31 @@ export default class LobbyManager {
   pl.left = true;
   pl.connected = false;
 
+  // Mark the game immediately, before asynchronous persistence permits a
+  // pending roll or another departure to observe a stale active player.
+  const game = this.activeGames[code];
+  const gamePlayer = game?.players.find(p => String(p.id) === String(uid));
+  const wasCurrentPlayer = !!gamePlayer && game.players[game.currentIndex] === gamePlayer;
+  if (gamePlayer) {
+    gamePlayer.left = true;
+    gamePlayer.connected = false;
+    if (wasCurrentPlayer) {
+      game.turnStarted = false;
+      game.rollInProgress = false;
+      if (game.turnTimer) clearTimeout(game.turnTimer);
+      game.turnTimer = null;
+    }
+  }
+
   // If everyone left -> delete lobby
   const activeCount = (lobby.players || []).filter(p => !p.left).length;
   if (activeCount === 0) {
     console.log(`[LobbyManager] All players left lobby ${code}, deleting...`);
     delete this.lobbies[code];
+    if (game) {
+      if (game.turnTimer) clearTimeout(game.turnTimer);
+      delete this.activeGames[code];
+    }
     try { 
       await this.save(); 
       console.log(`[LobbyManager] ✅ Saved empty lobby deletion for ${code}`);
@@ -1280,44 +1300,30 @@ export default class LobbyManager {
 
   // ensure host is valid (transfer if needed to first non-left player)
   const remainingIds = new Set(lobby.players.filter(p => !p.left).map(p => String(p.id)));
-  if (!lobby.hostUserId || !remainingIds.has(String(lobby.hostUserId))) {
+  const currentHost = lobby.hostuserid || lobby.hostUserId;
+  if (!currentHost || !remainingIds.has(String(currentHost))) {
     const newHost = lobby.players.find(p => !p.left);
-    lobby.hostUserId = newHost ? newHost.id : null;
+    lobby.hostUserId = lobby.hostuserid = newHost ? newHost.id : null;
     const newHostSocket = [...this.io.sockets.sockets.values()].find(s => String(s.data?.user?.id) === String(newHost?.id));
-    lobby.hostSocketId = newHostSocket ? newHostSocket.id : null;
+    lobby.hostSocketId = lobby.hostsocketid = newHostSocket ? newHostSocket.id : null;
     console.log(`[LobbyManager] Host transferred to ${newHost?.id} for lobby ${code}`);
   } else {
-    if (lobby.hostSocketId) {
-      const sockExists = Boolean(this.io.sockets.sockets.get(lobby.hostSocketId));
+    const hostSocketId = lobby.hostsocketid || lobby.hostSocketId;
+    if (hostSocketId) {
+      const sockExists = Boolean(this.io.sockets.sockets.get(hostSocketId));
       if (!sockExists) {
-        const newHostSocket = [...this.io.sockets.sockets.values()].find(s => String(s.data?.user?.id) === String(lobby.hostUserId));
-        lobby.hostSocketId = newHostSocket ? newHostSocket.id : null;
-        console.log(`[LobbyManager] Updated host socket ID for ${lobby.hostUserId} in lobby ${code}`);
+        const newHostSocket = [...this.io.sockets.sockets.values()].find(s => String(s.data?.user?.id) === String(currentHost));
+        lobby.hostSocketId = lobby.hostsocketid = newHostSocket ? newHostSocket.id : null;
+        console.log(`[LobbyManager] Updated host socket ID for ${currentHost} in lobby ${code}`);
       }
     }
-  }
-
-  // persist changes
-  try { 
-    await this.save(); 
-    console.log(`[LobbyManager] ✅ Persisted player left status for ${uid} in lobby ${code} to database`);
-  } catch (e) { 
-    console.warn("[LobbyManager] save after removePlayer failed:", e); 
   }
 
   // broadcast update (clients will display left/connected false)
   this.broadcastLobbyUpdate(code);
 
   // If there is an active game associated with this room, mark player as left there too (do not re-index)
-  const game = this.activeGames[code];
-  if (game) {
-    const gpl = game.players.find(p => String(p.id) === String(uid));
-    if (gpl) {
-      console.log(`[LobbyManager] Marking player ${uid} as left in active game ${code}`);
-      gpl.left = true;
-      gpl.connected = false;
-    }
-
+  if (game && this.activeGames[code] === game) {
     // emit player-left event (UI will tint player and show left)
     try {
       this.io.to(code).emit("player-left", { id: uid });
@@ -1337,6 +1343,7 @@ export default class LobbyManager {
         names: game.players.map(p => p.name),
         players: game.players
       });
+      if (game.turnTimer) clearTimeout(game.turnTimer);
       delete this.activeGames[code];
       
       // ✅ FIX: Also delete the corresponding lobby when game ends with all players gone
@@ -1349,31 +1356,21 @@ export default class LobbyManager {
       return;
     }
 
-    // Adjust currentIndex if it now points to a left player: advance to next active index
-    if (game.currentIndex >= game.players.length || game.players[game.currentIndex].left) {
-      // find next active index
-      let next = game.currentIndex % game.players.length;
-      let tries = 0;
-      while (tries < game.players.length && game.players[next].left) {
-        next = (next + 1) % game.players.length;
-        tries++;
-      }
-      game.currentIndex = next;
-    }
-
-    // send updated game-state to clients and ensure server continues turn flow
-    try {
+    // Only advance when the current player surrendered. A non-current player's
+    // departure must not reset the current turn, roll state, score or timer.
+    if (wasCurrentPlayer) {
+      await this.advanceTurn(code);
+    } else {
       this.emitGameState(code);
-      // small delay then attempt to startTurn if needed
-      setTimeout(() => {
-        const g = this.activeGames[code];
-        if (g && g.players && g.players.filter(p => !p.left).length > 0) {
-          this.startTurn(code);
-        }
-      }, 120);
-    } catch (err) {
-      console.warn("[LobbyManager] post-remove game update failed:", err);
     }
+  }
+
+  // Do not block turn progression on a slow lobby store.
+  try {
+    await this.save();
+    console.log(`[LobbyManager] ✅ Persisted player left status for ${uid} in lobby ${code} to database`);
+  } catch (e) {
+    console.warn("[LobbyManager] save after removePlayer failed:", e);
   }
 }
 
@@ -1396,7 +1393,7 @@ export default class LobbyManager {
         ? lobby.players.filter(p => p.connected !== false).length 
         : 0;
       
-      const isExpired = (now - (lobby.updatedAt || lobby.createdAt || 0)) > EXPIRE_MS;
+      const isExpired = !this.activeGames[code] && !lobby.starting && (now - (lobby.updatedAt || lobby.createdAt || 0)) > EXPIRE_MS;
       const isEmpty = connectedPlayers === 0;
 
       if (isEmpty || isExpired) {
@@ -1489,7 +1486,7 @@ export default class LobbyManager {
     if (!game) return;
 
     const statePayloadBase = {
-      players: game.players.map(p => ({ id: p.id, name: p.name, type: p.type, avatar: p.avatar, playerIcon: p.playerIcon, team: p.team || null, score: p.score, connected: true })),
+      players: game.players.map(p => ({ id: p.id, name: p.name, type: p.type, avatar: p.avatar, playerIcon: p.playerIcon, team: p.team || null, score: p.score, left: !!p.left, connected: p.connected !== false })),
       scores: game.players.map(p => p.score),
       comboStats: game.players.map(p => p.comboStats),
       round: game.round,
@@ -1499,6 +1496,7 @@ export default class LobbyManager {
       currentPlayerHasRolled: !!game.players[game.currentIndex]?.hasRolled,
       currentPlayerRolling: !!game.rollInProgress,
       timeLimitSeconds: game.timeLimitSeconds,
+      turnExpiresAt: game.turnExpiresAt || null,
       config: game.config // Include game config so client can display rounds, players, etc.
     };
 
@@ -1531,8 +1529,13 @@ export default class LobbyManager {
     if (!player) return;
     player.hasRolled = false;
     game.rollInProgress = false;
+    game.turnStarted = true;
+    game.turnAdvancing = false;
+    game.turnId = (game.turnId || 0) + 1;
+    const turnId = game.turnId;
 
-    const timeLimitSeconds = typeof game.timeLimitSeconds === 'number' ? game.timeLimitSeconds : 30;
+    const timeLimitSeconds = Number.isFinite(game.timeLimitSeconds) && game.timeLimitSeconds >= 5 && game.timeLimitSeconds <= 300
+      ? game.timeLimitSeconds : 30;
     game.turnExpiresAt = Date.now() + (timeLimitSeconds * 1000);
 
     this.io.to(code).emit("turn-start", {
@@ -1552,7 +1555,9 @@ export default class LobbyManager {
       game.turnTimer = null;
     }
 
-    game.turnTimer = setTimeout(() => this.handleTimeout(code), timeLimitSeconds * 1000);
+    game.turnTimer = setTimeout(() => {
+      if (this.activeGames[code] === game && game.turnId === turnId) this.handleTimeout(code);
+    }, timeLimitSeconds * 1000);
   }
 
   handleTimeout(code) {
@@ -1561,7 +1566,18 @@ export default class LobbyManager {
 
     const playerIndex = game.currentIndex;
     const player = game.players[playerIndex];
-    if (!player) return;
+    if (!player || player.left || player.hasRolled || game.rollInProgress || !game.turnStarted) return;
+    const remaining = game.turnExpiresAt - Date.now();
+    if (remaining > 0) {
+      const turnId = game.turnId;
+      game.turnTimer = setTimeout(() => {
+        if (this.activeGames[code] === game && game.turnId === turnId) this.handleTimeout(code);
+      }, remaining);
+      return;
+    }
+    player.hasRolled = true;
+    const turnId = game.turnId;
+    if (game.turnTimer) clearTimeout(game.turnTimer);
 
     const dice = rollDice(5);
     const { points, combo } = calculateScore(dice, game.combosEnabled, game.multiplexEnabled);
@@ -1584,12 +1600,16 @@ export default class LobbyManager {
       turnExpiresAt: game.turnExpiresAt
     });
 
-    setTimeout(() => this.advanceTurn(code), 3000);
+    game.turnTimer = setTimeout(() => {
+      if (this.activeGames[code] === game && game.turnId === turnId) this.advanceTurn(code);
+    }, 3000);
   }
 
   async advanceTurn(code) {
     const game = this.activeGames[code];
-    if (!game) return;
+    if (!game || game.turnAdvancing) return;
+    game.turnAdvancing = true;
+    game.turnStarted = false;
 
     if (game.turnTimer) { clearTimeout(game.turnTimer); game.turnTimer = null; }
 
@@ -1662,8 +1682,9 @@ export default class LobbyManager {
         // Lobby will be cleaned up after ~8 seconds to prevent race conditions
         if (this.lobbies[code]) {
           const gameCode = code;
+          const finishedLobby = this.lobbies[gameCode];
           setTimeout(() => {
-            if (this.lobbies[gameCode]) {
+            if (this.lobbies[gameCode] === finishedLobby && !this.activeGames[gameCode]) {
               console.log(`[LobbyManager] Cleaning up lobby ${gameCode} (post-game cleanup)`);
               delete this.lobbies[gameCode];
               try { 

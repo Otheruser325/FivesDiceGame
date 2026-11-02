@@ -1,13 +1,14 @@
 import './env.js';
 import express from "express";
 import crypto from "crypto";
+import { promisify } from 'node:util';
 import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import OAuth2Strategy from "passport-oauth2";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4, v5 as uuidv5 } from "uuid";
 import geoip from "geoip-lite";
-import { loadUsers, saveUsers, loadUser, saveUser } from "./utils/userStorage.js";
+import { loadUser, saveUser, findUsersByField } from "./utils/userStorage.js";
 import { buildOAuthPopupCompletionPage } from "./oauthPopupPage.js";
 import { sanitizeClientPath, resolveClientRedirect, isSameSiteOrigin } from "./oauthRedirect.js";
 import { registerOAuthHandoff, consumeOAuthHandoff, isValidOAuthNonce } from "./oauthHandoff.js";
@@ -44,6 +45,27 @@ const INVALID_CREDENTIALS_ERROR = 'Invalid username or password';
 // Hashed once at boot so the "no such account" path costs roughly the same as a
 // real password check (keeps login timing from revealing which usernames exist).
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('fives-timing-equalizer', 10);
+const scrypt = promisify(crypto.scrypt);
+const SCRYPT_OPTIONS = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
+
+async function hashGuestPassword(password) {
+  const salt = crypto.randomBytes(16);
+  const derived = await scrypt(password, salt, 32, SCRYPT_OPTIONS);
+  return `scrypt$${salt.toString('base64url')}$${derived.toString('base64url')}`;
+}
+
+async function verifyGuestPassword(password, hash) {
+  if (typeof hash !== 'string') return false;
+  if (!hash.startsWith('scrypt$')) return bcrypt.compare(password, hash);
+  const parts = hash.split('$');
+  if (parts.length !== 3 || !/^[A-Za-z0-9_-]{22}$/.test(parts[1]) || !/^[A-Za-z0-9_-]{43}$/.test(parts[2])) return false;
+  const salt = Buffer.from(parts[1], 'base64url');
+  const expected = Buffer.from(parts[2], 'base64url');
+  const actual = await scrypt(password, salt, expected.length, SCRYPT_OPTIONS);
+  return expected.length === 32 && crypto.timingSafeEqual(actual, expected);
+}
+
+let guestRegistrationQueue = Promise.resolve();
 
 // Helper to get country code from IP
 function getCountryFromIP(ip) {
@@ -279,26 +301,18 @@ async function findOAuthUser(providerField, providerName, providerId) {
   // Primary lookup: deterministic user id from provider+providerId.
   const deterministicId = buildOAuthUserId(providerName, normalizedProviderId);
   if (deterministicId) {
-    const byDeterministicId = await loadUser(deterministicId);
-    if (byDeterministicId) return byDeterministicId;
+    const byDeterministicId = await loadUser(deterministicId, { strict: true });
+    if (byDeterministicId) {
+      if (String(byDeterministicId[providerField] || '') !== normalizedProviderId) throw new Error('OAuth identity mismatch in storage');
+      return byDeterministicId;
+    }
   }
 
-  // Backward-compatible lookup: legacy rows keyed by oauth field. A failure
-  // here must not reject an otherwise valid OAuth callback; the deterministic
-  // id lookup above already covers accounts created by the current flow.
-  let users;
-  try {
-    users = await loadUsers();
-  } catch (err) {
-    console.warn('[OAuth] Legacy user lookup failed; continuing with a new account:', err?.message || err);
-    return null;
-  }
-
-  return (
-    Object.values(users || {}).find(
-      (u) => String(u?.[providerField] || '') === normalizedProviderId
-    ) || null
-  );
+  // Backward-compatible lookup for legacy rows. If storage is unavailable,
+  // fail rather than creating a duplicate of an existing legacy account.
+  const users = await findUsersByField(providerField, normalizedProviderId);
+  if (users.length > 1) throw new Error('Duplicate OAuth identity in storage');
+  return users[0] || null;
 }
 
 // Hosts we are willing to derive a server origin from. Host and X-Forwarded-Host
@@ -821,45 +835,10 @@ export function completeOAuthSuccess(req, res, provider, user, logPrefix) {
 }
 
 async function saveOAuthUserOrThrow(user, providerField) {
-  if (!user || !user.id) {
-    throw new Error('Invalid OAuth user payload');
-  }
-
-  // Persistence is best-effort here. The provider has already verified the
-  // identity and the account is in the in-memory cache, so a Supabase or local
-  // storage error must not turn a completed login into "sign in failed".
-  let saved = user;
-  try {
-    saved = await saveUser(user);
-    const persisted = await loadUser(saved.id);
-    if (!persisted) {
-      console.warn('[OAuth] Saved OAuth user could not be re-read; continuing with the saved record', {
-        userId: saved.id
-      });
-      return saved;
-    }
-
-    if (providerField && saved[providerField] && persisted[providerField] !== saved[providerField]) {
-      const repaired = { ...persisted, [providerField]: saved[providerField] };
-      await saveUser(repaired);
-      const verified = await loadUser(saved.id);
-      if (verified && verified[providerField] === saved[providerField]) {
-        return verified;
-      }
-      console.warn(`[OAuth] Persisted user missing ${providerField}; continuing with deterministic OAuth ID`, {
-        userId: saved.id
-      });
-      return verified || persisted;
-    }
-
-    return persisted;
-  } catch (err) {
-    console.error('[OAuth] User persistence failed; continuing with the in-memory OAuth user', {
-      userId: saved?.id || user.id,
-      error: err?.message || err
-    });
-    return saved || user;
-  }
+  if (!user?.id || !user[providerField]) throw new Error('Invalid OAuth user payload');
+  const saved = await saveUser(user);
+  if (saved[providerField] !== user[providerField]) throw new Error('OAuth identity was not persisted');
+  return saved;
 }
 
 // Passport wraps token transport errors in oauthError; never log the raw
@@ -1005,7 +984,7 @@ if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
             }
           }
 
-          console.log('[Discord] OAuth successful for user:', user.id);
+          console.log('[Discord] OAuth identity verified for user:', user.id);
           done(null, user);
         } catch (err) {
           console.error('[Discord] OAuth error:', err?.message || err);
@@ -1025,24 +1004,27 @@ router.post("/guest/register", async (req, res) => {
       return rejectRateLimitedAuth(res);
     }
 
-    const { password } = req.body;
+    const { password } = req.body || {};
     if (typeof password !== 'string' || password.length < 6 || password.length > 128)
       return res.json({ ok: false, error: "Invalid password" });
 
     const id = uuidv4();
-    const hashed = await bcrypt.hash(password, 10);
-    const name = "Guest" + crypto.randomInt(1000, 9999);
+    const hashed = await hashGuestPassword(password);
 
-    // Build the user object
-    const user = { id, name, type: "guest", guestpassword: hashed, country: getCountryFromIP(req.ip || req.socket.remoteAddress) };
-
-    // Save (this will try Supabase then fallback to local)
     let saved;
     try {
-      saved = await saveUser(user);
+      // Serialize allocation within this instance and use a large random number
+      // space. Database uniqueness is still needed across multiple instances.
+      const create = guestRegistrationQueue.catch(() => {}).then(async () => {
+        let name;
+        do { name = `Guest${crypto.randomInt(1000000000, 10000000000)}`; } while ((await findUsersByField('name', name)).length);
+        return saveUser({ id, name, type: 'guest', guestpassword: hashed, country: getCountryFromIP(req.ip || req.socket.remoteAddress) });
+      });
+      guestRegistrationQueue = create;
+      saved = await create;
     } catch (err) {
       console.error("[auth] saveUser failed:", err);
-      return res.json({ ok: false, error: "Failed to create user" });
+      return res.json({ ok: false, error: 'Account storage is unavailable. Please try again later.' });
     }
 
     // Log the saved user id for debugging (do not log secrets)
@@ -1070,11 +1052,13 @@ router.post("/guest/login", async (req, res) => {
       return rejectRateLimitedAuth(res);
     }
 
-    const { username, password } = req.body || {};
-    if (typeof username !== 'string' || typeof password !== 'string' || !username || !password) {
+    const { username: rawUsername, password } = req.body || {};
+    if (typeof rawUsername !== 'string' || typeof password !== 'string' || !rawUsername || !password) {
       return res.json({ ok: false, error: INVALID_CREDENTIALS_ERROR });
     }
-    if (username.length > 64 || password.length > 256) {
+    const trimmedUsername = rawUsername.trim();
+    const username = /^\d+$/.test(trimmedUsername) ? `Guest${trimmedUsername}` : trimmedUsername;
+    if (!username || username.length > 64 || password.length > 256) {
       return res.json({ ok: false, error: INVALID_CREDENTIALS_ERROR });
     }
 
@@ -1084,25 +1068,35 @@ router.post("/guest/login", async (req, res) => {
       return rejectRateLimitedAuth(res);
     }
 
-    const users = await loadUsers();
-    const user = Object.values(users).find(u => u.type === "guest" && u.name === username);
-
-    // ✅ Handle both guestPassword (app format) and guestpassword (DB format)
-    const storedPassword = user ? (user.guestPassword || user.guestpassword) : null;
-    if (!storedPassword) {
-      // Same generic error and comparable timing whether the account is missing,
-      // passwordless, or just has the wrong password: prevents username enumeration.
+    const canonicalName = /^guest\d+$/i.test(username) ? `Guest${username.slice(5)}` : username;
+    const matches = (await findUsersByField('name', canonicalName)).filter(u => u.type === 'guest');
+    if (!matches.length) {
       await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
-      if (user) console.warn(`[auth] Guest ${user.id} has no password stored - cannot login`);
       return res.json({ ok: false, error: INVALID_CREDENTIALS_ERROR });
     }
-
-    const match = await bcrypt.compare(password, storedPassword);
-    if (!match) return res.json({ ok: false, error: INVALID_CREDENTIALS_ERROR });
+    const verified = [];
+    for (const candidate of matches) {
+      const hash = candidate.guestPassword || candidate.guestpassword;
+      if (hash && await verifyGuestPassword(password, hash)) verified.push(candidate);
+    }
+    // Historical username collisions are safe only if this password identifies
+    // exactly one account; never silently choose one of multiple matches.
+    if (verified.length !== 1) return res.json({ ok: false, error: INVALID_CREDENTIALS_ERROR });
+    let user = verified[0];
+    const oldHash = user.guestPassword || user.guestpassword;
+    if (!oldHash.startsWith('scrypt$') && Buffer.byteLength(password, 'utf8') < 72) {
+      // Migrate legacy bcrypt only after successful authentication. Avoid
+      // treating unverified bytes beyond bcrypt's 72-byte limit as a new secret.
+      try { user = await saveUser({ ...user, guestPassword: await hashGuestPassword(password) }); }
+      catch (err) { console.warn('[auth] Guest password upgrade failed:', err?.message || err); }
+    }
 
     if (!user.country) {
-      user.country = getCountryFromIP(req.ip || req.socket.remoteAddress);
-      await saveUser(user);
+      const country = getCountryFromIP(req.ip || req.socket.remoteAddress);
+      if (country) {
+        try { user = await saveUser({ ...user, country }); }
+        catch (err) { console.warn('[auth] Guest country update failed:', err?.message || err); }
+      }
     }
 
     req.login(user, (err) => {
@@ -1155,7 +1149,10 @@ router.post("/oauth/claim", oauthRateLimit('claim', 'oauth'), (req, res) => {
 
 // ----------------- LOGOUT -----------------
 router.post("/logout", (req, res) => {
-  req.logout(() => {
+  const oldSessionId = req.sessionID;
+  req.logout((logoutError) => {
+    if (logoutError) return res.status(500).json({ ok: false, error: 'Logout failed' });
+    req.app.get('revokeSessionSockets')?.(oldSessionId);
     // Drop pending provider flows with the session so a half-finished login
     // cannot be replayed against the next account that signs in here.
     if (req.session) {
@@ -1209,10 +1206,10 @@ router.get(
           return sendOAuthFailure(req, res, 'google', 'Google sign in failed. Please try again.');
         }
 
-            if (!user.country) {
+        if (!user.country) {
           try {
-            user.country = getCountryFromIP(req.ip || req.socket.remoteAddress);
-            await saveUser(user);
+            const country = getCountryFromIP(req.ip || req.socket.remoteAddress);
+            if (country) await saveUser({ ...user, country });
           } catch (countryErr) {
             console.warn('[Google callback] Country update failed:', countryErr?.message || countryErr);
           }
@@ -1318,9 +1315,13 @@ router.get(
           return sendOAuthFailure(req, res, 'discord', 'Discord sign in failed. Please try again.');
         }
 
-            if (!user.country) {
-          user.country = getCountryFromIP(req.ip || req.socket.remoteAddress);
-          await saveUser(user);
+        if (!user.country) {
+          try {
+            const country = getCountryFromIP(req.ip || req.socket.remoteAddress);
+            if (country) await saveUser({ ...user, country });
+          } catch (countryErr) {
+            console.warn('[Discord callback] Country update failed:', countryErr?.message || countryErr);
+          }
         }
 
         // Enhanced session configuration for cross-site authentication

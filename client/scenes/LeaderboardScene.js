@@ -199,6 +199,7 @@ export default class LeaderboardScene extends Phaser.Scene {
         console.log('[LeaderboardScene] Fetching leaderboard, sort:', this.currentSort);
         this._updateLeaderboardText(t('LEADERBOARD_LOADING_SHORT', 'Loading...'));
 
+        let retryRateLimit = false;
         try {
             const response = await fetchWithServerFallback(
                 `/leaderboard?sortBy=${this.currentSort}`,
@@ -206,6 +207,7 @@ export default class LeaderboardScene extends Phaser.Scene {
             );
 
             if (!response.ok) {
+                retryRateLimit = response.status === 429;
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
@@ -233,7 +235,7 @@ export default class LeaderboardScene extends Phaser.Scene {
                 this._leaderboardTimeout = setTimeout(() => {
                     if (this._isShuttingDown) return;
                     if (!this.scene || !this.scene.isActive()) return;
-                    if (!this.leaderboardData.length) {
+                    if (retryRateLimit || !this.leaderboardData.length) {
                         console.warn('[LeaderboardScene] Leaderboard fetch failed, retrying...');
                         this._fetchLeaderboard();
                     }

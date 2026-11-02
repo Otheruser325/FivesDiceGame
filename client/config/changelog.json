@@ -10,11 +10,8 @@
         "Security"
       ],
       "changes": [
-        "Online lobbies are now private: only players in a lobby can read or change its state.",
-        "Sign-in can no longer be redirected to another site or started from a third-party page.",
-        "Dice rolls use a cryptographic random source, so past rolls no longer predict future ones.",
-        "The leaderboard is cached and rate limited, keeping the server responsive under load.",
-        "Container health checks now follow the configured PORT instead of assuming 8080."
+        "Multiplayer security fixes protect sessions, accounts, dice rolls, and game completion.",
+        "Stale exploits and surrender edge cases have been fixed to keep games moving fairly."
       ]
     },
     {
