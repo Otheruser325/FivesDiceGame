@@ -146,7 +146,29 @@ DISCORD_CLIENT_ID=your-id
 DISCORD_CLIENT_SECRET=your-secret
 ```
 
-See `server/.env.example` for all options.
+`CLIENT_ORIGINS` is a comma-separated list of allowed **game client** origins.
+OAuth callbacks instead point to the **API**, not the game client. The server
+selects the callback matching the API origin the client is using, so a Render
+fallback stays on Render and a working custom API stays on the custom domain.
+The selected URL is kept with the OAuth session for the token exchange.
+
+The Render and custom API callback URLs are supported by default. To allow
+additional API origins, configure a comma-separated list per provider:
+
+```env
+GOOGLE_CALLBACK_URLS=https://fivesapi.onrender.com/auth/google/callback,https://api.fivesdicegame.com/auth/google/callback
+DISCORD_CALLBACK_URLS=https://fivesapi.onrender.com/auth/discord/callback,https://api.fivesdicegame.com/auth/discord/callback
+```
+
+The existing `GOOGLE_CALLBACK_URL` and `DISCORD_CALLBACK_URL` variables remain
+supported; each may also contain a comma-separated list. `PUBLIC_SERVER_URL`
+sets the fallback API origin when the request host does not match a callback.
+Register **each exact callback URL** you intend to use in the corresponding
+Google Cloud or Discord developer application. HTTPS is required outside local
+development. Setting a URL does not check that the domain is online or enable
+Google OAuth without its client ID and secret. Use a shared session store such
+as Redis if traffic can reach multiple server instances; switching API hosts
+mid-flow can lose the host-bound session cookie.
 
 ## 🌐 Production Deployment
 

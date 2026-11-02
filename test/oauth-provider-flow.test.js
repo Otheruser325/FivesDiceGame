@@ -31,6 +31,7 @@ const providerState = {
   discordId: '123456789012345678',
   failTokenFor: null,
   failTokenBody: null,
+  failTokenStatus: 403,
   failUserinfoFor: null,
   tokenRequests: [],
   userinfoRequests: [],
@@ -40,6 +41,7 @@ const providerState = {
 function resetProviderState() {
   providerState.failTokenFor = null;
   providerState.failTokenBody = null;
+  providerState.failTokenStatus = 403;
   providerState.failUserinfoFor = null;
   providerState.tokenRequests.length = 0;
   providerState.userinfoRequests.length = 0;
@@ -103,7 +105,7 @@ function startFakeProvider() {
       });
       if (providerState.failTokenFor === providerName) {
         if (providerState.failTokenBody !== null) {
-          res.writeHead(403, { 'Content-Type': 'text/plain' });
+          res.writeHead(providerState.failTokenStatus, { 'Content-Type': 'text/plain' });
           return res.end(providerState.failTokenBody);
         }
         return sendJson(400, {
@@ -236,11 +238,31 @@ function newNonce() {
   return crypto.randomBytes(24).toString('base64url');
 }
 
+// Node's fetch replaces a supplied Host header; use http.request when a test
+// needs to simulate which public API host received the request.
+function fetchWithHost(url, headers) {
+  return new Promise((resolve, reject) => {
+    const req = http.get(url, { headers }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        const responseHeaders = new Headers();
+        for (let i = 0; i < res.rawHeaders.length; i += 2) {
+          responseHeaders.append(res.rawHeaders[i], res.rawHeaders[i + 1]);
+        }
+        resolve(new Response(Buffer.concat(chunks), { status: res.statusCode, headers: responseHeaders }));
+      });
+    });
+    req.on('error', reject);
+  });
+}
+
 async function beginFlow(providerName, options = {}) {
   const {
     mode = 'popup',
     clientPath = '/play/?room=ABC#lobby',
-    clientOrigin = CLIENT_ORIGIN
+    clientOrigin = CLIENT_ORIGIN,
+    startHeaders = {}
   } = options;
 
   const nonce = newNonce();
@@ -251,10 +273,11 @@ async function beginFlow(providerName, options = {}) {
     clientNonce: nonce
   }), 'utf8').toString('base64url')}`;
 
-  const start = await fetch(`${appBase}/auth/${providerName}?state=${encodeURIComponent(clientState)}`, {
-    redirect: 'manual',
-    headers: { Origin: clientOrigin }
-  });
+  const startUrl = `${appBase}/auth/${providerName}?state=${encodeURIComponent(clientState)}`;
+  const startHeadersWithOrigin = { Origin: clientOrigin, ...startHeaders };
+  const start = startHeaders.Host
+    ? await fetchWithHost(startUrl, startHeadersWithOrigin)
+    : await fetch(startUrl, { redirect: 'manual', headers: startHeadersWithOrigin });
   assert.equal(start.status, 302, 'authorize request did not redirect');
 
   const cookie = cookieFrom(start);
@@ -285,7 +308,7 @@ async function beginFlow(providerName, options = {}) {
   };
 }
 
-async function completeFlow(flow, { deny = false } = {}) {
+async function completeFlow(flow, { deny = false, localCallback = false, callbackHeaders = {} } = {}) {
   let callbackLocation;
 
   if (deny) {
@@ -301,9 +324,13 @@ async function completeFlow(flow, { deny = false } = {}) {
     assert.ok(callbackLocation, 'fake provider sent no callback location');
   }
 
-  const callbackResponse = await fetch(callbackLocation, {
+  // For alternate public hosts, send the callback to this same local test app
+  // while preserving the exact redirect URI the fake provider saw.
+  const target = new URL(callbackLocation);
+  const callbackRequestUrl = localCallback ? `${appBase}${target.pathname}${target.search}` : callbackLocation;
+  const callbackResponse = await fetch(callbackRequestUrl, {
     redirect: 'manual',
-    headers: { Cookie: flow.cookie }
+    headers: { Cookie: flow.cookie, ...callbackHeaders }
   });
   const updatedCookie = cookieFrom(callbackResponse);
 
@@ -380,6 +407,14 @@ test('Google popup: real exchange, completion page, session, and single-use hand
   resetProviderState();
 
   const flow = await beginFlow('google');
+  // Normal polls before the callback do not signal an authentication failure or
+  // consume the eventual result.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const pending = await claimLogin(flow.nonce);
+    assert.equal(pending.status, 202);
+    assert.equal(pending.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(await pending.json(), { ok: false, pending: true });
+  }
   const { callbackResponse, cookie } = await completeFlow(flow);
 
   assert.equal(callbackResponse.status, 200);
@@ -418,7 +453,8 @@ test('Google popup: real exchange, completion page, session, and single-use hand
 
   // A claim from another origin must not burn the ticket.
   const wrongOrigin = await claimLogin(flow.nonce, OTHER_LOCAL_ORIGIN);
-  assert.equal(wrongOrigin.status, 401);
+  assert.equal(wrongOrigin.status, 202);
+  assert.deepEqual(await wrongOrigin.json(), { ok: false, pending: true });
 
   const claim = await claimLogin(flow.nonce);
   assert.equal(claim.status, 200);
@@ -428,7 +464,9 @@ test('Google popup: real exchange, completion page, session, and single-use hand
   assert.ok(!('email' in claimed.user), 'claim leaked the provider email');
   assert.ok(!('oauthGoogle' in claimed.user), 'claim leaked the provider account id');
 
-  assert.equal((await claimLogin(flow.nonce)).status, 401, 'a ticket was claimable twice');
+  const spent = await claimLogin(flow.nonce);
+  assert.equal(spent.status, 202);
+  assert.deepEqual(await spent.json(), { ok: false, pending: true }, 'a ticket was claimable twice');
   assert.equal((await claimLogin(flow.nonce, 'https://evil.example')).status, 403);
 });
 
@@ -476,6 +514,25 @@ test('Discord popup: real exchange, stable account on repeat, and claimable hand
   assert.equal(discordUsers.length, 1, 'repeat login persisted more than one Discord user');
 });
 
+test('both providers exchange the exact callback selected at start, even if the callback host differs', async () => {
+  for (const providerName of ['google', 'discord']) {
+    resetProviderState();
+    const flow = await beginFlow(providerName, {
+      startHeaders: { Host: 'api.fivesdicegame.com', 'X-Forwarded-Proto': 'https' }
+    });
+    assert.equal(flow.redirectUri, `https://api.fivesdicegame.com/auth/${providerName}/callback`);
+    const { callbackResponse, cookie } = await completeFlow(flow, {
+      localCallback: true,
+      callbackHeaders: { Host: 'evil.example' }
+    });
+    assert.equal(payloadOf(await callbackResponse.text()).type, 'fives-oauth-success');
+    assert.equal(providerState.tokenRequests.length, 1);
+    assert.equal(providerState.tokenRequests[0].form.get('redirect_uri'), flow.redirectUri);
+    assert.equal((await sessionUser(cookie)).ok, true);
+    assert.equal((await claimLogin(flow.nonce)).status, 200);
+  }
+});
+
 test('full-page Google flow redirects to the exact tab URL and registers no popup ticket', async () => {
   resetProviderState();
 
@@ -495,7 +552,9 @@ test('full-page Google flow redirects to the exact tab URL and registers no popu
 
   const me = await sessionUser(cookie);
   assert.equal(me.ok, true);
-  assert.equal((await claimLogin(flow.nonce)).status, 401, 'a top-level flow left a claimable ticket');
+  const claim = await claimLogin(flow.nonce);
+  assert.equal(claim.status, 202);
+  assert.deepEqual(await claim.json(), { ok: false, pending: true }, 'a top-level flow left a claimable ticket');
 });
 
 test('a provider token failure renders a popup error and publishes a terminal claim', async () => {
@@ -525,7 +584,9 @@ test('a provider token failure renders a popup error and publishes a terminal cl
   const body = await claim.json();
   assert.equal(body.ok, false);
   assert.match(body.error, /Google sign in failed/i);
-  assert.equal((await claimLogin(flow.nonce)).status, 401, 'a failure ticket was claimable twice');
+  const spent = await claimLogin(flow.nonce);
+  assert.equal(spent.status, 202);
+  assert.deepEqual(await spent.json(), { ok: false, pending: true }, 'a failure ticket was claimable twice');
 
   let log = '';
   for (let attempt = 0; attempt < 20; attempt++) {
@@ -566,6 +627,27 @@ test('Discord token transport errors log safe diagnostics without provider respo
   assert.ok(!log.includes('test-discord-client-secret'), 'client secret leaked into logs');
 });
 
+test('Discord rate-limited token exchange reports a retryable provider failure', async () => {
+  resetProviderState();
+  providerState.failTokenFor = 'discord';
+  providerState.failTokenStatus = 429;
+  providerState.failTokenBody = 'PRIVATE_RATE_LIMIT_RESPONSE';
+
+  const flow = await beginFlow('discord');
+  const { callbackResponse, cookie } = await completeFlow(flow);
+  const payload = payloadOf(await callbackResponse.text());
+  assert.equal(payload.type, 'fives-oauth-error');
+  assert.match(payload.error, /Discord is temporarily rate limiting/);
+  assert.ok(!payload.error.includes('PRIVATE_RATE_LIMIT_RESPONSE'));
+  assert.equal((await sessionUser(cookie)).ok, false);
+  assert.equal(providerState.tokenRequests.length, 1, 'rate-limited token exchange was retried');
+  assert.equal(providerState.userinfoRequests.length, 0, 'rate-limited exchange fetched a profile');
+
+  const claim = await claimLogin(flow.nonce);
+  assert.equal(claim.status, 200);
+  assert.equal((await claim.json()).error, payload.error);
+});
+
 test('a cancelled Discord authorization is terminal instead of leaving the tab waiting', async () => {
   resetProviderState();
 
@@ -586,7 +668,9 @@ test('a cancelled Discord authorization is terminal instead of leaving the tab w
   const body = await claim.json();
   assert.equal(body.ok, false);
   assert.equal(body.error, 'Discord login failed');
-  assert.equal((await claimLogin(flow.nonce)).status, 401);
+  const spent = await claimLogin(flow.nonce);
+  assert.equal(spent.status, 202);
+  assert.deepEqual(await spent.json(), { ok: false, pending: true });
 });
 
 test('a replayed callback is rejected without consuming the valid handoff', async () => {
@@ -623,9 +707,11 @@ test('concurrent claims deliver the login exactly once', async () => {
     claimLogin(flow.nonce),
     claimLogin(flow.nonce)
   ]);
-  assert.deepEqual([first.status, second.status].sort(), [200, 401]);
+  assert.deepEqual([first.status, second.status].sort(), [200, 202]);
   const winner = first.status === 200 ? first : second;
+  const loser = first.status === 202 ? first : second;
   assert.equal((await winner.json()).ok, true);
+  assert.deepEqual(await loser.json(), { ok: false, pending: true });
 });
 
 test('a hostile client origin cannot receive the login or a handoff ticket', async () => {
@@ -641,7 +727,9 @@ test('a hostile client origin cannot receive the login or a handoff ticket', asy
   assert.ok(!html.includes('evil.example'), 'completion page reflected the hostile origin');
   assert.ok(html.includes('var openerOrigin = ""'), 'completion page kept a target for a hostile origin');
 
-  assert.equal((await claimLogin(flow.nonce)).status, 401, 'a hostile-start flow left a claimable ticket');
+  const claim = await claimLogin(flow.nonce);
+  assert.equal(claim.status, 202);
+  assert.deepEqual(await claim.json(), { ok: false, pending: true }, 'a hostile-start flow left a claimable ticket');
   assert.equal((await claimLogin(flow.nonce, 'https://evil.example')).status, 403);
 });
 

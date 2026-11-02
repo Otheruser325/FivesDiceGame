@@ -89,7 +89,10 @@ before(async () => {
 
   startServer(port);
   startServer(hostilePort, { AUTH_SUCCESS_REDIRECT_URL: 'https://evil.example/phish' });
-  startServer(pinnedPort, { DISCORD_CALLBACK_URL: 'https://api.fivesdicegame.com/auth/discord/callback' });
+  startServer(pinnedPort, {
+    DISCORD_CALLBACK_URL: 'https://api.fivesdicegame.com/auth/discord/callback, https://auth.example.net/auth/discord/callback',
+    GOOGLE_CALLBACK_URLS: 'https://api.fivesdicegame.com/auth/google/callback, https://fivesapi.onrender.com/auth/google/callback, https://auth.example.net/auth/google/callback, https://evil.example/wrong-path, http://unsafe.example/auth/google/callback'
+  });
 
   await Promise.all([waitForHealth(base), waitForHealth(hostileBase), waitForHealth(pinnedBase)]);
 });
@@ -156,6 +159,39 @@ test('a callback pinned to the unavailable custom API domain defers to Render', 
   const location = locationOf(res);
   assert.ok(location.includes(`redirect_uri=${encodeURIComponent(`${RENDER_CALLBACK}/auth/discord/callback`)}`), location);
   assert.ok(!location.includes('api.fivesdicegame.com'), location);
+});
+
+test('each provider selects the configured callback matching the active API host', async () => {
+  for (const provider of ['google', 'discord']) {
+    for (const host of ['api.fivesdicegame.com', 'fivesapi.onrender.com']) {
+      const res = await fetch(`${pinnedBase}/auth/${provider}`, {
+        redirect: 'manual',
+        headers: { Origin: CLIENT_ORIGIN, 'X-Forwarded-Host': host, 'X-Forwarded-Proto': 'https' }
+      });
+      assert.equal(res.status, 302);
+      assert.equal(new URL(locationOf(res)).searchParams.get('redirect_uri'), `https://${host}/auth/${provider}/callback`);
+    }
+  }
+});
+
+test('unconfigured or invalid callback origins cannot be selected by a spoofed host', async () => {
+  for (const host of ['evil.example', 'unsafe.example', 'api.fivesdicegame.com.evil.example', 'api.fivesdicegame.com:8443']) {
+    const res = await fetch(`${pinnedBase}/auth/google`, {
+      redirect: 'manual',
+      headers: { Origin: CLIENT_ORIGIN, 'X-Forwarded-Host': host, 'X-Forwarded-Proto': 'https' }
+    });
+    assert.equal(new URL(locationOf(res)).searchParams.get('redirect_uri'), `${RENDER_CALLBACK}/auth/google/callback`);
+  }
+});
+
+test('an additional configured API callback origin can be selected from either variable format', async () => {
+  for (const provider of ['google', 'discord']) {
+    const res = await fetch(`${pinnedBase}/auth/${provider}`, {
+      redirect: 'manual',
+      headers: { 'X-Forwarded-Host': 'auth.example.net', 'X-Forwarded-Proto': 'https' }
+    });
+    assert.equal(new URL(locationOf(res)).searchParams.get('redirect_uri'), `https://auth.example.net/auth/${provider}/callback`);
+  }
 });
 
 test('the Discord authorize proxy never leaves trusted hosts', async () => {
@@ -286,9 +322,9 @@ test('the login handoff endpoint refuses unknown nonces and hostile origins', as
     headers: { Origin: CLIENT_ORIGIN, 'Content-Type': 'application/json' },
     body
   });
-  assert.equal(unknown.status, 401);
+  assert.equal(unknown.status, 202);
   assert.equal(unknown.headers.get('cache-control'), 'no-store');
-  assert.deepEqual(await unknown.json(), { ok: false });
+  assert.deepEqual(await unknown.json(), { ok: false, pending: true });
 
   const hostile = await fetch(`${base}/auth/oauth/claim`, {
     method: 'POST',
@@ -305,9 +341,10 @@ test('the Vercel fallback client may claim a login handoff', async () => {
     body: JSON.stringify({ nonce: 'b'.repeat(32) })
   });
 
-  // 401 means the origin was accepted and only the unknown nonce was refused;
-  // a 403 would mean the fallback client cannot receive its login at all.
-  assert.equal(res.status, 401);
+  // A neutral pending response means the origin was accepted without
+  // revealing whether the nonce is unknown or the login is still in progress.
+  assert.equal(res.status, 202);
+  assert.deepEqual(await res.json(), { ok: false, pending: true });
 });
 
 test('a mistyped AUTH_SUCCESS_REDIRECT_URL cannot become an open redirect', async () => {

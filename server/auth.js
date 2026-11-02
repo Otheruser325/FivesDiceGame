@@ -243,10 +243,6 @@ function getPublicServerOrigin() {
 }
 
 const PUBLIC_SERVER_ORIGIN = getPublicServerOrigin();
-const DISCORD_CALLBACK_PATH = '/auth/discord/callback';
-const DISCORD_CALLBACK_FALLBACK_URL = `${PUBLIC_SERVER_ORIGIN}${DISCORD_CALLBACK_PATH}`;
-const DEFAULT_RENDER_DISCORD_CALLBACK_URL = 'https://fivesapi.onrender.com/auth/discord/callback';
-const DISCORD_CALLBACK_URL = process.env.DISCORD_CALLBACK_URL || DISCORD_CALLBACK_PATH;
 const OAUTH_USER_ID_NAMESPACE = 'd6e3e4be-9493-47e9-ab88-46fbcfef5c4a';
 
 // End-to-end tests point the real strategies at a fake provider. Only the test
@@ -305,15 +301,6 @@ async function findOAuthUser(providerField, providerName, providerId) {
   );
 }
 
-function normalizeAbsoluteUrl(url) {
-  if (!url || typeof url !== 'string') return null;
-  try {
-    return new URL(url).toString();
-  } catch (e) {
-    return null;
-  }
-}
-
 // Hosts we are willing to derive a server origin from. Host and X-Forwarded-Host
 // are attacker-controlled request headers, and this origin ends up in redirect
 // Location headers (/auth/discord/authorize), so anything unknown is rejected.
@@ -348,7 +335,7 @@ function isTrustedServerHost(hostname) {
   return configuredHosts.includes(host);
 }
 
-function getRequestOrigin(req) {
+function getRequestOrigin(req, requireTrustedHost = true) {
   try {
     const trustProxy = !!req?.app?.get?.('trust proxy');
     const forwardedProtoRaw = req?.headers?.['x-forwarded-proto'];
@@ -366,31 +353,10 @@ function getRequestOrigin(req) {
 
     // Only echo a host we actually serve; callers otherwise fall back to the
     // configured public origin.
-    return isTrustedServerHost(new URL(origin).hostname) ? origin : null;
+    return !requireTrustedHost || isTrustedServerHost(new URL(origin).hostname) ? origin : null;
   } catch (e) {
     return null;
   }
-}
-
-function toAbsoluteCallbackUrl(candidate, req, preferredBase) {
-  if (!candidate || typeof candidate !== 'string') return null;
-  const trimmed = candidate.trim();
-  if (!trimmed) return null;
-
-  if (/^https?:\/\//i.test(trimmed)) {
-    return normalizeAbsoluteUrl(trimmed);
-  }
-
-  if (trimmed.startsWith('/')) {
-    const normalizedPreferredBase = normalizeOrigin(preferredBase);
-    const requestOrigin = getRequestOrigin(req);
-    const base = normalizedPreferredBase || requestOrigin || PUBLIC_SERVER_ORIGIN;
-    const normalizedBase = normalizeOrigin(base);
-    if (!normalizedBase) return null;
-    return normalizeAbsoluteUrl(`${normalizedBase}${trimmed}`);
-  }
-
-  return null;
 }
 
 const OAUTH_CALLBACK_PATHS = {
@@ -398,85 +364,60 @@ const OAUTH_CALLBACK_PATHS = {
   discord: '/auth/discord/callback'
 };
 const DEFAULT_RENDER_OAUTH_ORIGIN = 'https://fivesapi.onrender.com';
-const RENDER_PUBLIC_HOST = 'fivesapi.onrender.com';
-const CUSTOM_API_HOST = 'api.fivesdicegame.com';
+const DEFAULT_CUSTOM_OAUTH_ORIGIN = 'https://api.fivesdicegame.com';
 
-function isPinnedToUnavailableCustomDomain(candidate) {
-  if (!candidate) return false;
+// The environment, not a request header, defines the allowed callback URLs.
+// Accept only the actual handler path and prohibit credentials, query strings,
+// fragments and insecure remote URLs.
+function toTrustedCallbackUrl(candidate, path) {
   try {
-    if (new URL(PUBLIC_SERVER_ORIGIN).hostname.toLowerCase() !== RENDER_PUBLIC_HOST) return false;
-    return new URL(candidate).hostname.toLowerCase() === CUSTOM_API_HOST;
-  } catch (e) {
-    return false;
-  }
-}
-
-// redirect_uri decides where the provider sends the authorization code, so it
-// must never come from a request header. Only https URLs on hosts we actually
-// serve are accepted (http is tolerated for localhost development).
-function toTrustedCallbackUrl(candidate) {
-  const normalized = normalizeAbsoluteUrl(candidate);
-  if (!normalized) return null;
-
-  let parsed;
-  try {
-    parsed = new URL(normalized);
+    const parsed = new URL(candidate);
+    const isLocal = ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname.toLowerCase());
+    if (parsed.username || parsed.password || parsed.pathname !== path || parsed.search || parsed.hash) return null;
+    if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && process.env.NODE_ENV !== 'production' && isLocal)) return null;
+    return parsed.toString();
   } catch (e) {
     return null;
   }
-
-  if (parsed.username || parsed.password) return null;
-
-  const hostname = parsed.hostname.toLowerCase();
-  const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
-  if (parsed.protocol !== 'https:' && !(process.env.NODE_ENV !== 'production' && isLocal)) return null;
-  if (!isTrustedServerHost(hostname)) return null;
-
-  return normalized;
 }
 
 function resolveOAuthCallbackUrl(provider, req) {
-  const path = OAUTH_CALLBACK_PATHS[provider] || `/auth/${provider}/callback`;
-  const configured = provider === 'discord'
-    ? process.env.DISCORD_CALLBACK_URL
-    : process.env.GOOGLE_CALLBACK_URL;
+  const path = OAUTH_CALLBACK_PATHS[provider];
+  const prefix = provider.toUpperCase();
+  // The singular variables remain supported, including comma-separated lists.
+  // Relative callback paths are based on the configured public API origin.
+  const configured = [process.env[`${prefix}_CALLBACK_URLS`], process.env[`${prefix}_CALLBACK_URL`]]
+    .filter(Boolean)
+    .flatMap((value) => value.split(','))
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => value === path ? `${PUBLIC_SERVER_ORIGIN}${path}` : value);
 
-  const configuredAbsolute = toAbsoluteCallbackUrl(configured, req, PUBLIC_SERVER_ORIGIN);
-  const requestOrigin = getRequestOrigin(req);
-  const requestCallback = requestOrigin ? normalizeAbsoluteUrl(`${requestOrigin}${path}`) : null;
+  const defaults = [PUBLIC_SERVER_ORIGIN, DEFAULT_RENDER_OAUTH_ORIGIN, DEFAULT_CUSTOM_OAUTH_ORIGIN]
+    .map((origin) => `${origin}${path}`);
+  const candidates = [...new Set([...configured, ...defaults]
+    .map((candidate) => toTrustedCallbackUrl(candidate, path))
+    .filter(Boolean))];
 
-  const configuredIsStale = isPinnedToUnavailableCustomDomain(configuredAbsolute);
-  const configuredFirst = configuredIsStale ? null : configuredAbsolute;
-  const configuredLast = configuredIsStale ? configuredAbsolute : null;
+  // A request host can select only an exact origin in the callback allowlist.
+  const requestOrigin = getRequestOrigin(req, false);
+  const matching = candidates.find((candidate) => new URL(candidate).origin === requestOrigin);
+  if (matching) return matching;
 
-  // Providers require an exact redirect_uri match at token exchange, so in
-  // production we stick to one stable callback instead of following whichever
-  // host happened to serve the authorize request.
-  const candidates = process.env.NODE_ENV === 'production'
-    ? [
-        configuredFirst,
-        normalizeAbsoluteUrl(`${PUBLIC_SERVER_ORIGIN}${path}`),
-        normalizeAbsoluteUrl(`${DEFAULT_RENDER_OAUTH_ORIGIN}${path}`),
-        configuredLast
-      ]
-    : [
-        requestCallback,
-        configuredFirst,
-        normalizeAbsoluteUrl(`${PUBLIC_SERVER_ORIGIN}${path}`),
-        normalizeAbsoluteUrl(`${DEFAULT_RENDER_OAUTH_ORIGIN}${path}`),
-        configuredLast
-      ];
-
-  for (const candidate of candidates) {
-    const trusted = toTrustedCallbackUrl(candidate);
-    if (trusted) return trusted;
+  // Local development commonly reaches the same process via localhost or
+  // 127.0.0.1 on a dynamically assigned port; never do this for remote hosts.
+  if (process.env.NODE_ENV !== 'production' && requestOrigin) {
+    const requestUrl = toTrustedCallbackUrl(`${requestOrigin}${path}`, path);
+    const host = new URL(requestOrigin).hostname;
+    if (requestUrl && ['localhost', '127.0.0.1', '[::1]'].includes(host)) return requestUrl;
   }
 
-  return `${DEFAULT_RENDER_OAUTH_ORIGIN}${path}`;
-}
-
-function resolveDiscordCallbackUrl(req) {
-  return resolveOAuthCallbackUrl('discord', req);
+  // When the request host is not in the allowlist, prefer the configured public
+  // origin over a possibly unavailable alternative or a spoofed Host header.
+  const publicCallback = toTrustedCallbackUrl(`${PUBLIC_SERVER_ORIGIN}${path}`, path);
+  return (publicCallback && candidates.includes(publicCallback) ? publicCallback : null)
+    || candidates[0]
+    || `${DEFAULT_RENDER_OAUTH_ORIGIN}${path}`;
 }
 
 function isAllowedAuthOrigin(origin) {
@@ -637,7 +578,7 @@ function decodeOAuthStateToken(raw) {
 // this browser's session, so a callback URL minted elsewhere (login CSRF / session
 // fixation) cannot complete a sign-in. The client-supplied payload is only used as
 // a hint for popup handling and is always re-validated against the origin allowlist.
-function issueOAuthState(req) {
+function issueOAuthState(req, provider, callbackURL) {
   const clientState = decodeOAuthStatePayload(req?.query?.state);
   const requestedOrigin = normalizeOrigin(clientState?.clientOrigin);
   const clientOrigin = requestedOrigin && isAllowedAuthOrigin(requestedOrigin) ? requestedOrigin : null;
@@ -655,7 +596,7 @@ function issueOAuthState(req) {
   req.session.oauthStates = pending
     .filter((entry) => entry && typeof entry.nonce === 'string' && (now - entry.createdAt) < OAUTH_STATE_TTL_MS)
     .slice(-(OAUTH_STATE_MAX_PENDING - 1))
-    .concat([{ nonce, popup, mode, clientOrigin, clientPath, handoffNonce, createdAt: now }]);
+    .concat([{ nonce, popup, mode, clientOrigin, clientPath, handoffNonce, provider, callbackURL, createdAt: now }]);
 
   return `${OAUTH_STATE_PREFIX}${encodeOAuthStateToken({ n: nonce, p: popup ? 1 : 0 })}`;
 }
@@ -680,14 +621,16 @@ function consumeOAuthState(req) {
     mode: entry.mode === 'top' ? 'top' : 'popup',
     clientOrigin: entry.clientOrigin || null,
     clientPath: sanitizeClientPath(entry.clientPath),
-    handoffNonce: isValidOAuthNonce(entry.handoffNonce) ? entry.handoffNonce : null
+    handoffNonce: isValidOAuthNonce(entry.handoffNonce) ? entry.handoffNonce : null,
+    provider: entry.provider || null,
+    callbackURL: entry.callbackURL || null
   };
 }
 
 function requireOAuthState(provider) {
   return (req, res, next) => {
     const context = consumeOAuthState(req);
-    if (!context) {
+    if (!context || (context.provider && context.provider !== provider)) {
       console.warn(`[Auth] ${provider} callback rejected: state missing, expired, or not bound to this session`);
       req.oauthStateContext = null;
       return sendOAuthFailure(req, res, provider, 'Sign in session expired. Please try again.');
@@ -1001,9 +944,6 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 
 // ----------------- DISCORD OAUTH -----------------
 if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
-  console.log('[Discord OAuth] Callback config:', DISCORD_CALLBACK_URL);
-  console.log('[Discord OAuth] Callback fallback:', DISCORD_CALLBACK_FALLBACK_URL);
-
   passport.use(
     "discord",
     new OAuth2Strategy(
@@ -1012,7 +952,7 @@ if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
         tokenURL: providerEndpoint('DISCORD_TOKEN_URL', 'https://discord.com/api/oauth2/token'),
         clientID: process.env.DISCORD_CLIENT_ID,
         clientSecret: process.env.DISCORD_CLIENT_SECRET,
-        callbackURL: DISCORD_CALLBACK_URL,
+        callbackURL: resolveOAuthCallbackUrl('discord'),
         scope: ["identify"],
       },
       async (accessToken, refreshToken, params, done) => {
@@ -1199,9 +1139,9 @@ router.post("/oauth/claim", oauthRateLimit('claim', 'oauth'), (req, res) => {
   const nonce = typeof req.body?.nonce === 'string' ? req.body.nonce : '';
   const entry = consumeOAuthHandoff(nonce, { origin });
   if (!entry) {
-    // Missing, expired, already claimed, or from another origin. Do not reveal
-    // which; the client treats this as "not ready yet" and keeps polling.
-    return res.status(401).json({ ok: false });
+    // Pending, unknown, expired, spent, or from another allowed origin all
+    // look alike. A normal poll is not an authentication failure.
+    return res.status(202).json({ ok: false, pending: true });
   }
 
   if (entry.error) {
@@ -1234,9 +1174,10 @@ router.get("/google",
   requireStrategy("google", "Google OAuth is not configured on this server. Please restart the server with GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET set."),
   oauthRateLimit('start', 'google'),
   (req, res, next) => {
-    const state = issueOAuthState(req);
+    const callbackURL = resolveOAuthCallbackUrl('google', req);
+    const state = issueOAuthState(req, 'google', callbackURL);
     return passport.authenticate("google", {
-      callbackURL: resolveOAuthCallbackUrl('google', req),
+      callbackURL,
       scope: ["profile"],
       state
     })(req, res, next);
@@ -1249,7 +1190,7 @@ router.get(
   oauthRateLimit('callback', 'google'),
   requireOAuthState("google"),
   (req, res, next) => {
-    const callbackURL = resolveOAuthCallbackUrl('google', req);
+    const callbackURL = req.oauthStateContext.callbackURL || resolveOAuthCallbackUrl('google', req);
 
     passport.authenticate("google", { callbackURL }, (err, user) => {
       if (err) {
@@ -1288,8 +1229,8 @@ router.get("/discord",
   oauthRateLimit('start', 'discord'),
   (req, res, next) => {
     applyAuthCorsHeaders(req, res);
-    const callbackURL = resolveDiscordCallbackUrl(req);
-    const state = issueOAuthState(req);
+    const callbackURL = resolveOAuthCallbackUrl('discord', req);
+    const state = issueOAuthState(req, 'discord', callbackURL);
     
     passport.authenticate("discord", {
       callbackURL,
@@ -1345,7 +1286,7 @@ router.get(
   oauthRateLimit('callback', 'discord'),
   requireOAuthState("discord"),
   (req, res, next) => {
-    const callbackURL = resolveDiscordCallbackUrl(req);
+    const callbackURL = req.oauthStateContext.callbackURL || resolveOAuthCallbackUrl('discord', req);
 
     // Set comprehensive CORS headers for the callback
     if (applyAuthCorsHeaders(req, res)) {
@@ -1360,7 +1301,10 @@ router.get(
     passport.authenticate("discord", { callbackURL }, (err, user, info) => {
       if (err) {
         logOAuthAuthenticationError('Discord', err);
-        return sendOAuthFailure(req, res, 'discord', 'Discord sign in failed. Please try again.');
+        const message = Number(err?.oauthError?.statusCode) === 429
+          ? 'Discord is temporarily rate limiting sign in. Please wait before trying again.'
+          : 'Discord sign in failed. Please try again.';
+        return sendOAuthFailure(req, res, 'discord', message);
       }
       
       if (!user) {
