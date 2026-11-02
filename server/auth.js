@@ -878,6 +878,59 @@ export function completeOAuthSuccess(req, res, provider, user, logPrefix) {
   return saveSessionBeforeCompletion(req, logPrefix, send);
 }
 
+// A provider failure must never hide a login this browser already completed.
+// The account can be linked and the session saved while the client missed the
+// result, so answer with the session that is actually signed in instead of
+// telling the player their sign-in failed.
+function completeWithExistingProviderSession(req, res, provider, logPrefix) {
+  if (!isAuthenticatedWithProvider(req, provider)) return false;
+  console.log(`${logPrefix} Provider exchange failed, but this browser is already signed in with ${provider}`);
+  completeOAuthSuccess(req, res, provider, req.user, logPrefix);
+  return true;
+}
+
+// Providers rate limit their token endpoint per IP and client, which shared
+// hosting IPs hit routinely. A 429 does not consume the authorization code, so
+// retry the exchange briefly rather than failing a login the player just
+// approved.
+const OAUTH_TOKEN_RETRY_ATTEMPTS = 2;
+const OAUTH_TOKEN_RETRY_MAX_WAIT_MS = 2500;
+
+function tokenRateLimitWaitMs(error) {
+  let waitMs = NaN;
+  try {
+    const body = JSON.parse(String(error?.data ?? ''));
+    waitMs = Number(body?.retry_after) * 1000;
+  } catch (e) {
+    // The provider did not describe the limit; use a short pause below.
+  }
+  if (!Number.isFinite(waitMs) || waitMs <= 0) waitMs = 500;
+  return Math.min(Math.max(waitMs, 250), OAUTH_TOKEN_RETRY_MAX_WAIT_MS);
+}
+
+function withTokenRateLimitRetry(strategy, provider) {
+  const oauth2 = strategy?._oauth2;
+  if (!oauth2 || typeof oauth2.getOAuthAccessToken !== 'function') return strategy;
+
+  const exchange = oauth2.getOAuthAccessToken.bind(oauth2);
+  oauth2.getOAuthAccessToken = (code, params, callback) => {
+    let remaining = OAUTH_TOKEN_RETRY_ATTEMPTS;
+    const attempt = () => {
+      exchange(code, params, (err, accessToken, refreshToken, results) => {
+        if (Number(err?.statusCode) !== 429 || remaining <= 0) {
+          return callback(err, accessToken, refreshToken, results);
+        }
+        remaining -= 1;
+        const waitMs = tokenRateLimitWaitMs(err);
+        console.warn(`[Auth] ${provider} token exchange was rate limited; retrying in ${waitMs}ms`);
+        setTimeout(attempt, waitMs);
+      });
+    };
+    attempt();
+  };
+  return strategy;
+}
+
 async function saveOAuthUserOrThrow(user, providerField) {
   if (!user?.id || !user[providerField]) throw new Error('Invalid OAuth user payload');
   const saved = await saveUser(user);
@@ -909,134 +962,131 @@ function logOAuthAuthenticationError(provider, err) {
 
 // ----------------- GOOGLE OAUTH -----------------
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
-  passport.use(
-    new GoogleStrategy(
-      {
-        clientID: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackURL: resolveOAuthCallbackUrl('google'),
-        authorizationURL: providerEndpoint('GOOGLE_AUTHORIZATION_URL', 'https://accounts.google.com/o/oauth2/v2/auth'),
-        tokenURL: providerEndpoint('GOOGLE_TOKEN_URL', 'https://www.googleapis.com/oauth2/v4/token'),
-        userProfileURL: providerEndpoint('GOOGLE_USERINFO_URL', 'https://www.googleapis.com/oauth2/v3/userinfo'),
-      },
-      async (accessToken, refreshToken, profile, done) => {
-        try {
-          const googleId = normalizeOAuthProviderId(profile?.id);
-          if (!googleId || !/^[A-Za-z0-9_-]{1,255}$/.test(googleId)) {
-            return done(new Error('Invalid Google profile id'), null);
-          }
-
-          const deterministicId = buildOAuthUserId('google', googleId) || uuidv4();
-          let user = await findOAuthUser('oauthGoogle', 'google', googleId);
-
-          if (!user) {
-            user = {
-              id: deterministicId,
-              name: sanitizeDisplayName(profile.displayName) || `GoogleUser${crypto.randomInt(1000, 9999)}`,
-              type: "google",
-              oauthGoogle: googleId,
-              oauthProvider: 'google',
-              oauthProviderId: googleId,
-              avatar: profile.photos && profile.photos[0] ? profile.photos[0].value : null,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            };
-            user = await saveOAuthUserOrThrow(user, 'oauthGoogle');
-          } else {
-            const updates = {};
-            if (!user.oauthGoogle) updates.oauthGoogle = googleId;
-            if (!user.oauthProvider) updates.oauthProvider = 'google';
-            if (!user.oauthProviderId) updates.oauthProviderId = googleId;
-            if (user.type !== 'google') updates.type = 'google';
-
-            if (Object.keys(updates).length > 0) {
-              user = await saveOAuthUserOrThrow({ ...user, ...updates, updatedAt: new Date().toISOString() }, 'oauthGoogle');
-            }
-          }
-          done(null, user);
-        } catch (err) {
-          console.error('Google oauth error:', err);
-          done(err, null);
+  const googleStrategy = new GoogleStrategy(
+    {
+      clientID: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      callbackURL: resolveOAuthCallbackUrl('google'),
+      authorizationURL: providerEndpoint('GOOGLE_AUTHORIZATION_URL', 'https://accounts.google.com/o/oauth2/v2/auth'),
+      tokenURL: providerEndpoint('GOOGLE_TOKEN_URL', 'https://www.googleapis.com/oauth2/v4/token'),
+      userProfileURL: providerEndpoint('GOOGLE_USERINFO_URL', 'https://www.googleapis.com/oauth2/v3/userinfo'),
+    },
+    async (accessToken, refreshToken, profile, done) => {
+      try {
+        const googleId = normalizeOAuthProviderId(profile?.id);
+        if (!googleId || !/^[A-Za-z0-9_-]{1,255}$/.test(googleId)) {
+          return done(new Error('Invalid Google profile id'), null);
         }
+
+        const deterministicId = buildOAuthUserId('google', googleId) || uuidv4();
+        let user = await findOAuthUser('oauthGoogle', 'google', googleId);
+
+        if (!user) {
+          user = {
+            id: deterministicId,
+            name: sanitizeDisplayName(profile.displayName) || `GoogleUser${crypto.randomInt(1000, 9999)}`,
+            type: "google",
+            oauthGoogle: googleId,
+            oauthProvider: 'google',
+            oauthProviderId: googleId,
+            avatar: profile.photos && profile.photos[0] ? profile.photos[0].value : null,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          };
+          user = await saveOAuthUserOrThrow(user, 'oauthGoogle');
+        } else {
+          const updates = {};
+          if (!user.oauthGoogle) updates.oauthGoogle = googleId;
+          if (!user.oauthProvider) updates.oauthProvider = 'google';
+          if (!user.oauthProviderId) updates.oauthProviderId = googleId;
+          if (user.type !== 'google') updates.type = 'google';
+
+          if (Object.keys(updates).length > 0) {
+            user = await saveOAuthUserOrThrow({ ...user, ...updates, updatedAt: new Date().toISOString() }, 'oauthGoogle');
+          }
+        }
+        done(null, user);
+      } catch (err) {
+        console.error('Google oauth error:', err);
+        done(err, null);
       }
-    )
+    }
   );
+  passport.use(withTokenRateLimitRetry(googleStrategy, 'Google'));
 } else {
   console.warn("⚠ Google OAuth disabled (missing env vars)");
 }
 
 // ----------------- DISCORD OAUTH -----------------
 if (process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET) {
-  passport.use(
-    "discord",
-    new OAuth2Strategy(
-      {
-        authorizationURL: providerEndpoint('DISCORD_AUTHORIZATION_URL', 'https://discord.com/api/oauth2/authorize'),
-        tokenURL: providerEndpoint('DISCORD_TOKEN_URL', 'https://discord.com/api/oauth2/token'),
-        clientID: process.env.DISCORD_CLIENT_ID,
-        clientSecret: process.env.DISCORD_CLIENT_SECRET,
-        callbackURL: resolveOAuthCallbackUrl('discord'),
-        scope: ["identify"],
-      },
-      async (accessToken, refreshToken, params, done) => {
-        try {
-          const response = await fetch(DISCORD_USERINFO_URL, {
-            headers: { Authorization: `Bearer ${accessToken}` },
-            signal: AbortSignal.timeout(5000)
-          });
-          
-          if (!response.ok) {
-            console.error('[Discord] API error:', response.status, response.statusText);
-            return done(new Error(`Discord API error: ${response.status}`));
-          }
-          
-          const discord = await response.json();
-          const discordId = normalizeOAuthProviderId(discord?.id);
+  const discordStrategy = new OAuth2Strategy(
+    {
+      authorizationURL: providerEndpoint('DISCORD_AUTHORIZATION_URL', 'https://discord.com/api/oauth2/authorize'),
+      tokenURL: providerEndpoint('DISCORD_TOKEN_URL', 'https://discord.com/api/oauth2/token'),
+      clientID: process.env.DISCORD_CLIENT_ID,
+      clientSecret: process.env.DISCORD_CLIENT_SECRET,
+      callbackURL: resolveOAuthCallbackUrl('discord'),
+      scope: ["identify"],
+    },
+    async (accessToken, refreshToken, params, done) => {
+      try {
+        const response = await fetch(DISCORD_USERINFO_URL, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: AbortSignal.timeout(5000)
+        });
 
-          // Discord ids are numeric snowflakes; anything else is not a profile we trust.
-          if (!discordId || !/^\d{1,32}$/.test(discordId)) {
-            console.error('[Discord] Unexpected user id in response');
-            return done(new Error('Invalid Discord user response'));
-          }
-
-          const deterministicId = buildOAuthUserId('discord', discordId) || uuidv4();
-          let user = await findOAuthUser('oauthDiscord', 'discord', discordId);
-
-          if (!user) {
-            user = {
-              id: deterministicId,
-              name: sanitizeDisplayName(discord.username) || `Discord${crypto.randomInt(1000, 9999)}`,
-              type: "discord",
-              oauthDiscord: discordId,
-              oauthProvider: 'discord',
-              oauthProviderId: discordId,
-              avatar: discord.avatar ? `https://cdn.discordapp.com/avatars/${discord.id}/${discord.avatar}.png` : null,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            };
-            console.log('[Discord] Creating new user:', { id: user.id, name: user.name });
-            user = await saveOAuthUserOrThrow(user, 'oauthDiscord');
-          } else {
-            const updates = {};
-            if (!user.oauthDiscord) updates.oauthDiscord = discordId;
-            if (!user.oauthProvider) updates.oauthProvider = 'discord';
-            if (!user.oauthProviderId) updates.oauthProviderId = discordId;
-            if (user.type !== 'discord') updates.type = 'discord';
-
-            if (Object.keys(updates).length > 0) {
-              user = await saveOAuthUserOrThrow({ ...user, ...updates, updatedAt: new Date().toISOString() }, 'oauthDiscord');
-            }
-          }
-
-          console.log('[Discord] OAuth identity verified for user:', user.id);
-          done(null, user);
-        } catch (err) {
-          console.error('[Discord] OAuth error:', err?.message || err);
-          done(err, null);
+        if (!response.ok) {
+          console.error('[Discord] API error:', response.status, response.statusText);
+          return done(new Error(`Discord API error: ${response.status}`));
         }
+
+        const discord = await response.json();
+        const discordId = normalizeOAuthProviderId(discord?.id);
+
+        // Discord ids are numeric snowflakes; anything else is not a profile we trust.
+        if (!discordId || !/^\d{1,32}$/.test(discordId)) {
+          console.error('[Discord] Unexpected user id in response');
+          return done(new Error('Invalid Discord user response'));
+        }
+
+        const deterministicId = buildOAuthUserId('discord', discordId) || uuidv4();
+        let user = await findOAuthUser('oauthDiscord', 'discord', discordId);
+
+        if (!user) {
+          user = {
+            id: deterministicId,
+            name: sanitizeDisplayName(discord.username) || `Discord${crypto.randomInt(1000, 9999)}`,
+            type: "discord",
+            oauthDiscord: discordId,
+            oauthProvider: 'discord',
+            oauthProviderId: discordId,
+            avatar: discord.avatar ? `https://cdn.discordapp.com/avatars/${discord.id}/${discord.avatar}.png` : null,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          };
+          console.log('[Discord] Creating new user:', { id: user.id, name: user.name });
+          user = await saveOAuthUserOrThrow(user, 'oauthDiscord');
+        } else {
+          const updates = {};
+          if (!user.oauthDiscord) updates.oauthDiscord = discordId;
+          if (!user.oauthProvider) updates.oauthProvider = 'discord';
+          if (!user.oauthProviderId) updates.oauthProviderId = discordId;
+          if (user.type !== 'discord') updates.type = 'discord';
+
+          if (Object.keys(updates).length > 0) {
+            user = await saveOAuthUserOrThrow({ ...user, ...updates, updatedAt: new Date().toISOString() }, 'oauthDiscord');
+          }
+        }
+
+        console.log('[Discord] OAuth identity verified for user:', user.id);
+        done(null, user);
+      } catch (err) {
+        console.error('[Discord] OAuth error:', err?.message || err);
+        done(err, null);
       }
-    )
+    }
   );
+  passport.use("discord", withTokenRateLimitRetry(discordStrategy, 'Discord'));
 } else {
   console.warn("⚠ Discord OAuth disabled (missing env vars)");
 }
@@ -1242,6 +1292,7 @@ router.get(
     passport.authenticate("google", { callbackURL }, (err, user) => {
       if (err) {
         logOAuthAuthenticationError('Google', err);
+        if (completeWithExistingProviderSession(req, res, 'google', '[Google callback]')) return;
         return sendOAuthFailure(req, res, 'google', 'Google sign in failed. Please try again.');
       }
 
@@ -1349,6 +1400,7 @@ router.get(
     passport.authenticate("discord", { callbackURL }, (err, user, info) => {
       if (err) {
         logOAuthAuthenticationError('Discord', err);
+        if (completeWithExistingProviderSession(req, res, 'discord', '[Discord callback]')) return;
         const message = Number(err?.oauthError?.statusCode) === 429
           ? 'Discord is temporarily rate limiting sign in. Please wait before trying again.'
           : 'Discord sign in failed. Please try again.';

@@ -34,6 +34,7 @@ const providerState = {
   failTokenBody: null,
   failTokenStatus: 403,
   failUserinfoFor: null,
+  rateLimitToken: null,
   tokenRequests: [],
   userinfoRequests: [],
   authorizeRequests: []
@@ -44,6 +45,7 @@ function resetProviderState() {
   providerState.failTokenBody = null;
   providerState.failTokenStatus = 403;
   providerState.failUserinfoFor = null;
+  providerState.rateLimitToken = null;
   providerState.tokenRequests.length = 0;
   providerState.userinfoRequests.length = 0;
   providerState.authorizeRequests.length = 0;
@@ -104,6 +106,12 @@ function startFakeProvider() {
         form,
         authorization: req.headers.authorization || null
       });
+      if (providerState.rateLimitToken?.provider === providerName && providerState.rateLimitToken.times > 0) {
+        providerState.rateLimitToken.times -= 1;
+        const retryAfter = providerState.rateLimitToken.retryAfter ?? 0.01;
+        res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': String(retryAfter) });
+        return res.end(JSON.stringify({ message: 'You are being rate limited.', retry_after: retryAfter, global: false }));
+      }
       if (providerState.failTokenFor === providerName) {
         if (providerState.failTokenBody !== null) {
           res.writeHead(providerState.failTokenStatus, { 'Content-Type': 'text/plain' });
@@ -543,16 +551,38 @@ async function startDiscordFlow(base, cookie = '') {
   return { response, nonce };
 }
 
-async function signInDiscord(base) {
-  const flow = await startDiscordFlow(base);
+async function runDiscordFlow(base, cookie = '') {
+  const flow = await startDiscordFlow(base, cookie);
   assert.equal(flow.response.status, 302, 'Discord start did not redirect to the provider');
-  const cookie = cookieFrom(flow.response);
+  const startCookie = cookieFrom(flow.response);
+  const sessionCookie = startCookie.includes('fives.sid=') ? startCookie : cookie;
   const providerResponse = await fetch(flow.response.headers.get('location'), { redirect: 'manual' });
-  const callback = await fetch(providerResponse.headers.get('location'), { redirect: 'manual', headers: { Cookie: cookie } });
+  const callbackLocation = providerResponse.headers.get('location');
+  assert.ok(callbackLocation, 'fake provider sent no callback location');
+  const callback = await fetch(callbackLocation, { redirect: 'manual', headers: { Cookie: sessionCookie } });
   const payload = payloadOf(await callback.text());
-  assert.equal(payload.type, 'fives-oauth-success');
   const updated = cookieFrom(callback);
-  return { user: payload.user, cookie: updated.includes('fives.sid=') ? updated : cookie };
+  return {
+    nonce: flow.nonce,
+    payload,
+    cookie: updated.includes('fives.sid=') ? updated : sessionCookie
+  };
+}
+
+async function signInDiscord(base) {
+  const flow = await runDiscordFlow(base);
+  assert.equal(flow.payload.type, 'fives-oauth-success');
+  return { user: flow.payload.user, cookie: flow.cookie };
+}
+
+async function claimOn(base, nonce) {
+  const res = await fetch(`${base}/auth/oauth/claim`, {
+    method: 'POST',
+    headers: { Origin: CLIENT_ORIGIN, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nonce })
+  });
+  assert.equal(res.status, 200);
+  return res.json();
 }
 
 test('a throttled Discord start reports the account that is already signed in', async () => {
@@ -624,6 +654,52 @@ test('a throttled popup start is retryable and does not spend another provider b
   // Each provider has its own budget.
   const google = await fetch(`${base}/auth/google?state=popup`, { redirect: 'manual', headers: { Origin: CLIENT_ORIGIN } });
   assert.equal(google.status, 302, 'a Discord throttle blocked a Google sign-in');
+});
+
+test('a rate-limited token exchange is retried instead of failing the login', async () => {
+  resetProviderState();
+  const port = await freePort();
+  const base = `http://127.0.0.1:${port}`;
+  const server = startApp(port, providerEnv(base));
+  await waitForHealth(base, server);
+
+  providerState.rateLimitToken = { provider: 'discord', times: 1, retryAfter: 0.01 };
+  try {
+    const flow = await runDiscordFlow(base);
+    assert.equal(flow.payload.type, 'fives-oauth-success');
+    const exchanges = providerState.tokenRequests.filter((request) => request.provider === 'discord');
+    assert.equal(exchanges.length, 2, 'the token exchange was not retried after a 429');
+  } finally {
+    providerState.rateLimitToken = null;
+  }
+});
+
+test('a provider rate limit does not hide a login this browser already completed', async () => {
+  resetProviderState();
+  const port = await freePort();
+  const base = `http://127.0.0.1:${port}`;
+  const server = startApp(port, providerEnv(base));
+  await waitForHealth(base, server);
+
+  const signedIn = await signInDiscord(base);
+
+  providerState.rateLimitToken = { provider: 'discord', times: 99, retryAfter: 0.01 };
+  try {
+    const retry = await runDiscordFlow(base, signedIn.cookie);
+    assert.equal(retry.payload.type, 'fives-oauth-success', 'the rate limit hid the signed-in session');
+    assert.equal(retry.payload.user.id, signedIn.user.id);
+
+    const claim = await claimOn(base, retry.nonce);
+    assert.equal(claim.ok, true);
+    assert.equal(claim.user.id, signedIn.user.id);
+
+    // A browser with no session must still see the real provider failure.
+    const anonymous = await runDiscordFlow(base);
+    assert.equal(anonymous.payload.type, 'fives-oauth-error');
+    assert.match(anonymous.payload.error, /rate limiting/);
+  } finally {
+    providerState.rateLimitToken = null;
+  }
 });
 
 test('a fresh socket handshake picks up a completed Google session and rejects identity spoofing', async () => {
@@ -902,7 +978,9 @@ test('Discord rate-limited token exchange reports a retryable provider failure',
   assert.match(payload.error, /Discord is temporarily rate limiting/);
   assert.ok(!payload.error.includes('PRIVATE_RATE_LIMIT_RESPONSE'));
   assert.equal((await sessionUser(cookie)).ok, false);
-  assert.equal(providerState.tokenRequests.length, 1, 'rate-limited token exchange was retried');
+  // The exchange is retried a bounded number of times, then reported as a
+  // temporary provider failure instead of a wrong account.
+  assert.equal(providerState.tokenRequests.length, 3, 'rate-limited token exchange was retried the wrong number of times');
   assert.equal(providerState.userinfoRequests.length, 0, 'rate-limited exchange fetched a profile');
 
   const claim = await claimLogin(flow.nonce);
