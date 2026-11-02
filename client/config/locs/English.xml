@@ -100,11 +100,11 @@
       <T id="CONFIG_MODE_PICK" l="0">Pick this table</T>
       <T id="CONFIG_MODE_POPUP_TITLE" l="0">Choose Your Table</T>
       <T id="CONFIG_MODE_POPUP_SUBTITLE" l="0">Pick a table style for this match. Teams can be added on top of any of them.</T>
-      <T id="CONFIG_MODE_POPUP_NOTE" l="0">Diceathon is planned as Fives' official online event board.</T>
+      <T id="CONFIG_MODE_POPUP_NOTE" l="0">Diceathon is a biweekly online event with six-player matchmaking.</T>
       <T id="CONFIG_MODE_CLASSIC_POPUP" l="0">The standard table. Add your dice, keep the flow clean, and let teams do the rest if you want them.</T>
       <T id="CONFIG_MODE_COMBANITY_POPUP" l="0">The old Combo Rules spirit, promoted into its own table where pairs, houses, straights, and kinds all matter.</T>
       <T id="CONFIG_MODE_MULTIPLEX_POPUP" l="0">Every die multiplies the others instead of adding up. Smaller rolls can suddenly explode into huge swings.</T>
-      <T id="CONFIG_DICEATHON_TEASE" l="0">Diceathon is planned as Fives' official online event board.</T>
+      <T id="CONFIG_DICEATHON_TEASE" l="0">Diceathon is a biweekly online event with six-player matchmaking.</T>
 
       <T id="AI_DIFFICULTY_BABY" l="0">Baby</T>
       <T id="AI_DIFFICULTY_EASY" l="0">Easy</T>
@@ -114,8 +114,8 @@
 
       <T id="HELP_TITLE" l="0">Help</T>
       <T id="HELP_SUBTITLE" l="0">How to Play Fives</T>
-      <T id="HELP_TEXT" l="0">Fives is a simple but strategic dice game.\n\n- You and your opponent each roll five dice per round.\n- Games can be 5-30 rounds (default: 20 rounds).\n- Classic is the standard table with straight Fives totals.\n- Combanity is the successor to Combo Rules and pays out on special patterns.\n- Multiplex multiplies the dice instead of adding them for bigger swings.\n- Teams can be used in all three gamemodes if you want side-based play.\n- Diceathon is planned as the official online event system, with special tables appearing there over time.\n- Hotkeys: Space/R rolls, T ends your turn (your turn only).\n\nThe highest total at the end wins the table.</T>
-      <T id="HELP_TEXT_V13" l="0">Fives is a simple but strategic dice game.\n\n- You and your opponent each roll five dice per round.\n- Games can be 5-30 rounds (default: 20 rounds).\n- Classic is the standard table with straight Fives totals.\n- Combanity is the successor to Combo Rules and pays out on special patterns.\n- Multiplex multiplies the dice instead of adding them for bigger swings.\n- Teams can be used in all three gamemodes if you want side-based play.\n- Diceathon is planned as the official online event system, with special tables appearing there over time.\n- Hotkeys: Space/R rolls, T ends your turn (your turn only).\n\nThe highest total at the end wins the table.</T>
+      <T id="HELP_TEXT" l="0">Fives is a simple but strategic dice game.\n\n- You and your opponent each roll five dice per round.\n- Games can be 5-30 rounds (default: 20 rounds).\n- Classic is the standard table with straight Fives totals.\n- Combanity is the successor to Combo Rules and pays out on special patterns.\n- Multiplex multiplies the dice instead of adding them for bigger swings.\n- Teams can be used in all three gamemodes if you want side-based play.\n- Diceathon is a biweekly online event with six-player matchmaking and random special tables.\n- Hotkeys: Space/R rolls, T ends your turn (your turn only).\n\nThe highest total at the end wins the table.</T>
+      <T id="HELP_TEXT_V13" l="0">Fives is a simple but strategic dice game.\n\n- You and your opponent each roll five dice per round.\n- Games can be 5-30 rounds (default: 20 rounds).\n- Classic is the standard table with straight Fives totals.\n- Combanity is the successor to Combo Rules and pays out on special patterns.\n- Multiplex multiplies the dice instead of adding them for bigger swings.\n- Teams can be used in all three gamemodes if you want side-based play.\n- Diceathon is a biweekly online event with six-player matchmaking and random special tables.\n- Hotkeys: Space/R rolls, T ends your turn (your turn only).\n\nThe highest total at the end wins the table.</T>
       <T id="HELP_COMBO_BUTTON" l="0">Combo Rules</T>
       <T id="HELP_COMBO_TITLE" l="0">Combo Rules</T>
       <T id="HELP_COMBO_TEXT" l="0">Certain dice combinations award bonus multipliers:\n\n- Pair -&gt; x1.5 score\n- Two Pair -&gt; x2 score\n- Three of a Kind -&gt; x3 score\n- Full House -&gt; x4 score\n- Four of a Kind -&gt; x5 score\n- Five of a Kind -&gt; x10 score\n- Straights (1-5 or 2-6) -&gt; x2.5 or x3 score\n\nThese bonuses stack with your base score (or multiplex score if enabled).</T>

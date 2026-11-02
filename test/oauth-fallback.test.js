@@ -48,6 +48,7 @@ globalThis.fetch = (...args) => {
 
 const sm = await import('../client/utils/SocketManager.js');
 const { default: OnlineAccountScene } = await import('../client/scenes/OnlineAccountScene.js');
+const { classifyOAuthFailure } = await import('../client/utils/oauthFailure.js');
 
 function useServer(url) {
   sm.switchServer(url);
@@ -227,6 +228,44 @@ test('a confirmed OAuth result refreshes the socket before completing the login'
     globalThis.alert = originalAlert;
     window.open = originalOpen;
   }
+});
+
+test('our own sign-in throttle is retryable, not a failed provider login', () => {
+  const throttled = new Error('Too many sign-in attempts. Please wait a minute and try again.');
+  throttled.retryable = true;
+  throttled.code = 'rate_limited';
+  assert.deepEqual(classifyOAuthFailure(throttled), { kind: 'rate_limited', message: throttled.message });
+
+  const aggregate = new AggregateError(
+    [throttled, new Error('OAuth popup closed before login finished')],
+    'All promises were rejected'
+  );
+  assert.equal(classifyOAuthFailure(aggregate).kind, 'rate_limited', 'a refused attempt was reported as cancelled');
+
+  const terminal = new Error('Discord login failed');
+  terminal.oauthFailure = true;
+  assert.deepEqual(classifyOAuthFailure(terminal), { kind: 'reported', message: 'Discord login failed' });
+});
+
+test('a retryable claim does not stop the login as a provider failure', async () => {
+  useServer(RENDER);
+  respond = async () => new Response(JSON.stringify({
+    ok: false,
+    error: 'Too many sign-in attempts. Please wait a minute and try again.',
+    retryable: true,
+    code: 'rate_limited'
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+
+  const scene = new OnlineAccountScene();
+  scene.oauthNonce = 'n'.repeat(32);
+  scene.oauthServerBase = RENDER;
+  scene.oauthExpectedProvider = 'discord';
+
+  await assert.rejects(
+    () => scene._waitForOAuthHandoff(2000, 50),
+    (error) => error.retryable === true && error.code === 'rate_limited'
+  );
+  assert.equal(scene.oauthStopped, false, 'a throttled poll was treated as a terminal provider failure');
 });
 
 test('untrusted origins cannot be switched to', async () => {

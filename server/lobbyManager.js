@@ -16,6 +16,7 @@ import { rollDice, calculateScore } from "./utils/DiceManager.js";
 import { getUsernameFromDB, getActivePlayers, normalizeAllPlayers } from "./utils/playerStateManager.js";
 import { loadUser } from "./utils/userStorage.js";
 import LeaderboardManager from "./utils/leaderboardManager.js";
+import { diceathonSchedule, randomDiceathonConfig } from './utils/diceathon.js';
 
 function normalizeGameMode(mode, combosFallback = false, multiplexFallback = false) {
   const normalized = String(mode || '').trim().toLowerCase();
@@ -89,6 +90,11 @@ export default class LobbyManager {
     this.io = io;
     this.lobbies = {};
     this.activeGames = {};
+    this.diceathonQueue = new Map();
+    this.diceathonMatching = false;
+    this.diceathonReservations = new Map();
+    this.diceathonQueueTimer = null;
+    this.diceathonRateBuckets = new Map();
     this.isServerless = process.env.VERCEL === '1' || !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.NOW_REGION;
     this.init();
   }
@@ -356,6 +362,127 @@ export default class LobbyManager {
     return false;
   }
 
+  async matchDiceathon() {
+    if (this.diceathonMatching) return;
+    this.diceathonMatching = true;
+    try {
+      while (this.diceathonQueue.size >= 6 && this.getDiceathonSchedule().active) {
+        const entries = [...this.diceathonQueue.entries()].slice(0, 6);
+        // An idle socket can outlive its session. Check all six again immediately
+        // before matching rather than trusting their original handshake.
+        const results = await Promise.all(entries.map(async ([uid, member]) => {
+          const valid = await new Promise(resolve => {
+            const session = member.request.session;
+            if (!member.connected || !session?.reload) return resolve(false);
+            const timer = setTimeout(() => resolve(false), 5000);
+            session.reload(err => {
+              clearTimeout(timer);
+              const current = member.request.session;
+              const expires = current?.cookie?.expires ? new Date(current.cookie.expires).getTime() : null;
+              resolve(!err && member.connected && String(member.data.user?.id || '') === uid && String(current?.passport?.user || '') === uid &&
+                (expires === null || (Number.isFinite(expires) && expires > Date.now())));
+            });
+          });
+          return [uid, member, valid];
+        }));
+        for (const [uid, member, valid] of results) {
+          if (!valid) {
+            if (this.diceathonQueue.get(uid) === member) this.diceathonQueue.delete(uid);
+            if (member.connected) member.disconnect(true);
+          }
+        }
+        if (!this.getDiceathonSchedule().active) break;
+        if (entries.some(([uid, member]) => this.diceathonQueue.get(uid) !== member || !member.connected)) {
+          this.notifyDiceathonQueue();
+          continue;
+        }
+        let code;
+        for (let i = 0; i < 30 && !code; i++) {
+          const candidate = generateLobbyCode(6);
+          if (!this.lobbies[candidate] && !this.activeGames[candidate]) code = candidate;
+        }
+        if (!code) {
+          for (const [, member] of entries) member.emit('diceathon-error', { reason: 'server_error' });
+          break;
+        }
+        const config = normalizeLobbyConfig(randomDiceathonConfig());
+        const players = entries.map(([, member]) => ({ id: member.data.user.id, name: member.data.user.name, ready: true, left: false, connected: true }));
+        const lobby = { code, hostUserId: players[0].id, hostSocketId: entries[0][1].id, players, config, createdAt: Date.now(), updatedAt: Date.now() };
+        this.lobbies[code] = lobby;
+        lobby.starting = true;
+        for (const [id, member] of entries) {
+          this.diceathonQueue.delete(id);
+          this.diceathonReservations.set(id, code);
+          member.join(code);
+        }
+        this.notifyDiceathonQueue();
+        try {
+          await entries[0][1].data.startDiceathonGame(code);
+        } catch (err) {
+          console.error('[Diceathon] Failed to start matched game:', err);
+        } finally {
+          for (const [id] of entries) this.diceathonReservations.delete(id);
+        }
+        if (this.activeGames[code]) {
+          for (const [, member] of entries) member.emit('diceathon-matched', { code, config });
+        } else {
+          delete this.lobbies[code];
+          for (const [, member] of entries) {
+            member.leave(code);
+            member.emit('diceathon-error', { reason: 'server_error' });
+          }
+        }
+      }
+      if (!this.getDiceathonSchedule().active) this.diceathonState({ data: {} });
+    } finally {
+      this.diceathonMatching = false;
+    }
+  }
+
+  getDiceathonSchedule(now = Date.now()) {
+    return diceathonSchedule(now);
+  }
+
+  diceathonState(socket) {
+    const now = Date.now();
+    const schedule = { ...this.getDiceathonSchedule(now), serverNow: now, available: !this.isServerless };
+    const queue = this.diceathonQueue;
+    if (!this.diceathonQueueTimer && queue?.size && schedule.active) {
+      this.diceathonQueueTimer = setTimeout(() => {
+        this.diceathonQueueTimer = null;
+        this.diceathonState({ data: {} });
+      }, Math.max(0, schedule.endsAt - now));
+    }
+    if (queue && !schedule.active && queue.size) {
+      const waiting = [...queue.values()];
+      queue.clear();
+      for (const entry of waiting) entry.emit('diceathon-status', { ...schedule, queued: false, count: 0 });
+    }
+    return { ...schedule, queued: !!queue?.has(String(socket.data.user?.id)), count: queue?.size || 0 };
+  }
+
+  notifyDiceathonQueue() {
+    if (!this.diceathonQueue?.size && this.diceathonQueueTimer) {
+      clearTimeout(this.diceathonQueueTimer);
+      this.diceathonQueueTimer = null;
+    }
+    for (const socket of this.diceathonQueue?.values() || []) {
+      socket.emit('diceathon-status', this.diceathonState(socket));
+    }
+  }
+
+  leaveDiceathonQueue(socket, allConnections = false) {
+    const userId = String(socket.data.user?.id || '');
+    for (const [uid, member] of this.diceathonQueue || []) {
+      if (member === socket || (allConnections && userId && uid === userId)) {
+        this.diceathonQueue.delete(uid);
+        if (member !== socket) member.emit('diceathon-status', this.diceathonState(member));
+        this.notifyDiceathonQueue();
+        break;
+      }
+    }
+  }
+
   // Register socket connection + handlers
   async registerSocket(socket) {
     // refresh latest lobbies from DB before handling new socket
@@ -495,6 +622,50 @@ export default class LobbyManager {
       }
     });
 
+    // ---------- DICEATHON MATCHMAKING ----------
+    socket.on('diceathon-status', () => {
+      socket.emit('diceathon-status', this.diceathonState(socket));
+    });
+
+    socket.on('diceathon-leave', () => {
+      this.leaveDiceathonQueue(socket);
+      socket.emit('diceathon-status', this.diceathonState(socket));
+    });
+
+    socket.on('diceathon-join', () => {
+      this.diceathonRateBuckets ||= new Map();
+      const address = socket.data.diceathonRateKey || String(socket.request.socket?.remoteAddress || socket.handshake?.address || 'unknown').replace(/^::ffff:/, '');
+      const now = Date.now();
+      for (const [key, bucket] of this.diceathonRateBuckets) {
+        if (now - bucket.startedAt < 1000) break;
+        this.diceathonRateBuckets.delete(key);
+      }
+      let bucket = this.diceathonRateBuckets.get(address);
+      if (!bucket) {
+        if (this.diceathonRateBuckets.size >= 2000) return socket.emit('diceathon-error', { reason: 'rate_limited' });
+        bucket = { startedAt: now, count: 0 };
+        this.diceathonRateBuckets.set(address, bucket);
+      }
+      if (++bucket.count > 12) return socket.emit('diceathon-error', { reason: 'rate_limited' });
+      if (!this.ensureSessionAuthenticated(socket, false)) return socket.emit('diceathon-error', { reason: 'authentication_required' });
+      if (this.isServerless) return socket.emit('diceathon-error', { reason: 'persistent_server_required' });
+      this.diceathonQueue ||= new Map();
+      this.diceathonReservations ||= new Map();
+      const status = this.diceathonState(socket);
+      if (!status.active) return socket.emit('diceathon-error', { reason: 'event_inactive', ...status });
+      const uid = String(socket.data.user.id);
+      if (this.diceathonReservations.has(uid)) return socket.emit('diceathon-error', { reason: 'already_in_lobby' });
+      const alreadyPlaying = Object.values(this.activeGames).some(game => game.players.some(player => String(player.id) === uid && !player.left));
+      const inLobby = Object.values(this.lobbies).some(lobby => lobby.players?.some(player => String(player.id) === uid && !player.left));
+      if (alreadyPlaying || inLobby) return socket.emit('diceathon-error', { reason: 'already_in_lobby' });
+      const existing = this.diceathonQueue.get(uid);
+      if (existing && existing !== socket) return socket.emit('diceathon-error', { reason: 'already_queued' });
+      if (!existing && this.diceathonQueue.size >= 600) return socket.emit('diceathon-error', { reason: 'queue_full' });
+      this.diceathonQueue.set(uid, socket);
+      this.notifyDiceathonQueue();
+      this.matchDiceathon().catch(err => console.error('[Diceathon] Matchmaking failed:', err));
+    });
+
     // ---------- CREATE LOBBY ----------
     socket.on("create-lobby", async (config = {}, maybeUserId) => {
       try {
@@ -511,12 +682,17 @@ export default class LobbyManager {
         }
 
         let uid = socket.data.user.id;
+        if (this.diceathonReservations?.has(String(uid))) return socket.emit('create-failed', { reason: 'already_in_lobby' });
         if (!uid) {
           console.error('[LobbyManager] create-lobby: CRITICAL - user.id is undefined after auth check');
           return socket.emit("create-failed", { reason: "invalid_user" });
         }
 
-        const lobbyConfig = normalizeLobbyConfig(config);
+        if (!config || typeof config !== 'object' || Array.isArray(config)) return socket.emit('create-failed', { reason: 'invalid_config' });
+        // Official event tables may only be created by the matchmaking server.
+        const { diceathon, eventMode, eventType, eventKey, eventName, allowCombinedModes, ...ordinaryConfig } = config;
+        const lobbyConfig = normalizeLobbyConfig(ordinaryConfig);
+        this.leaveDiceathonQueue(socket, true);
 
         // ensure unique code (retry if collision)
         let code = null;
@@ -600,12 +776,15 @@ export default class LobbyManager {
         lobby.config = normalizeLobbyConfig(lobby.config);
 
         let uid = socket.data.user?.id || null;
+        if (this.diceathonReservations?.has(String(uid))) return socket.emit('join-failed', { reason: 'already_in_lobby' });
         if (!uid) {
           console.warn(`[LobbyManager] join-lobby: No authenticated user ID available`);
           return socket.emit("join-failed", { reason: "invalid_user" });
         }
 
         const existing = lobby.players.find(p => String(p.id) === String(uid));
+        if (isDiceathonConfig(lobby.config) && (!existing || existing.left)) return socket.emit('join-failed', { reason: 'game_started' });
+        this.leaveDiceathonQueue(socket, true);
         const game = this.activeGames[code];
         if (game && !game.players.some(p => String(p.id) === String(uid) && !p.left)) {
           return socket.emit('join-failed', { reason: 'game_started' });
@@ -799,7 +978,7 @@ export default class LobbyManager {
         if (typeof codeRaw !== "string") return;
         const code = codeRaw.trim().toUpperCase();
         const lobby = this.lobbies[code];
-        if (!lobby) return;
+        if (!lobby || isDiceathonConfig(lobby.config)) return;
 
         let uid = socket.data.user?.id || null;
         if (!uid) return;
@@ -881,7 +1060,7 @@ export default class LobbyManager {
     });
 
     // ---------- START GAME ----------
-    socket.on("start-game", async (codeRaw) => {
+    const startGame = async (codeRaw, serverStarted = false) => {
       try {
         if (typeof codeRaw !== "string") {
           socket.emit("game-failed", { reason: "invalid_code" });
@@ -907,6 +1086,7 @@ export default class LobbyManager {
         }
 
         const hostUserId = lobby.hostuserid || lobby.hostUserId || null;
+        if (isDiceathonConfig(lobby.config) && !serverStarted) return socket.emit('game-failed', { reason: 'server_authoritative' });
         if (this.activeGames[code]) return socket.emit('game-failed', { reason: 'already_started' });
         if (!hostUserId || String(socket.data.user.id) !== String(hostUserId)) {
           socket.emit("game-failed", { reason: "not_host" });
@@ -928,7 +1108,7 @@ export default class LobbyManager {
         // create game state - assign avatars appropriately
         // Guests: use playerIcon
         // Discord/Google: fetch avatar from user profile
-        if (lobby.starting || this.activeGames[code]) return socket.emit('game-failed', { reason: 'already_started' });
+        if ((lobby.starting && !serverStarted) || this.activeGames[code]) return socket.emit('game-failed', { reason: 'already_started' });
         lobby.starting = true;
         let gamePlayersWithAvatars = [];
         for (const p of activePlayers) {
@@ -987,7 +1167,8 @@ export default class LobbyManager {
         };
 
         // Players may have left while profile data was loading.
-        if (this.lobbies[code] !== lobby || activePlayers.some(p => p.left)) {
+        if (this.lobbies[code] !== lobby || activePlayers.some(p => p.left) ||
+            (serverStarted && (!this.getDiceathonSchedule().active || activePlayers.length !== 6 || activePlayers.some(p => !p.connected || ![...this.io.sockets.sockets.values()].some(s => s.connected && s.rooms.has(code) && String(s.data.user?.id) === String(p.id)))))) {
           lobby.starting = false;
           return socket.emit('game-failed', { reason: 'players_not_ready' });
         }
@@ -1040,7 +1221,9 @@ export default class LobbyManager {
         console.error('[LobbyManager] Error in start-game:', err);
         socket.emit("game-failed", { reason: "server_error" });
       }
-    });
+    };
+    socket.on('start-game', code => startGame(code));
+    socket.data.startDiceathonGame = code => startGame(code, true);
 
     // ---------- PLAYER ROLL ----------
     socket.on("player-roll", (payload) => {
@@ -1147,6 +1330,7 @@ export default class LobbyManager {
 
     // ---------- DISCONNECT ----------
     socket.on("disconnecting", async () => {
+      this.leaveDiceathonQueue(socket);
       // remove this socket's user from any lobby where they are a member
       const uid = socket.data.user?.id;
       if (!uid) return;
@@ -1708,6 +1892,7 @@ export default class LobbyManager {
 
   // Clean up poll interval if manager is disposed
   dispose() {
+    if (this.diceathonQueueTimer) clearTimeout(this.diceathonQueueTimer);
     if (this._pollHandle) {
       clearInterval(this._pollHandle);
       this._pollHandle = null;

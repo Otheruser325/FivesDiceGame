@@ -31,7 +31,7 @@ export default class HelpScene extends Phaser.Scene {
             '- Combanity is the successor to Combo Rules and pays out on special patterns.\n' +
             '- Multiplex multiplies the dice instead of adding them for bigger swings.\n' +
             '- Teams can be used in all three gamemodes if you want side-based play.\n' +
-            '- Diceathon is planned as the official online event system, with special tables appearing there over time.\n' +
+            '- Diceathon is a biweekly online event with six-player matchmaking and random special tables.\n' +
             '- Hotkeys: Space/R rolls, T ends your turn (your turn only).\n\n' +
             'The highest total at the end wins the table.'
         );

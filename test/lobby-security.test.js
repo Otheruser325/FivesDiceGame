@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import LobbyManager from '../server/lobbyManager.js';
+import { diceathonSchedule, randomDiceathonConfig } from '../server/utils/diceathon.js';
 
 function setup(count = 3) {
   const manager = Object.create(LobbyManager.prototype);
@@ -19,11 +20,14 @@ function setup(count = 3) {
   const game = { code: 'ABCDE', players, currentIndex: 0, round: 1, totalRounds: 5, config: lobby.config, timeLimitSeconds: 60, turnTimer: null, rollInProgress: false };
   manager.lobbies = { ABCDE: lobby };
   manager.activeGames = { ABCDE: game };
+  manager.getDiceathonSchedule = () => diceathonSchedule(Date.parse('2026-11-02T00:00:00Z'));
+  manager.diceathonQueue = new Map();
+  manager.diceathonReservations = new Map();
   const sockets = players.map((p, i) => {
     const handlers = new Map();
     const sent = [];
     const socket = {
-      id: `s${i}`, connected: true, data: {}, request: { user: { id: p.id, name: p.name, type: 'guest' } },
+      id: `s${i}`, connected: true, data: {}, request: { user: { id: p.id, name: p.name, type: 'guest' }, session: { passport: { user: p.id }, reload: cb => cb(null) } },
       rooms: new Set([`s${i}`, 'ABCDE']),
       on: (name, handler) => handlers.set(name, handler),
       emit: (name, data) => sent.push({ name, data }),
@@ -42,7 +46,124 @@ async function registerAll(state) {
 
 function cleanup(state) {
   if (state.game.turnTimer) clearTimeout(state.game.turnTimer);
+  if (state.manager.diceathonQueueTimer) clearTimeout(state.manager.diceathonQueueTimer);
 }
+
+test('Diceathon schedule opens one day before each two-week event and closes after seven days', () => {
+  const at = date => diceathonSchedule(Date.parse(date));
+  assert.equal(at('2026-10-29T23:59:59Z').visible, false);
+  assert.deepEqual([at('2026-10-30T00:00:00Z').visible, at('2026-10-30T00:00:00Z').active], [true, false]);
+  assert.equal(at('2026-10-31T00:00:00Z').active, true);
+  assert.equal(at('2026-11-07T00:00:00Z').visible, false);
+  assert.deepEqual([at('2026-11-13T00:00:00Z').visible, at('2026-11-13T00:00:00Z').active], [true, false]);
+  assert.equal(at('2026-11-14T00:00:00Z').active, true);
+});
+
+test('Diceathon rules are six-player server-selected tables including combined modes', () => {
+  const kinds = new Set();
+  for (let i = 0; i < 4; i++) {
+    const config = randomDiceathonConfig(() => i);
+    assert.equal(config.players, 6);
+    assert.equal(config.eventMode, 'diceathon');
+    kinds.add(`${config.combos}:${config.multiplex}`);
+  }
+  assert.deepEqual(kinds, new Set(['false:false', 'true:false', 'false:true', 'true:true']));
+});
+
+test('Diceathon matches six unique authenticated players', async () => {
+  const state = setup(6);
+  state.manager.lobbies = {};
+  state.manager.activeGames = {};
+  state.manager.persistLobby = async () => {};
+  await registerAll(state);
+  for (const socket of state.sockets) socket.handlers.get('diceathon-join')();
+  await new Promise(resolve => setTimeout(resolve, 20));
+  const games = Object.values(state.manager.activeGames);
+  assert.equal(games.length, 1);
+  assert.equal(games[0].players.length, 6);
+  assert.equal(new Set(games[0].players.map(player => player.id)).size, 6);
+  assert.equal(games[0].config.eventMode, 'diceathon');
+  for (const socket of state.sockets) assert.ok(socket.sent.some(e => e.name === 'diceathon-matched'));
+  for (const game of games) if (game.turnTimer) clearTimeout(game.turnTimer);
+  delete state.manager.activeGames[games[0].code];
+  cleanup(state);
+});
+
+test('a client cannot create an official event table or enable combined rules in a normal lobby', async () => {
+  const state = setup();
+  state.manager.lobbies = {};
+  state.manager.activeGames = {};
+  state.manager.persistLobby = async () => {};
+  await registerAll(state);
+  await state.sockets[0].handlers.get('create-lobby')({ eventMode: 'diceathon', diceathon: true, gameMode: 'combanity', combos: true, multiplex: true });
+  const lobby = Object.values(state.manager.lobbies)[0];
+  assert.equal(lobby.config.eventMode, undefined);
+  assert.equal(lobby.config.multiplex, false);
+  cleanup(state);
+});
+
+test('Diceathon rejects inactive, unauthenticated, and serverless queue attempts', async () => {
+  const state = setup();
+  state.manager.lobbies = {};
+  state.manager.activeGames = {};
+  await registerAll(state);
+  const socket = state.sockets[0];
+  state.manager.getDiceathonSchedule = () => diceathonSchedule(Date.parse('2026-11-07T00:00:00Z'));
+  socket.handlers.get('diceathon-join')();
+  assert.equal(socket.sent.at(-1).data.reason, 'event_inactive');
+  state.manager.getDiceathonSchedule = () => diceathonSchedule(Date.parse('2026-11-02T00:00:00Z'));
+  state.manager.isServerless = true;
+  socket.handlers.get('diceathon-join')();
+  assert.equal(socket.sent.at(-1).data.reason, 'persistent_server_required');
+  state.manager.isServerless = false;
+  socket.request.user = null;
+  socket.handlers.get('diceathon-join')();
+  assert.equal(socket.sent.at(-1).data.reason, 'authentication_required');
+  assert.equal(state.manager.diceathonQueue.size, 0);
+  cleanup(state);
+});
+
+test('Diceathon cancellation while sessions are being checked cannot start a partial table', async () => {
+  const state = setup(6);
+  state.manager.lobbies = {};
+  state.manager.activeGames = {};
+  await registerAll(state);
+  let release;
+  state.sockets[0].request.session.reload = callback => { release = callback; };
+  for (const socket of state.sockets) socket.handlers.get('diceathon-join')();
+  state.sockets[1].handlers.get('diceathon-leave')();
+  release(null);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(state.manager.diceathonQueue.size, 5);
+  assert.equal(Object.keys(state.manager.activeGames).length, 0);
+  cleanup(state);
+});
+
+test('Diceathon queue rejects a duplicate connection and removes disconnected or expired players', async () => {
+  const state = setup(6);
+  state.manager.lobbies = {};
+  state.manager.activeGames = {};
+  await registerAll(state);
+  const [first, ...others] = state.sockets;
+  first.handlers.get('diceathon-join')();
+  const duplicate = { ...first, id: 'duplicate', data: { user: { id: 'u0' } }, sent: [], handlers: new Map() };
+  duplicate.emit = (name, data) => duplicate.sent.push({ name, data });
+  duplicate.on = (name, handler) => duplicate.handlers.set(name, handler);
+  await state.manager.registerSocket(duplicate);
+  duplicate.handlers.get('diceathon-join')();
+  assert.equal(duplicate.sent.at(-1).data.reason, 'already_queued');
+  first.handlers.get('disconnecting')();
+  assert.equal(state.manager.diceathonQueue.size, 0);
+  first.connected = true;
+  first.request.session.reload = cb => cb(new Error('expired'));
+  first.disconnect = () => { first.connected = false; };
+  first.handlers.get('diceathon-join')();
+  for (const socket of others) socket.handlers.get('diceathon-join')();
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(state.manager.diceathonQueue.size, 5);
+  assert.equal(Object.keys(state.manager.activeGames).length, 0);
+  cleanup(state);
+});
 
 test('only one server-authoritative result is scored per turn', async () => {
   const state = setup();

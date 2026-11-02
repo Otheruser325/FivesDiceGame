@@ -12,9 +12,17 @@ export function classifyOAuthFailure(error) {
 
   // A terminal failure published by the callback (expired state, provider
   // error) is authoritative and carries the message the player should see.
-  const reported = reasons.find((reason) => reason?.oauthFailure);
+  const reported = reasons.find((reason) => reason?.oauthFailure && !reason?.retryable);
   if (reported) {
     return { kind: 'reported', message: String(reported.message || '') };
+  }
+
+  // Our own throttle refuses to start or report an attempt; it does not prove
+  // that sign-in failed. The session check may still find a login that an
+  // earlier attempt completed, so this is retryable rather than terminal.
+  const retryable = reasons.find((reason) => reason?.retryable || reason?.code === 'rate_limited');
+  if (retryable) {
+    return { kind: 'rate_limited', message: String(retryable.message || '') };
   }
 
   // Promise.any keeps every rejection and only reports the last one as the

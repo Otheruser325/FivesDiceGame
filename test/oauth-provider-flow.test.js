@@ -515,6 +515,117 @@ test('Discord popup: real exchange, stable account on repeat, and claimable hand
   assert.equal(discordUsers.length, 1, 'repeat login persisted more than one Discord user');
 });
 
+function providerEnv(base) {
+  return {
+    PUBLIC_SERVER_URL: base,
+    GOOGLE_AUTHORIZATION_URL: `${providerOrigin}/google/authorize`,
+    GOOGLE_TOKEN_URL: `${providerOrigin}/google/token`,
+    GOOGLE_USERINFO_URL: `${providerOrigin}/google/userinfo`,
+    DISCORD_AUTHORIZATION_URL: `${providerOrigin}/discord/authorize`,
+    DISCORD_TOKEN_URL: `${providerOrigin}/discord/token`,
+    DISCORD_USERINFO_URL: `${providerOrigin}/discord/users/@me`
+  };
+}
+
+async function startDiscordFlow(base, cookie = '') {
+  const nonce = newNonce();
+  const clientState = `popup.${Buffer.from(JSON.stringify({
+    popup: true,
+    clientOrigin: CLIENT_ORIGIN,
+    clientPath: '/',
+    mode: 'popup',
+    clientNonce: nonce
+  }), 'utf8').toString('base64url')}`;
+  const response = await fetch(`${base}/auth/discord?state=${encodeURIComponent(clientState)}`, {
+    redirect: 'manual',
+    headers: { Origin: CLIENT_ORIGIN, ...(cookie ? { Cookie: cookie } : {}) }
+  });
+  return { response, nonce };
+}
+
+async function signInDiscord(base) {
+  const flow = await startDiscordFlow(base);
+  assert.equal(flow.response.status, 302, 'Discord start did not redirect to the provider');
+  const cookie = cookieFrom(flow.response);
+  const providerResponse = await fetch(flow.response.headers.get('location'), { redirect: 'manual' });
+  const callback = await fetch(providerResponse.headers.get('location'), { redirect: 'manual', headers: { Cookie: cookie } });
+  const payload = payloadOf(await callback.text());
+  assert.equal(payload.type, 'fives-oauth-success');
+  const updated = cookieFrom(callback);
+  return { user: payload.user, cookie: updated.includes('fives.sid=') ? updated : cookie };
+}
+
+test('a throttled Discord start reports the account that is already signed in', async () => {
+  const port = await freePort();
+  const base = `http://127.0.0.1:${port}`;
+  const server = startApp(port, providerEnv(base));
+  await waitForHealth(base, server);
+
+  // The player really signs in once. The retries that follow are what used to
+  // be reported as "too many attempts" even though this session was signed in.
+  const signedIn = await signInDiscord(base);
+  for (let i = 0; i < 19; i += 1) {
+    const retry = await startDiscordFlow(base, signedIn.cookie);
+    assert.equal(retry.response.status, 302, 'a retry inside the budget was already refused');
+  }
+
+  const refused = await startDiscordFlow(base, signedIn.cookie);
+  assert.equal(refused.response.status, 200, `expected a completion page, got ${refused.response.status}`);
+  const payload = payloadOf(await refused.response.text());
+  assert.equal(payload.type, 'fives-oauth-success', 'a signed-in session was reported as a failed attempt');
+  assert.equal(payload.user.id, signedIn.user.id);
+
+  const claim = await fetch(`${base}/auth/oauth/claim`, {
+    method: 'POST',
+    headers: { Origin: CLIENT_ORIGIN, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nonce: refused.nonce })
+  });
+  assert.equal(claim.status, 200);
+  const claimed = await claim.json();
+  assert.equal(claimed.ok, true);
+  assert.equal(claimed.user.id, signedIn.user.id);
+});
+
+test('a throttled popup start is retryable and does not spend another provider budget', async () => {
+  const port = await freePort();
+  const base = `http://127.0.0.1:${port}`;
+  const server = startApp(port, providerEnv(base));
+  await waitForHealth(base, server);
+
+  // The Discord redirect helper is not a sign-in attempt; it must not consume
+  // the player's start budget.
+  for (let i = 0; i < 5; i += 1) {
+    const proxy = await fetch(`${base}/auth/discord/authorize?state=popup`, { redirect: 'manual' });
+    assert.equal(proxy.status, 302);
+  }
+
+  for (let i = 0; i < 20; i += 1) {
+    const start = await startDiscordFlow(base);
+    assert.equal(start.response.status, 302, `start ${i + 1} was refused before the budget ran out`);
+  }
+
+  const refused = await startDiscordFlow(base);
+  assert.equal(refused.response.status, 200);
+  const html = await refused.response.text();
+  const payload = payloadOf(html);
+  assert.equal(payload.type, 'fives-oauth-error');
+  assert.equal(payload.retryable, true);
+  assert.equal(payload.code, 'rate_limited');
+
+  const claim = await fetch(`${base}/auth/oauth/claim`, {
+    method: 'POST',
+    headers: { Origin: CLIENT_ORIGIN, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nonce: refused.nonce })
+  });
+  const claimed = await claim.json();
+  assert.equal(claimed.retryable, true);
+  assert.equal(claimed.code, 'rate_limited');
+
+  // Each provider has its own budget.
+  const google = await fetch(`${base}/auth/google?state=popup`, { redirect: 'manual', headers: { Origin: CLIENT_ORIGIN } });
+  assert.equal(google.status, 302, 'a Discord throttle blocked a Google sign-in');
+});
+
 test('a fresh socket handshake picks up a completed Google session and rejects identity spoofing', async () => {
   resetProviderState();
   const flow = await beginFlow('google');
@@ -582,6 +693,52 @@ test('malformed socket payloads do not crash the server and logout revokes exist
     await disconnected;
     assert.equal((await sessionUser(cookie)).ok, false);
     assert.equal(appChild.exitCode, null);
+  } finally { socket.close(); }
+});
+
+test('six authenticated Socket.IO clients enter one Diceathon game', async (t) => {
+  const port = await freePort();
+  const matchBase = `http://127.0.0.1:${port}`;
+  const matchServer = startApp(port, { PUBLIC_SERVER_URL: matchBase });
+  await waitForHealth(matchBase, matchServer);
+  const sockets = [];
+  const event = (socket, name) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${name}`)), 8000);
+    socket.once(name, data => { clearTimeout(timer); resolve(data); });
+  });
+  try {
+    for (let i = 0; i < 6; i++) {
+      const response = await fetch(`${matchBase}/auth/guest/register`, {
+        method: 'POST', headers: { Origin: CLIENT_ORIGIN, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: `password-${i}` })
+      });
+      assert.equal((await response.json()).ok, true);
+      const socket = createSocket(matchBase, { transports: ['websocket'], extraHeaders: { Cookie: cookieFrom(response) }, forceNew: true, reconnection: false });
+      sockets.push(socket);
+      await event(socket, 'auth-success');
+    }
+    const status = event(sockets[0], 'diceathon-status');
+    sockets[0].emit('diceathon-status');
+    if (!(await status).active) return t.skip('Diceathon is outside its scheduled window');
+    const matches = sockets.map(socket => event(socket, 'diceathon-matched'));
+    const firstTurn = event(sockets[0], 'turn-start');
+    sockets.forEach(socket => socket.emit('diceathon-join'));
+    const results = await Promise.all(matches);
+    assert.equal(new Set(results.map(result => result.code)).size, 1);
+    assert.ok(results.every(result => result.config.players === 6 && result.config.eventMode === 'diceathon'));
+    assert.equal((await firstTurn).playerIndex, 0);
+  } finally { sockets.forEach(socket => socket.close()); }
+});
+
+test('production websocket rejects a hostile origin before authentication', async () => {
+  const socket = createSocket(prodBase, { transports: ['websocket'], extraHeaders: { Origin: 'https://evil.example' }, forceNew: true, reconnection: false, timeout: 3000 });
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Timed out waiting for origin rejection')), 5000);
+      socket.once('connect', () => { clearTimeout(timer); reject(new Error('Hostile websocket connected')); });
+      socket.once('connect_error', () => { clearTimeout(timer); resolve(); });
+    });
+    assert.equal(socket.connected, false);
   } finally { socket.close(); }
 });
 

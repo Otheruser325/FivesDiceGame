@@ -58,6 +58,10 @@ export default class OnlineMenuScene extends Phaser.Scene {
         this.lobbyUIElements = [];
         this.signInText = null;
         this._onAuthUpdated = null;
+        this._diceathonStatus = null;
+        this._diceathonTimer = null;
+        this._diceathonHandlers = null;
+        this._diceathonPanel = null;
         this.debugger = DebugManager.create(this, { namespace: 'OnlineMenuScene' });
         this.debug = this.debugger.enabled;
     }
@@ -227,7 +231,9 @@ export default class OnlineMenuScene extends Phaser.Scene {
 
         // server appears available - load cached/remote auth
         await this.refreshAuth();
+        this.setupDiceathon(socketToUse);
         this.buildUI();
+        socketToUse.emit('diceathon-status');
 
         // Listen for auth changes (login/logout)
         // Use a single bound handler so we can remove it cleanly later
@@ -249,6 +255,13 @@ export default class OnlineMenuScene extends Phaser.Scene {
 
         // Ensure cleanup on scene shutdown
         this.events.once('shutdown', () => {
+            if (this._diceathonStatus?.queued) socketToUse.emit('diceathon-leave');
+            if (this._diceathonTimer) clearTimeout(this._diceathonTimer);
+            if (this._diceathonHandlers) {
+                for (const [name, handler] of Object.entries(this._diceathonHandlers)) socketToUse.off(name, handler);
+            }
+            this._diceathonHandlers = null;
+            this._diceathonStatus = null;
             // Destroy DOM elements
             if (this.joinInput) {
                 this.joinInput.destroy();
@@ -588,8 +601,58 @@ export default class OnlineMenuScene extends Phaser.Scene {
         this.lobbyUIElements.push(createBtn, leaderboardBtn, joinBtn);
     }
 
+    setupDiceathon(socket) {
+        this._diceathonHandlers = {
+            'diceathon-status': status => {
+                this._diceathonStatus = status;
+                if (this._diceathonTimer) clearTimeout(this._diceathonTimer);
+                if (this._diceathonPanel) {
+                    this._diceathonPanel.destroy();
+                    this.lobbyUIElements = this.lobbyUIElements.filter(item => item !== this._diceathonPanel);
+                    this._diceathonPanel = null;
+                }
+                if (this.user && this.scene.isActive()) this.buildDiceathonShowcase();
+                const delay = Math.max(1000, Math.min(60000, status.nextChangeAt - status.serverNow + 1000));
+                this._diceathonTimer = setTimeout(() => socket.emit('diceathon-status'), delay);
+            },
+            'diceathon-error': error => {
+                const messages = {
+                    authentication_required: 'Please sign in again to join Diceathon.',
+                    persistent_server_required: 'Diceathon is unavailable on this server.',
+                    event_inactive: 'Diceathon is not active yet.',
+                    already_in_lobby: 'Leave your current lobby before joining Diceathon.',
+                    already_queued: 'This account is already queued in another tab.',
+                    queue_full: 'The Diceathon queue is full. Please try again.',
+                    rate_limited: 'Too many attempts. Please wait a moment.',
+                    server_error: 'Matchmaking failed. Please try again.'
+                };
+                GlobalAlerts.show(this, messages[error?.reason] || messages.server_error, 'warning');
+                socket.emit('diceathon-status');
+            },
+            'diceathon-matched': ({ code, config }) => {
+                this._diceathonStatus = { ...this._diceathonStatus, queued: false };
+                this.scene.start('OnlineGameScene', { code, config });
+            },
+            disconnect: () => {
+                if (this._diceathonStatus?.queued) {
+                    this._diceathonStatus.queued = false;
+                    GlobalAlerts.show(this, 'Disconnected from the Diceathon queue. Please join again.', 'warning');
+                    if (this._diceathonPanel) {
+                        this._diceathonPanel.destroy();
+                        this.lobbyUIElements = this.lobbyUIElements.filter(item => item !== this._diceathonPanel);
+                        this._diceathonPanel = null;
+                    }
+                    this.buildDiceathonShowcase();
+                }
+            },
+            connect: () => socket.emit('diceathon-status')
+        };
+        for (const [name, handler] of Object.entries(this._diceathonHandlers)) socket.on(name, handler);
+    }
+
     buildDiceathonShowcase() {
-        if (!this.user) return;
+        if (!this.user || !this._diceathonStatus?.visible) return;
+        const status = this._diceathonStatus;
 
         const panel = this.add.container(955, 248);
         const glow = this.add.ellipse(0, 0, 250, 170, 0x7f1616, 0.12);
@@ -607,18 +670,20 @@ export default class OnlineMenuScene extends Phaser.Scene {
             color: '#fff3f3',
             fontStyle: 'bold'
         }).setOrigin(0, 0.5);
-        const badge = this.add.text(82, -52, t('ONLINE_DICEATHON_STATUS', 'Silhouette'), {
+        const badge = this.add.text(82, -52, status.active ? 'LIVE' : 'SOON', {
             fontSize: 13,
             color: '#f3c96b',
             fontStyle: 'bold'
         }).setOrigin(1, 0.5);
-        const body = this.add.text(0, 22, t('ONLINE_DICEATHON_BODY', 'Fives events will live here once official online event support is ready. Expect special tables, rotating rules, and prize-focused runs.'), {
+        const body = this.add.text(0, 22, status.active
+            ? (!status.available ? 'Unavailable on this server.' : status.queued ? `Waiting for players: ${status.count}/6` : 'Six players. Random rules. Join the queue!')
+            : `Starts ${new Date(status.startsAt).toLocaleString()} (UTC event)`, {
             fontSize: 15,
             color: '#c8b8b8',
             align: 'center',
             wordWrap: { width: 202 }
         }).setOrigin(0.5);
-        const footer = this.add.text(0, 58, t('ONLINE_DICEATHON_FOOTER', 'Sign-in spotted. Event board stays dark for now.'), {
+        const footer = this.add.text(0, 58, status.active ? (!status.available ? 'Unavailable' : status.queued ? 'Cancel queue' : 'Join Diceathon') : 'Coming soon', {
             fontSize: 13,
             color: '#8d7d7d',
             align: 'center',
@@ -626,12 +691,23 @@ export default class OnlineMenuScene extends Phaser.Scene {
         }).setOrigin(0.5);
 
         panel.add([glow, shell, crown, crownLight, eyebrow, title, badge, body, footer]);
+        if (status.active && status.available) {
+            shell.setInteractive();
+            shell.on('pointerdown', () => {
+                GlobalAudio.playButton(this);
+                const socket = getSocket();
+                if (!socket?.connected) return GlobalAlerts.show(this, 'Connection lost. Please reconnect and try again.', 'warning');
+                socket.emit(status.queued ? 'diceathon-leave' : 'diceathon-join');
+            });
+        }
+        this._diceathonPanel = panel;
         this.lobbyUIElements.push(panel);
     }
 
     clearLobbyUI() {
         this.lobbyUIElements.forEach(el => { try { el.destroy(); } catch (e) {} });
         this.lobbyUIElements = [];
+        this._diceathonPanel = null;
         if (this.joinInput) {
             try { this.joinInput.destroy(); } catch (e) {}
             this.joinInput = null;

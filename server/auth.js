@@ -199,21 +199,57 @@ function rejectRateLimitedAuth(res) {
   });
 }
 
-// Starting an OAuth flow is cheap for us but makes the provider work, and a
-// callback that reaches the strategy burns a token exchange. Cap both per IP.
+const OAUTH_RATE_LIMITED_MESSAGE = 'Too many sign-in attempts. Please wait a minute and try again.';
+
+// One budget per stage and provider. A player who retries Discord must not eat
+// into the Google allowance, and the `/auth/discord/authorize` redirect helper
+// gets its own budget so a single attempt is not charged twice.
+const OAUTH_RATE_LIMIT_LIMITS = { start: 20, proxy: 20, claim: 120 };
+
+function rejectRateLimitedOAuth(res) {
+  res.setHeader('Retry-After', '60');
+  return res.status(429).json({
+    ok: false,
+    error: OAUTH_RATE_LIMITED_MESSAGE,
+    code: 'rate_limited',
+    retryable: true
+  });
+}
+
+function isAuthenticatedWithProvider(req, provider) {
+  if (!req?.user) return false;
+  if (typeof req.isAuthenticated === 'function' && !req.isAuthenticated()) return false;
+  return req.user.type === provider || req.user.oauthProvider === provider;
+}
+
+// Starting a flow is what costs the provider work, so the start budget is the
+// one that really protects the account. Callbacks are not charged separately:
+// a callback can only continue a state this browser session started, each state
+// is single use, and starts are already capped, so an extra per-IP callback
+// limit could only reject a login the player has already completed.
+//
+// A refusal must never be reported as a failed sign-in. When this browser is
+// already signed in with the provider (for example the account was linked and
+// the session saved, but the client missed the result), the truthful outcome is
+// success, so that is what the response says.
 function oauthRateLimit(stage, provider) {
-  // The game tab polls the handoff endpoint while it waits for the popup, so
-  // that stage needs a budget that covers a full sign-in attempt.
-  const limit = stage === 'start' ? 20 : stage === 'claim' ? 120 : 40;
+  const limit = OAUTH_RATE_LIMIT_LIMITS[stage] || 20;
   return (req, res, next) => {
-    if (isRateLimited(req, `oauth-${stage}`, limit)) {
-      console.warn(`[Auth] OAuth ${stage} rate limited for ${getClientIp(req)}`);
-      if (stage === 'callback') {
-        return sendOAuthFailure(req, res, provider, 'Too many sign-in attempts. Please wait a minute and try again.');
-      }
-      return res.status(429).json({ ok: false, error: 'Too many sign-in attempts. Please wait a minute and try again.' });
+    if (!isRateLimited(req, `oauth-${stage}-${provider}`, limit)) return next();
+
+    console.warn(`[Auth] OAuth ${stage} rate limited for ${provider} from ${getClientIp(req)}`);
+
+    if (stage === 'start' && isAuthenticatedWithProvider(req, provider)) {
+      console.log(`[Auth] ${provider} start refused, but this session is already signed in as that provider`);
+      return completeOAuthSuccess(req, res, provider, req.user, '[Auth]');
     }
-    return next();
+
+    if (stage === 'claim' || stage === 'proxy') return rejectRateLimitedOAuth(res);
+
+    // Popup flows get a completion page the opener understands, and the limit is
+    // marked retryable so the client does not treat our own throttle as proof
+    // that the account failed to sign in.
+    return sendOAuthFailure(req, res, provider, OAUTH_RATE_LIMITED_MESSAGE, { retryable: true });
   };
 }
 
@@ -730,7 +766,19 @@ function sendOAuthPopupCompletionPage(req, res, provider, user) {
 // tab and leaves the one the player is using signed out. Popup failures render a
 // completion page instead, and publish the failure so the originating tab can
 // stop waiting immediately.
-export function sendOAuthFailure(req, res, provider, message) {
+// A retryable failure means no sign-in was attempted or completed (our own
+// throttle, for example). It is reported separately so the client keeps the
+// session check open and does not present it as a provider failure.
+export function sendOAuthFailure(req, res, provider, message, options = {}) {
+  const retryable = !!options.retryable;
+  const failure = {
+    type: 'fives-oauth-error',
+    provider,
+    error: message,
+    retryable,
+    code: retryable ? 'rate_limited' : undefined,
+    timestamp: Date.now()
+  };
   const context = getOAuthStateContext(req);
   if (context.popup) {
     if (context.handoffNonce && context.clientOrigin) {
@@ -738,15 +786,11 @@ export function sendOAuthFailure(req, res, provider, message) {
         nonce: context.handoffNonce,
         provider,
         error: message,
+        retryable,
         clientOrigin: context.clientOrigin
       });
     }
-    return writeOAuthPopupPage(res, {
-      type: 'fives-oauth-error',
-      provider,
-      error: message,
-      timestamp: Date.now()
-    }, isAllowedAuthOrigin(context.clientOrigin) ? context.clientOrigin : null);
+    return writeOAuthPopupPage(res, failure, isAllowedAuthOrigin(context.clientOrigin) ? context.clientOrigin : null);
   }
 
   return res.redirect(buildPostAuthErrorRedirect(req, provider, message));
@@ -1140,8 +1184,15 @@ router.post("/oauth/claim", oauthRateLimit('claim', 'oauth'), (req, res) => {
 
   if (entry.error) {
     // A terminal failure consumed the ticket; the game tab stops waiting now
-    // instead of showing a timeout minutes later.
-    return res.json({ ok: false, error: entry.error });
+    // instead of showing a timeout minutes later. A retryable one (our own
+    // throttle) is labelled so the client retries instead of reporting a
+    // sign-in that may already have completed as failed.
+    return res.json({
+      ok: false,
+      error: entry.error,
+      retryable: !!entry.retryable,
+      code: entry.retryable ? 'rate_limited' : undefined
+    });
   }
 
   return res.json({ ok: true, user: entry.user });
@@ -1184,7 +1235,6 @@ router.get("/google",
 router.get(
   "/google/callback",
   requireStrategy("google", "Google OAuth is not configured"),
-  oauthRateLimit('callback', 'google'),
   requireOAuthState("google"),
   (req, res, next) => {
     const callbackURL = req.oauthStateContext.callbackURL || resolveOAuthCallbackUrl('google', req);
@@ -1236,8 +1286,10 @@ router.get("/discord",
   }
 );
 
-// Discord authorize proxy endpoint to avoid CORS issues
-router.get("/discord/authorize", oauthRateLimit('start', 'discord'), (req, res) => {
+// Discord authorize proxy endpoint to avoid CORS issues. It only forwards a
+// validated state into the real start route, so it has its own budget instead
+// of charging the player's sign-in attempts twice.
+router.get("/discord/authorize", oauthRateLimit('proxy', 'discord'), (req, res) => {
   try {
     const state = getOAuthState(req);
     // Only forward state values shaped like the ones we mint, so this route
@@ -1280,7 +1332,6 @@ router.options("/discord/authorize", (req, res) => {
 router.get(
   "/discord/callback",
   requireStrategy("discord", "Discord OAuth is not configured"),
-  oauthRateLimit('callback', 'discord'),
   requireOAuthState("discord"),
   (req, res, next) => {
     const callbackURL = req.oauthStateContext.callbackURL || resolveOAuthCallbackUrl('discord', req);

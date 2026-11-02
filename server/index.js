@@ -173,6 +173,9 @@ const io = new Server(server, {
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
   },
+  // WebSocket upgrades are not protected by browser CORS enforcement.
+  // Reject hostile Origin headers at the Engine.IO handshake as well.
+  allowRequest: (req, callback) => callback(null, isAllowedOrigin(req.headers.origin)),
   path: '/socket.io',
   transports: isServerlessSocket ? ['polling'] : ['websocket', 'polling'],
   upgrade: !isServerlessSocket,
@@ -531,6 +534,8 @@ io.on('connection', async (socket) => {
   
   console.log(`[Socket] Connected: ${socket.id} from ${socket.handshake.address}`);
 
+  // Share Express's trusted-proxy policy for matchmaking rate limits.
+  socket.data.diceathonRateKey = leaderboardClientKey(socket.request);
   // Register socket with lobby manager
   await lobbyManager.registerSocket(socket);
 

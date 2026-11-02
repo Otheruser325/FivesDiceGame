@@ -47,7 +47,7 @@ export function isValidOAuthNonce(nonce) {
 // Stores the finished login (or a terminal failure) for the tab that started
 // the flow. Returns false when the request does not carry the pieces the
 // handoff needs.
-export function registerOAuthHandoff({ nonce, provider, user = null, error = null, clientOrigin, ttlMs = DEFAULT_TTL_MS }) {
+export function registerOAuthHandoff({ nonce, provider, user = null, error = null, retryable = false, clientOrigin, ttlMs = DEFAULT_TTL_MS }) {
   if (!isValidOAuthNonce(nonce)) return false;
   if (!provider || typeof provider !== 'string') return false;
   const hasUser = !!user && typeof user === 'object' && !!user.id;
@@ -67,6 +67,8 @@ export function registerOAuthHandoff({ nonce, provider, user = null, error = nul
     provider,
     user: hasUser ? user : null,
     error: hasUser ? null : message,
+    // A retryable failure describes a refused attempt, not a failed sign-in.
+    retryable: !hasUser && !!retryable,
     clientOrigin: origin,
     expiresAt: Date.now() + Math.max(1000, Number(ttlMs) || DEFAULT_TTL_MS)
   });
@@ -92,7 +94,12 @@ export function consumeOAuthHandoff(nonce, { origin, provider } = {}) {
   if (originOf(origin) !== entry.clientOrigin) return null;
 
   pending.delete(key);
-  return { provider: entry.provider, user: entry.user || null, error: entry.error || null };
+  return {
+    provider: entry.provider,
+    user: entry.user || null,
+    error: entry.error || null,
+    retryable: !!entry.retryable
+  };
 }
 
 // Test seam: keeps handoff state from leaking between test files.

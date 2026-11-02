@@ -551,6 +551,14 @@ export default class OnlineAccountScene extends Phaser.Scene {
             event.source.postMessage({ type: 'fives-oauth-ack' }, eventOrigin);
           } catch (e) { /* ignore */ }
           const failure = new Error(String(data.error || 'OAuth sign in failed'));
+          if (data.retryable || data.code === 'rate_limited') {
+            // A refused attempt. Do not stop the claim path: it can still carry
+            // the login another attempt already completed.
+            failure.retryable = true;
+            failure.code = 'rate_limited';
+            fail(failure);
+            return;
+          }
           failure.oauthFailure = true;
           this.oauthStopped = true;
           fail(failure);
@@ -599,6 +607,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
       let finished = false;
       let inFlight = false;
       let timer = null;
+      let resumeAt = 0;
       const deadline = Date.now() + timeoutMs;
 
       const cleanup = () => {
@@ -626,6 +635,9 @@ export default class OnlineAccountScene extends Phaser.Scene {
           fail(new Error('OAuth login timed out'));
           return;
         }
+        // The server asks us to slow down instead of counting our polls as
+        // failed sign-ins. Keep the deadline honest rather than hammering it.
+        if (Date.now() < resumeAt) return;
         inFlight = true;
 
         try {
@@ -635,11 +647,23 @@ export default class OnlineAccountScene extends Phaser.Scene {
             credentials: 'include',
             body: JSON.stringify({ nonce })
           }, server);
+          if (res.status === 429) {
+            const retryAfter = Number(res.headers.get('Retry-After'));
+            const waitMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 2000;
+            resumeAt = Date.now() + Math.min(waitMs, 5000);
+            return;
+          }
           if (!res.ok) return;
 
           const body = await res.json();
           if (body?.error) {
             const failure = new Error(String(body.error));
+            if (body.retryable || body.code === 'rate_limited') {
+              failure.retryable = true;
+              failure.code = 'rate_limited';
+              fail(failure);
+              return;
+            }
             failure.oauthFailure = true;
             this.oauthStopped = true;
             fail(failure);
@@ -746,7 +770,7 @@ export default class OnlineAccountScene extends Phaser.Scene {
       try {
         return await this._waitForOAuthHandoff(2500, 500);
       } catch (e) {
-        if (e?.oauthFailure) throw e;
+        if (e?.oauthFailure || e?.retryable) throw e;
         // No ticket left to claim.
       }
     }
@@ -888,6 +912,10 @@ export default class OnlineAccountScene extends Phaser.Scene {
       const failure = classifyOAuthFailure(err);
       if (failure.kind === 'reported') {
         alert(failure.message || t('ACCOUNT_OAUTH_FAILED_NO_USER', 'OAuth login failed: no user session found.'));
+        return;
+      }
+      if (failure.kind === 'rate_limited') {
+        alert(failure.message || t('ACCOUNT_OAUTH_RATE_LIMITED', 'Too many sign-in attempts. Please wait a minute and try again.'));
         return;
       }
       if (failure.kind === 'cancelled') {

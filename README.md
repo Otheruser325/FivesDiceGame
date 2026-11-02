@@ -97,6 +97,21 @@ The game uses **Socket.io** for real-time multiplayer:
 
 **Why not Colyseus?** Socket.io is simpler and more than sufficient for this turn-based dice game. Colyseus adds complexity without benefits for our use case.
 
+### Diceathon events
+
+Diceathon starts on 31 October 2026 at 00:00 UTC, lasts seven days, and repeats
+every 14 days. The event button appears one day before each start; matchmaking
+opens at the start and closes at the end. Matches use six distinct signed-in
+players and a randomly selected Classic, Combanity, Multiplex, or combined
+Combanity + Multiplex table. Queued players can cancel; unfinished games may
+continue after the event closes. There are no prizes or event standings.
+
+The queue and games live in the running server process, like existing online
+games. Use one persistent Socket.IO server for matchmaking; serverless hosts,
+multiple independent server instances, and process restarts cannot share or
+recover the queue. Players disconnected or signed out while waiting must join
+again.
+
 ## 🧪 Testing
 
 ### Local Multiplayer Testing
