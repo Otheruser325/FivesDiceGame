@@ -712,6 +712,18 @@ export function getSocket() {
   return OnlineSocket;
 }
 
+// A socket handshake captures the session cookie at connection time. After a
+// login, reconnect the same socket (keeping scene listeners) so the server sees
+// the new cookie instead of accepting a client-supplied identity.
+export function reconnectAfterLogin() {
+  if (!OnlineSocket) return;
+  resetAuthStatus();
+  // This is an intentional handshake refresh, not evidence of a server reset.
+  _lastConnectionId = null;
+  OnlineSocket.disconnect();
+  OnlineSocket.connect();
+}
+
 // Force reconnection with a fresh session
 export function forceReconnect() {
   if (OnlineSocket) {
@@ -768,7 +780,7 @@ export function emitAuthUser(user, force = false) {
             // Check if socket has auth data set by server
             const socketAuthenticated = socket.data?.user?.id ? true : false;
             
-            if (isAuthenticated && socketAuthenticated && !force) {
+            if (isAuthenticated && socketAuthenticated && String(socket.data.user.id) === String(user.id) && !force) {
                 console.info('[SocketManager] Socket already authenticated, skipping auth-user emission');
                 return;
             }

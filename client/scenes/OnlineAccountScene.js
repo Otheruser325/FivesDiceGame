@@ -1,4 +1,4 @@
-import { getSocket, getServerUrl, emitAuthUser, fetchWithServerFallback, resolveOAuthServerBase, switchServer } from '../utils/SocketManager.js';
+import { getSocket, getServerUrl, emitAuthUser, fetchWithServerFallback, resolveOAuthServerBase, switchServer, reconnectAfterLogin } from '../utils/SocketManager.js';
 import GlobalAudio from '../utils/AudioManager.js';
 import ErrorHandler from '../utils/ErrorManager.js';
 import GlobalLocalization from '../utils/LocalizationManager.js';
@@ -739,35 +739,14 @@ export default class OnlineAccountScene extends Phaser.Scene {
     return null;
   }
 
-  // Last chance to keep a completed login. The callback saves the session
-  // before it answers, so an already signed-in session is proof the login
-  // succeeded even when the popup message and the handoff ticket both failed
-  // (for example when the API restarted or another instance handled the claim).
+  // A pre-existing session, even for the same provider, cannot prove that this
+  // attempt succeeded. Only the nonce-bound handoff can recover its result.
   async _recoverOAuthResult() {
-    const server = (this.oauthServerBase || getServerUrl()).replace(/\/$/, '');
-    const expectedProvider = this.oauthExpectedProvider;
-    const matches = (user) => !!user?.id && (!expectedProvider || user.type === expectedProvider);
-
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 2500);
-      try {
-        const res = await fetchWithServerFallback('/auth/me', { credentials: 'include', signal: controller.signal }, server);
-        if (res?.ok) {
-          const body = await res.json();
-          if (body?.ok && matches(body.user)) return body.user;
-        }
-      } finally {
-        clearTimeout(timer);
-      }
-    } catch (e) {
-      // Fall through to the handoff.
-    }
-
     if (this.oauthNonce) {
       try {
         return await this._waitForOAuthHandoff(2500, 500);
       } catch (e) {
+        if (e?.oauthFailure) throw e;
         // No ticket left to claim.
       }
     }
@@ -824,15 +803,12 @@ export default class OnlineAccountScene extends Phaser.Scene {
       try {
         pendingUser = await Promise.any([
           this._waitForOAuthPopupMessage(90000),
-          this._waitForOAuthSession(90000, 700, { ignorePopupClosed: true }),
           this._waitForOAuthHandoff(90000, 900)
         ]);
       } catch (deliveryError) {
-        // Every in-page delivery path failed. Ask the server whether the
-        // callback signed this browser in before reporting a failure: the
-        // login may have completed while the ticket or popup message was lost.
-        // A terminal failure (expired state, provider error) is authoritative,
-        // so only recover when no path reported one.
+        // A late nonce-bound ticket can still prove this attempt succeeded.
+        // Never recover from /auth/me: it may be an older session. Terminal
+        // provider failures are authoritative and must not be recovered.
         pendingUser = (this.oauthCancelled || this.oauthStopped)
           ? null
           : await this._recoverOAuthResult();
@@ -878,11 +854,20 @@ export default class OnlineAccountScene extends Phaser.Scene {
       this.user = resolvedUser;
       if (this.debugger) this.debugger.log('oauth login success', { id: resolvedUser?.id, type: resolvedUser?.type });
 
+      // A confirmed session needs a fresh socket handshake with its new cookie.
+      // Without confirmation, keep the popup result but do not claim the socket
+      // can authenticate when the browser is blocking the session cookie.
+      if (confirmedUser) reconnectAfterLogin();
+
       try {
         emitAuthUser(resolvedUser);
       } catch (e) { /* ignore */ }
 
-      alert(tf('ACCOUNT_LOGIN_SUCCESS', 'Logged in as {0}', resolvedUser.name || t('GENERIC_UNKNOWN', 'Unknown')));
+      if (confirmedUser) {
+        alert(tf('ACCOUNT_LOGIN_SUCCESS', 'Logged in as {0}', resolvedUser.name || t('GENERIC_UNKNOWN', 'Unknown')));
+      } else {
+        alert(t('ACCOUNT_OAUTH_SESSION_UNCONFIRMED', 'Provider sign-in completed, but the game session could not be confirmed. Online play may require allowing third-party cookies and signing in again.'));
+      }
       this.game.events.emit('auth-updated', resolvedUser);
       this.scene.resume(this.returnTo);
       this.scene.stop();
@@ -954,7 +939,8 @@ export default class OnlineAccountScene extends Phaser.Scene {
         localStorage.setItem('fives_user', JSON.stringify(j.user));
         localStorage.setItem('fives_guest_created_at', String(Date.now())); // prevent immediate re-creation
 
-        // Inform socket immediately
+        // Refresh the existing socket handshake with the new session cookie.
+        reconnectAfterLogin();
         emitAuthUser(j.user);
 
         alert(tf('ACCOUNT_GUEST_CREATED', 'Guest created!\nUsername: {0}\nPassword: {1}', j.user.name, password));
@@ -998,7 +984,8 @@ export default class OnlineAccountScene extends Phaser.Scene {
         if (this.debugger) this.debugger.log('guest login success', { id: j.user?.id, name: j.user?.name });
         localStorage.setItem('fives_user', JSON.stringify(j.user));
 
-        // Inform socket
+        // Refresh the existing socket handshake with the new session cookie.
+        reconnectAfterLogin();
         emitAuthUser(j.user);
 
         alert(tf('ACCOUNT_LOGIN_WELCOME', 'Welcome, {0}', j.user.name));

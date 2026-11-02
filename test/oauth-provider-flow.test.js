@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { io as createSocket } from '../server/node_modules/socket.io-client/build/esm-debug/index.js';
 
 // End-to-end regression tests for the Google and Discord OAuth flows. Only the
 // provider is fake: the app's real Passport strategies, token exchange, profile
@@ -512,6 +513,48 @@ test('Discord popup: real exchange, stable account on repeat, and claimable hand
   const stored = JSON.parse(fs.readFileSync(path.join(dataDir, `users-${new URL(appBase).port}.json`), 'utf8'));
   const discordUsers = Object.values(stored.users || {}).filter((user) => user.type === 'discord');
   assert.equal(discordUsers.length, 1, 'repeat login persisted more than one Discord user');
+});
+
+test('a fresh socket handshake picks up a completed Google session and rejects identity spoofing', async () => {
+  resetProviderState();
+  const flow = await beginFlow('google');
+  const socket = createSocket(appBase, {
+    transports: ['websocket'],
+    extraHeaders: { Cookie: flow.cookie },
+    forceNew: true,
+    reconnection: false
+  });
+  const event = (name) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${name}`)), 5000);
+    socket.once(name, (payload) => { clearTimeout(timer); resolve(payload); });
+  });
+  try {
+    await event('connect');
+    // Wait until the server finishes installing lobby handlers.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const completed = await completeFlow(flow);
+    const user = payloadOf(await completed.callbackResponse.text()).user;
+    assert.ok(user?.id);
+
+    const stale = event('auth-failed');
+    socket.emit('auth-user', user);
+    assert.equal((await stale).reason, 'session_required');
+
+    // Passport regenerates the session on login; the new handshake must carry
+    // the response cookie, just as a browser reconnect does.
+    socket.disconnect();
+    socket.io.opts.extraHeaders = { Cookie: completed.cookie };
+    const ready = event('auth-success');
+    socket.connect();
+    assert.equal((await ready).user.id, user.id);
+
+    const spoofed = event('auth-failed');
+    socket.emit('auth-user', { id: 'someone-else' });
+    assert.equal((await spoofed).reason, 'identity_mismatch');
+    assert.equal((await claimLogin(flow.nonce)).status, 200);
+  } finally {
+    socket.close();
+  }
 });
 
 test('both providers exchange the exact callback selected at start, even if the callback host differs', async () => {
