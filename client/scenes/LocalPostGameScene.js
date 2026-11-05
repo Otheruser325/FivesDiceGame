@@ -10,6 +10,7 @@ const teamLabel = (team) => (team === 'red' ? t('TEAM_RED', 'RED') : t('TEAM_BLU
 export default class LocalPostGameScene extends Phaser.Scene {
     constructor() {
         super('LocalPostGameScene');
+        this._escHandler = null;
     }
 
     create() {
@@ -52,6 +53,21 @@ export default class LocalPostGameScene extends Phaser.Scene {
             GlobalAudio.playButton(this);
             this.scene.start('MenuScene');
         });
+
+        if (this.input && this.input.keyboard) {
+            this._escHandler = (event) => {
+                if (event.repeat) return;
+                GlobalAudio.playButton(this);
+                this.scene.start('MenuScene');
+            };
+            this.input.keyboard.on('keydown-ESC', this._escHandler);
+            this.events.once('shutdown', () => {
+                if (this.input && this.input.keyboard && this._escHandler) {
+                    this.input.keyboard.off('keydown-ESC', this._escHandler);
+                }
+                this._escHandler = null;
+            });
+        }
     }
 
     displayIndividualResults(stats, rankColors, buzzwords) {

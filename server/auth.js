@@ -45,6 +45,23 @@ const INVALID_CREDENTIALS_ERROR = 'Invalid username or password';
 // Hashed once at boot so the "no such account" path costs roughly the same as a
 // real password check (keeps login timing from revealing which usernames exist).
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('fives-timing-equalizer', 10);
+
+// Password hashes for these guest accounts were published in this repository's
+// public history. They must never authenticate again; the owners have to create
+// a new guest account. Keep this list until the history is purged and the rows
+// are deleted from production storage.
+const RETIRED_ACCOUNT_IDS = new Set([
+  '1cdfb713-f072-4bf3-9bec-fdd0b16c53a7',
+  '5795de62-b9b7-4506-8132-30b6db9af5e3',
+  '7f06a5f2-e024-4a14-9477-92ab2ebff5ee',
+  '85b2c61a-e3ca-4383-bc1c-135ebec38e48',
+  'bd76376b-885e-4cfb-861e-35f54b5d9b09',
+  'f4c756d9-1af8-4679-b6a5-13432fff134c'
+]);
+
+function isRetiredAccount(user) {
+  return !!user && RETIRED_ACCOUNT_IDS.has(String(user.id));
+}
 const scrypt = promisify(crypto.scrypt);
 const SCRYPT_OPTIONS = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 
@@ -82,6 +99,8 @@ passport.serializeUser((user, done) => done(null, user.id));
 passport.deserializeUser(async (id, done) => {
   try {
     const u = await loadUser(id);
+    // Retired accounts must not retain an existing session either.
+    if (isRetiredAccount(u)) return done(null, false);
     done(null, u || null);
   } catch (err) {
     done(err, null);
@@ -1177,6 +1196,7 @@ router.post("/guest/login", async (req, res) => {
     // exactly one account; never silently choose one of multiple matches.
     if (verified.length !== 1) return res.json({ ok: false, error: INVALID_CREDENTIALS_ERROR });
     let user = verified[0];
+    if (isRetiredAccount(user)) return res.json({ ok: false, error: INVALID_CREDENTIALS_ERROR });
     const oldHash = user.guestPassword || user.guestpassword;
     if (!oldHash.startsWith('scrypt$') && Buffer.byteLength(password, 'utf8') < 72) {
       // Migrate legacy bcrypt only after successful authentication. Avoid

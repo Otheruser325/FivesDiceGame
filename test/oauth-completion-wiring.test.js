@@ -52,7 +52,7 @@ test('a popup completion hands the login to a claimable ticket and never redirec
 
   assert.deepEqual(
     consumeOAuthHandoff(nonce, { origin: CLIENT_ORIGIN }),
-    { provider: 'google', user: USER, error: null },
+    { provider: 'google', user: USER, error: null, retryable: false },
     'the game tab must be able to claim the login'
   );
 });
@@ -103,7 +103,7 @@ test('a popup failure renders a page and publishes a terminal error instead of r
 
   assert.deepEqual(
     consumeOAuthHandoff(nonce, { origin: CLIENT_ORIGIN }),
-    { provider: 'google', user: null, error: 'Google sign in was cancelled or failed.' }
+    { provider: 'google', user: null, error: 'Google sign in was cancelled or failed.', retryable: false }
   );
 });
 

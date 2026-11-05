@@ -26,7 +26,7 @@ test('a registered login can be claimed exactly once by the tab that started it'
 
   assert.deepEqual(
     consumeOAuthHandoff(ticket, { origin: CLIENT_ORIGIN }),
-    { provider: 'google', user: USER, error: null }
+    { provider: 'google', user: USER, error: null, retryable: false }
   );
   // A second claim must fail: the ticket is spent.
   assert.equal(consumeOAuthHandoff(ticket, { origin: CLIENT_ORIGIN }), null);
@@ -40,7 +40,7 @@ test('a login cannot be claimed from a different origin, and a rejected claim do
   assert.equal(consumeOAuthHandoff(ticket, { origin: null }), null);
   assert.deepEqual(
     consumeOAuthHandoff(ticket, { origin: CLIENT_ORIGIN }),
-    { provider: 'discord', user: USER, error: null }
+    { provider: 'discord', user: USER, error: null, retryable: false }
   );
 });
 
@@ -59,7 +59,7 @@ test('a stale, malformed, or mismatched handoff is refused', async () => {
   registerOAuthHandoff({ nonce: ticket, provider: 'google', user: USER, clientOrigin: CLIENT_ORIGIN });
   assert.equal(consumeOAuthHandoff(ticket, { origin: CLIENT_ORIGIN, provider: 'discord' }), null);
   // A provider mismatch must not spend the ticket.
-  assert.deepEqual(consumeOAuthHandoff(ticket, { origin: CLIENT_ORIGIN }), { provider: 'google', user: USER, error: null });
+  assert.deepEqual(consumeOAuthHandoff(ticket, { origin: CLIENT_ORIGIN }), { provider: 'google', user: USER, error: null, retryable: false });
 
   const expiring = nonce();
   registerOAuthHandoff({
@@ -82,5 +82,5 @@ test('the handoff stores only a digest of the nonce', () => {
   // enumerates pending logins.
   const mutated = `${ticket.slice(0, -1)}${ticket.endsWith('A') ? 'B' : 'A'}`;
   assert.equal(consumeOAuthHandoff(mutated, { origin: CLIENT_ORIGIN }), null);
-  assert.deepEqual(consumeOAuthHandoff(ticket, { origin: CLIENT_ORIGIN }), { provider: 'google', user: USER, error: null });
+  assert.deepEqual(consumeOAuthHandoff(ticket, { origin: CLIENT_ORIGIN }), { provider: 'google', user: USER, error: null, retryable: false });
 });

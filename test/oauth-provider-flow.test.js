@@ -193,6 +193,7 @@ function startApp(port, extraEnv) {
       SUPABASE_URL: '',
       SUPABASE_SERVICE_ROLE_KEY: '',
       REDIS_URL: '',
+      ALLOW_MEMORY_SESSIONS: '1',
       CLIENT_ORIGINS: CLIENT_ORIGIN,
       GOOGLE_CLIENT_ID: 'test-google-client-id',
       GOOGLE_CLIENT_SECRET: 'test-google-client-secret',

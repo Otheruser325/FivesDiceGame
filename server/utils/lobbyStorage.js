@@ -658,6 +658,19 @@ export async function pruneLocalLobbies({ expireMs = DEFAULT_EXPIRE_MS } = {}) {
   return { removedCount: removed, remainingCount: remaining };
 }
 
+// Remove one lobby row from the local fallback without re-upserting the whole
+// map. Used on the hot leave/delete paths.
+export async function deleteLocalLobby(code) {
+  const key = String(code || '').trim().toUpperCase();
+  if (!key) return;
+  await lobbiesDb.read();
+  lobbiesDb.data ||= {};
+  lobbiesDb.data.lobbies ||= {};
+  if (!Object.hasOwn(lobbiesDb.data.lobbies, key)) return;
+  delete lobbiesDb.data.lobbies[key];
+  await enqueueWrite(async () => _safeLocalWrite());
+}
+
 export async function deleteSupabaseLobby(code) {
   if (!supabase) {
     return;

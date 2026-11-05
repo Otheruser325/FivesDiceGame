@@ -1,4 +1,5 @@
 import './env.js';
+import crypto from 'node:crypto';
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -22,7 +23,10 @@ const HOSTED_ENV_MARKERS = [
   'RAILWAY_ENVIRONMENT',
   'K_SERVICE',
   'DYNO',
-  'WEBSITE_SITE_NAME'
+  'WEBSITE_SITE_NAME',
+  'VERCEL',
+  'NOW_REGION',
+  'AWS_LAMBDA_FUNCTION_NAME'
 ];
 if (!process.env.NODE_ENV && HOSTED_ENV_MARKERS.some((key) => !!process.env[key])) {
   process.env.NODE_ENV = 'production';
@@ -34,15 +38,60 @@ const SERVER_RUNTIME = IS_SERVERLESS ? 'serverless' : 'persistent';
 const DEFAULT_RENDER_API_ORIGIN = 'https://fivesapi.onrender.com';
 const REDIS_CONNECT_TIMEOUT_MS = Number(process.env.REDIS_CONNECT_TIMEOUT_MS || 1500);
 const REDIS_CONNECT_MAX_RETRIES = Number(process.env.REDIS_CONNECT_MAX_RETRIES || 1);
-const DEV_SESSION_SECRET = 'fives-dev-session-secret';
+const ALLOW_MEMORY_SESSIONS = process.env.ALLOW_MEMORY_SESSIONS === '1';
+const API_CONTENT_SECURITY_POLICY = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+
+// Trust only the proxy hops this deployment actually has. Hosting platforms put
+// the app behind exactly one proxy; a directly exposed server must not trust a
+// client-supplied X-Forwarded-For, or every IP-based throttle becomes spoofable.
+function resolveTrustProxy() {
+  const raw = typeof process.env.TRUST_PROXY === 'string' ? process.env.TRUST_PROXY.trim() : '';
+  if (raw) {
+    const value = raw.toLowerCase();
+    if (['loopback', 'linklocal', 'uniquelocal'].includes(value)) return value;
+    if (['0', 'false', 'no', 'off'].includes(value)) return 0;
+    if (['1', 'true', 'yes', 'on'].includes(value)) return 1;
+    const hops = Number(value);
+    if (Number.isInteger(hops) && hops >= 0) return hops;
+    console.warn(`[Server] Ignoring invalid TRUST_PROXY value: ${raw}`);
+    return 0;
+  }
+  return process.env.NODE_ENV === 'production' && HOSTED_ENV_MARKERS.some((key) => !!process.env[key]) ? 1 : 0;
+}
+
+const TRUST_PROXY = resolveTrustProxy();
 
 const app = express();
 const server = createServer(app);
 
-// Trust reverse proxies in production so secure cookies and client IP work correctly.
-if (process.env.NODE_ENV === 'production') {
-  app.set('trust proxy', 1);
+if (TRUST_PROXY !== 0) {
+  app.set('trust proxy', TRUST_PROXY);
 }
+if (process.env.NODE_ENV !== 'production') {
+  console.warn('[Server] NODE_ENV is not production: using development cookie and CORS policy');
+}
+
+// Baseline headers for every API response. JSON responses also get a strict CSP;
+// the OAuth completion pages are HTML with an inline script, so they keep their
+// own page-specific headers instead of inheriting a policy that would break it.
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+  }
+
+  const sendJson = res.json.bind(res);
+  res.json = (body) => {
+    res.setHeader('Content-Security-Policy', API_CONTENT_SECURITY_POLICY);
+    return sendJson(body);
+  };
+  next();
+});
 
 // Fast health/root responses before any auth/session middleware.
 app.get('/health', (req, res) => {
@@ -57,11 +106,11 @@ app.get('/health', (req, res) => {
     res.setHeader('Access-Control-Allow-Credentials', 'true');
   }
 
+  res.setHeader('Cache-Control', 'no-store');
   res.json({
     status: 'healthy',
     runtime: SERVER_RUNTIME,
     timestamp: new Date().toISOString(),
-    redis: redisClient?.isReady ? 'connected' : 'not connected',
     uptime: process.uptime()
   });
 });
@@ -127,12 +176,22 @@ function isAllowedOrigin(origin) {
   // Requests without Origin are usually same-origin or non-browser requests.
   if (!origin) return true;
 
-  if (process.env.NODE_ENV !== 'production') {
-    return true;
-  }
-
   const normalized = normalizeOrigin(origin);
   if (!normalized) return false;
+
+  if (process.env.NODE_ENV !== 'production') {
+    const configured = getConfiguredOrigins()
+      .map(normalizeOrigin)
+      .filter(Boolean);
+    if (configured.includes(normalized)) return true;
+    try {
+      const hostname = new URL(normalized).hostname.toLowerCase();
+      // Local development uses a dynamic port; keep the exemption to loopback.
+      return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+    } catch (e) {
+      return false;
+    }
+  }
 
   const configured = getConfiguredOrigins()
     .map(normalizeOrigin)
@@ -198,10 +257,11 @@ let redisClient = null;
 let sessionStore = null;
 
 async function initializeRedis() {
-  // Redis introduces network latency per request and can stall serverless invocations.
-  // In serverless mode we use in-memory session storage.
-  if (IS_SERVERLESS) {
-    console.log('[Session] Serverless mode: skipping Redis session store');
+  // Serverless cannot rely on local memory across invocations. Use Redis when
+  // it is configured; otherwise initialization later fails in production unless
+  // the operator explicitly accepts process-local sessions.
+  if (IS_SERVERLESS && !process.env.REDIS_URL) {
+    console.log('[Session] Serverless mode without REDIS_URL: no shared session store');
     return false;
   }
 
@@ -281,9 +341,10 @@ async function initializeRedis() {
     }
   }
   
-  // No REDIS_URL in production - show warning but continue with memory store
+  // Production startup fails closed below unless the operator explicitly opts
+  // into process-local sessions for a single-instance deployment.
   if (process.env.NODE_ENV === 'production') {
-    console.warn('[Redis] No REDIS_URL configured in production - using memory store (not scalable)');
+    console.warn('[Redis] No REDIS_URL configured in production; a shared session store is required');
   }
   
   return false;
@@ -291,13 +352,25 @@ async function initializeRedis() {
 
 // Initialize session storage
 async function initializeSession() {
-  const redisAvailable = await initializeRedis();
+  await initializeRedis();
   const configuredSecret = typeof process.env.SESSION_SECRET === 'string' ? process.env.SESSION_SECRET.trim() : '';
   if (!configuredSecret && process.env.NODE_ENV === 'production') {
     throw new Error('SESSION_SECRET is required in production');
   }
 
-  const sessionSecret = configuredSecret || DEV_SESSION_SECRET;
+  if (process.env.NODE_ENV === 'production' && !sessionStore && !ALLOW_MEMORY_SESSIONS) {
+    throw new Error('A Redis session store is required in production; set REDIS_URL, or set ALLOW_MEMORY_SESSIONS=1 only for a single-instance deployment that accepts non-durable sessions');
+  }
+  if (process.env.NODE_ENV === 'production' && !sessionStore && ALLOW_MEMORY_SESSIONS) {
+    console.warn('[Session] ALLOW_MEMORY_SESSIONS=1: production sessions are process-local and will be lost on restart');
+  }
+
+  // Never ship a known secret. Without configuration a local process gets a
+  // random per-process key, so restarting simply ends its sessions.
+  const sessionSecret = configuredSecret || crypto.randomBytes(48).toString('base64url');
+  if (!configuredSecret) {
+    console.warn('[Session] SESSION_SECRET is not set; using a random per-process secret (sessions end when this process restarts)');
+  }
   
   const sessionConfig = {
     store: sessionStore,
@@ -305,7 +378,7 @@ async function initializeSession() {
     resave: false,
     saveUninitialized: false,
     rolling: !IS_SERVERLESS,
-    proxy: process.env.NODE_ENV === 'production',
+    proxy: TRUST_PROXY !== 0,
     cookie: {
       secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
@@ -483,7 +556,7 @@ app.get('/leaderboard', async (req, res) => {
 
         // Get requesting player's rank if authenticated via session
         let playerRank = null;
-        const userId = req.session?.user?.id;
+        const userId = req.user?.id;
         if (userId) {
             try {
                 playerRank = await LeaderboardManager.getPlayerRank(userId, sortBy);
@@ -524,8 +597,75 @@ if (process.env.NODE_ENV !== 'production') {
   console.log('[Dev] Client files served from', join(__dirname, '../client'));
 }
 
+// Cap connection churn from one address, and the process as a whole, before the
+// lobby pool or database is touched. Every accepted connection used to trigger a
+// full lobby scan, which made an unauthenticated socket flood an amplified read.
+function positiveInt(value, fallback) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const SOCKET_MAX_PER_IP = positiveInt(process.env.SOCKET_MAX_PER_IP, 60);
+const SOCKET_CONNECT_LIMIT_PER_MINUTE = positiveInt(process.env.SOCKET_CONNECT_LIMIT_PER_MINUTE, 120);
+const SOCKET_MAX_TOTAL = positiveInt(process.env.SOCKET_MAX_TOTAL, 2000);
+const socketConnectionsByIp = new Map();
+const socketConnectBuckets = new Map();
+
+function socketClientKey(socket) {
+  try {
+    return leaderboardClientKey(socket.request);
+  } catch (e) {
+    return String(socket?.handshake?.address || 'unknown').replace(/^::ffff:/, '');
+  }
+}
+
+function socketConnectRateLimited(key, now) {
+  let bucket = socketConnectBuckets.get(key);
+  if (!bucket || (now - bucket.startedAt) >= 60 * 1000) {
+    if (socketConnectBuckets.size >= 5000) {
+      const oldest = socketConnectBuckets.keys().next();
+      if (!oldest.done) socketConnectBuckets.delete(oldest.value);
+    }
+    bucket = { startedAt: now, count: 0 };
+    socketConnectBuckets.set(key, bucket);
+  }
+  bucket.count += 1;
+  return bucket.count > SOCKET_CONNECT_LIMIT_PER_MINUTE;
+}
+
+io.use((socket, next) => {
+  const key = socketClientKey(socket);
+  const now = Date.now();
+  const active = socketConnectionsByIp.get(key) || 0;
+
+  if (active >= SOCKET_MAX_PER_IP) {
+    return next(new Error('Too many connections from this address'));
+  }
+  if (io.engine.clientsCount >= SOCKET_MAX_TOTAL) {
+    return next(new Error('Server connection capacity reached'));
+  }
+  if (socketConnectRateLimited(key, now)) {
+    return next(new Error('Too many connection attempts'));
+  }
+
+  socket.data.connectionKey = key;
+  return next();
+});
+
 // ✅ Socket.io connection handling with enhanced stability & diagnostics
 io.on('connection', async (socket) => {
+  // Account for a connection only after it passed every namespace middleware,
+  // so a rejected handshake cannot leak the per-address count.
+  if (socket.data.connectionKey) {
+    const key = socket.data.connectionKey;
+    socketConnectionsByIp.set(key, (socketConnectionsByIp.get(key) || 0) + 1);
+    socket.once('disconnect', () => {
+      const count = socketConnectionsByIp.get(key) || 0;
+      if (count <= 1) socketConnectionsByIp.delete(key);
+      else socketConnectionsByIp.set(key, count - 1);
+    });
+  }
+
   // Initialize connection metadata
   socket.data = socket.data || {};
   socket.data.connected = true;

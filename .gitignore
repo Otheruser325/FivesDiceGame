@@ -2,3 +2,7 @@ DEPLOYMENT.md
 server/.env
 server/.env.example
 node_modules/
+
+# Runtime account and lobby data (must never be committed)
+server/data/*.json
+!server/data/.gitkeep

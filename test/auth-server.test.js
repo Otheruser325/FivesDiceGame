@@ -33,6 +33,8 @@ function startServer(port, extraEnv = {}) {
     env: {
       ...process.env,
       NODE_ENV: 'production',
+      TRUST_PROXY: '1',
+      ALLOW_MEMORY_SESSIONS: '1',
       USER_STORAGE_MODE: 'local',
       USER_DATA_FILE: path.join(DATA_DIR, 'users.json'),
       SUPABASE_URL: '',
@@ -117,6 +119,20 @@ test('OAuth providers are advertised when configured', async () => {
   const res = await fetch(`${base}/auth/methods`, { headers: { Origin: CLIENT_ORIGIN } });
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { guest: true, google: true, discord: true });
+});
+
+test('health hides the session store and API responses carry security headers', async () => {
+  const res = await fetch(`${base}/health`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('x-powered-by'), null);
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(res.headers.get('x-frame-options'), 'DENY');
+  assert.equal(res.headers.get('referrer-policy'), 'no-referrer');
+  assert.match(res.headers.get('permissions-policy') || '', /camera=\(\)/);
+  assert.match(res.headers.get('content-security-policy') || '', /default-src 'none'/);
+  assert.match(res.headers.get('strict-transport-security') || '', /max-age=31536000/);
+  const body = await res.json();
+  assert.equal(Object.hasOwn(body, 'redis'), false);
 });
 
 test('Google authorize points at the Render callback even when the host is spoofed', async () => {
@@ -415,4 +431,41 @@ test('a mistyped AUTH_SUCCESS_REDIRECT_URL cannot become an open redirect', asyn
   const location = locationOf(res);
   assert.ok(!location.includes('evil.example'), location);
   assert.match(location, /^https:\/\/fivesdicegame\.vercel\.app\/?/);
+});
+
+test('production refuses to start without Redis unless memory sessions are explicitly allowed', async () => {
+  const port = await freePort();
+  const child = spawn(process.execPath, ['index.js'], {
+    cwd: path.join(ROOT, 'server'),
+    env: {
+      ...process.env,
+      NODE_ENV: 'production',
+      TRUST_PROXY: '1',
+      ALLOW_MEMORY_SESSIONS: '',
+      SESSION_SECRET: 'redis-required-regression-secret',
+      REDIS_URL: '',
+      USER_STORAGE_MODE: 'local',
+      USER_DATA_FILE: path.join(DATA_DIR, 'users.json'),
+      SUPABASE_URL: '',
+      SUPABASE_SERVICE_ROLE_KEY: '',
+      PORT: String(port)
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  let output = '';
+  child.stdout.on('data', (chunk) => { output += String(chunk); });
+  child.stderr.on('data', (chunk) => { output += String(chunk); });
+
+  const exitCode = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`production server did not exit without Redis:\n${output}`));
+    }, 15000);
+    child.once('exit', (code) => { clearTimeout(timer); resolve(code); });
+    child.once('error', (error) => { clearTimeout(timer); reject(error); });
+  });
+
+  assert.notEqual(exitCode, 0, output);
+  assert.match(output, /A Redis session store is required in production|ALLOW_MEMORY_SESSIONS/);
 });

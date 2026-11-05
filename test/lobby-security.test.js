@@ -12,6 +12,7 @@ function setup(count = 3) {
   };
   manager.load = async () => {};
   manager.save = async () => {};
+  manager.persistLobby = async () => {};
   manager._updateGameStats = async () => {};
   const players = Array.from({ length: count }, (_, i) => ({
     id: `u${i}`, name: `Player ${i}`, score: 0, comboStats: {}, left: false, ready: true
@@ -99,6 +100,21 @@ test('a client cannot create an official event table or enable combined rules in
   const lobby = Object.values(state.manager.lobbies)[0];
   assert.equal(lobby.config.eventMode, undefined);
   assert.equal(lobby.config.multiplex, false);
+  cleanup(state);
+});
+
+test('lobby creation is throttled before it can fill storage', async () => {
+  const state = setup(6);
+  state.manager.lobbies = {};
+  state.manager.activeGames = {};
+  await registerAll(state);
+
+  for (const socket of state.sockets) {
+    await socket.handlers.get('create-lobby')({ players: 2, rounds: 5 });
+  }
+
+  assert.equal(state.sockets[5].sent.at(-1).data.reason, 'rate_limited');
+  assert.equal(Object.keys(state.manager.lobbies).length, 5);
   cleanup(state);
 });
 
@@ -223,7 +239,7 @@ test('surrender during a pending roll advances before slow persistence and disca
   await registerAll(state);
   state.manager.startTurn('ABCDE');
   let release;
-  state.manager.save = () => new Promise(resolve => { release = resolve; });
+  state.manager.persistLobby = () => new Promise(resolve => { release = resolve; });
   state.sockets[0].handlers.get('player-roll')({ code: 'ABCDE' });
   const leaving = state.sockets[0].handlers.get('leave-lobby')('ABCDE');
   assert.equal(state.game.currentIndex, 1);

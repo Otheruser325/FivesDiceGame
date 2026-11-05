@@ -1,11 +1,11 @@
 import { randomInt } from "node:crypto";
-import { loadLobbies, saveLobby, saveLobbies, pruneLocalLobbies, deleteSupabaseLobby } from "./utils/lobbyStorage.js";
+import { loadLobbies, saveLobby, saveLobbies, pruneLocalLobbies, deleteSupabaseLobby, deleteLocalLobby } from "./utils/lobbyStorage.js";
 
 // lobby codes are the only thing hiding a lobby, so use a CSPRNG.
 // skip look-alike characters so codes are easy to read out.
 const LOBBY_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
-function generateLobbyCode(length = 5) {
+function generateLobbyCode(length = 6) {
   let code = "";
   for (let i = 0; i < length; i += 1) {
     code += LOBBY_CODE_ALPHABET[randomInt(0, LOBBY_CODE_ALPHABET.length)];
@@ -95,6 +95,9 @@ export default class LobbyManager {
     this.diceathonReservations = new Map();
     this.diceathonQueueTimer = null;
     this.diceathonRateBuckets = new Map();
+    this.socketRateBuckets = new Map();
+    this._loadInFlight = null;
+    this._lastLoadAt = 0;
     this.isServerless = process.env.VERCEL === '1' || !!process.env.AWS_LAMBDA_FUNCTION_NAME || !!process.env.NOW_REGION;
     this.init();
   }
@@ -143,6 +146,17 @@ export default class LobbyManager {
 
   // Load all lobbies from storage (defensive: supports array or map)
   async load() {
+    // Coalesce overlapping reloads so a connection burst cannot multiply a
+    // full-table read.
+    if (this._loadInFlight) return this._loadInFlight;
+    this._loadInFlight = this._loadNow().finally(() => {
+      this._loadInFlight = null;
+      this._lastLoadAt = Date.now();
+    });
+    return this._loadInFlight;
+  }
+
+  async _loadNow() {
     try {
       const raw = await loadLobbies();
       if (!raw) return;
@@ -214,6 +228,14 @@ export default class LobbyManager {
     }
   }
 
+  // A new connection only needs a recent view of storage. Explicit loads (init,
+  // admin paths) still run immediately; this throttles the per-connection path.
+  async refreshLobbies(minIntervalMs = 5000) {
+    if (this._loadInFlight) return this._loadInFlight;
+    if (this._lastLoadAt && (Date.now() - this._lastLoadAt) < minIntervalMs) return;
+    return this.load();
+  }
+
   // Save entire map. The storage layer may implement this as a bulk replace or per-row upsert.
   async save() {
     try {
@@ -248,10 +270,8 @@ export default class LobbyManager {
     }
 
     try {
-      // save to lowdb
-      await this.save();
-
-      // remove from Supabase
+      // remove this row from local fallback, then Supabase
+      await deleteLocalLobby(code);
       await deleteSupabaseLobby(code);
 
     } catch (e) {
@@ -275,6 +295,26 @@ export default class LobbyManager {
 
   getAuthoritativeSocketUser(socket) {
     return sanitizeAuthenticatedUser(socket?.request?.user);
+  }
+
+  // Per-address token bucket for socket actions that write lobby state. Codes
+  // are short, so unthrottled joins also make rooms guessable.
+  consumeSocketRate(socket, action, limit, windowMs = 60 * 1000) {
+    this.socketRateBuckets ||= new Map();
+    const address = socket?.data?.diceathonRateKey || String(socket?.request?.socket?.remoteAddress || socket?.handshake?.address || 'unknown').replace(/^::ffff:/, '');
+    const key = `${action}:${address}`;
+    const now = Date.now();
+    let bucket = this.socketRateBuckets.get(key);
+    if (!bucket || (now - bucket.startedAt) >= windowMs) {
+      if (this.socketRateBuckets.size >= 5000) {
+        const oldest = this.socketRateBuckets.keys().next();
+        if (!oldest.done) this.socketRateBuckets.delete(oldest.value);
+      }
+      bucket = { startedAt: now, count: 0 };
+      this.socketRateBuckets.set(key, bucket);
+    }
+    bucket.count += 1;
+    return bucket.count > limit;
   }
 
   ensureSessionAuthenticated(socket, emitSuccess = true) {
@@ -486,7 +526,7 @@ export default class LobbyManager {
   // Register socket connection + handlers
   async registerSocket(socket) {
     // refresh latest lobbies from DB before handling new socket
-    this.load().catch(e => console.warn('[LobbyManager] socket refresh failed:', e));
+    this.refreshLobbies().catch(e => console.warn('[LobbyManager] socket refresh failed:', e));
 
     // ensure socket.data.user container exists
     socket.data.user = socket.data.user || null;
@@ -688,6 +728,20 @@ export default class LobbyManager {
           return socket.emit("create-failed", { reason: "invalid_user" });
         }
 
+        if (this.consumeSocketRate(socket, 'create-lobby', 5)) {
+          return socket.emit('create-failed', { reason: 'rate_limited', retryable: true });
+        }
+        const configuredLobbyLimit = Number(process.env.MAX_LOBBIES);
+        const lobbyLimit = Number.isInteger(configuredLobbyLimit) && configuredLobbyLimit > 0 ? configuredLobbyLimit : 500;
+        if (Object.keys(this.lobbies).length >= lobbyLimit) {
+          return socket.emit('create-failed', { reason: 'server_full', retryable: true });
+        }
+        const ownedLobbies = Object.values(this.lobbies)
+          .filter((entry) => String(entry?.hostUserId || entry?.hostuserid || '') === String(uid)).length;
+        if (ownedLobbies >= 3) {
+          return socket.emit('create-failed', { reason: 'lobby_limit' });
+        }
+
         if (!config || typeof config !== 'object' || Array.isArray(config)) return socket.emit('create-failed', { reason: 'invalid_config' });
         // Official event tables may only be created by the matchmaking server.
         const { diceathon, eventMode, eventType, eventKey, eventName, allowCombinedModes, ...ordinaryConfig } = config;
@@ -697,7 +751,7 @@ export default class LobbyManager {
         // ensure unique code (retry if collision)
         let code = null;
         for (let i = 0; i < 12 && !code; i++) {
-          const candidate = generateLobbyCode(5);
+          const candidate = generateLobbyCode(6);
           if (!this.lobbies[candidate]) code = candidate;
         }
         if (!code) code = generateLobbyCode(6);
@@ -769,8 +823,11 @@ export default class LobbyManager {
           }
         }
 
-        if (!codeRaw || typeof codeRaw !== "string") return socket.emit("join-failed", { reason: "invalid_code" });
+        if (!codeRaw || typeof codeRaw !== "string" || codeRaw.length > 12) return socket.emit("join-failed", { reason: "invalid_code" });
         const code = codeRaw.trim().toUpperCase();
+        if (this.consumeSocketRate(socket, 'join-lobby', 30)) {
+          return socket.emit("join-failed", { reason: "rate_limited", retryable: true });
+        }
         const lobby = this.lobbies[code];
         if (!lobby) return socket.emit("join-failed", { reason: "notfound" });
         lobby.config = normalizeLobbyConfig(lobby.config);
@@ -975,6 +1032,7 @@ export default class LobbyManager {
           return;
         }
 
+        if (this.consumeSocketRate(socket, 'toggle-ready', 60)) return;
         if (typeof codeRaw !== "string") return;
         const code = codeRaw.trim().toUpperCase();
         const lobby = this.lobbies[code];
@@ -1020,6 +1078,7 @@ export default class LobbyManager {
         if (!lobby.config.teamsEnabled) return;
         const hostUserId = lobby.hostuserid || lobby.hostUserId || null;
         if (!socket.data.user?.id || String(socket.data.user.id) !== String(hostUserId)) return;
+        if (this.consumeSocketRate(socket, 'team-changed', 30)) return;
 
         const playerIndex = lobby.players.findIndex((player) => String(player.id) === String(playerId));
         if (playerIndex < 0) return;
@@ -1056,6 +1115,7 @@ export default class LobbyManager {
       if (typeof codeRaw !== "string") return;
       const code = codeRaw.trim().toUpperCase();
       if (!this.ensureSessionAuthenticated(socket, false)) return;
+      if (this.consumeSocketRate(socket, 'leave-lobby', 30)) return;
       await this.removePlayerFromLobby(code, socket);
     });
 
@@ -1467,8 +1527,8 @@ export default class LobbyManager {
       delete this.activeGames[code];
     }
     try { 
-      await this.save(); 
-      console.log(`[LobbyManager] ✅ Saved empty lobby deletion for ${code}`);
+      await deleteLocalLobby(code);
+      console.log(`[LobbyManager] ✅ Removed empty lobby ${code} from local storage`);
     } catch (e) { 
       console.warn("[LobbyManager] save after deleting empty lobby failed:", e); 
     }
@@ -1534,7 +1594,7 @@ export default class LobbyManager {
       if (this.lobbies[code]) {
         console.log(`[LobbyManager] Deleting lobby ${code} since game ended with all players gone`);
         delete this.lobbies[code];
-        this.save().catch(e => console.warn("[LobbyManager] save after deleting lobby failed:", e));
+        deleteLocalLobby(code).catch(e => console.warn("[LobbyManager] deleteLocalLobby failed:", e));
         deleteSupabaseLobby(code).catch(e => console.warn("[LobbyManager] deleteSupabaseLobby failed:", e));
       }
       return;
@@ -1551,10 +1611,10 @@ export default class LobbyManager {
 
   // Do not block turn progression on a slow lobby store.
   try {
-    await this.save();
-    console.log(`[LobbyManager] ✅ Persisted player left status for ${uid} in lobby ${code} to database`);
+    await this.persistLobby(code);
+    console.log(`[LobbyManager] ✅ Persisted player left status for ${uid} in lobby ${code}`);
   } catch (e) {
-    console.warn("[LobbyManager] save after removePlayer failed:", e);
+    console.warn("[LobbyManager] persist after removePlayer failed:", e);
   }
 }
 
@@ -1829,8 +1889,8 @@ export default class LobbyManager {
         console.log(`[LobbyManager] Deleting lobby ${code} after game finished with insufficient players`);
         delete this.lobbies[code];
         try { 
-          await this.save(); 
-          console.log(`[LobbyManager] ✅ Saved lobby deletion for ${code}`);
+          await deleteLocalLobby(code);
+          console.log(`[LobbyManager] ✅ Removed lobby ${code} from local storage`);
         } catch (e) { 
           console.warn("[LobbyManager] save after deleting lobby failed:", e); 
         }
@@ -1872,7 +1932,7 @@ export default class LobbyManager {
               console.log(`[LobbyManager] Cleaning up lobby ${gameCode} (post-game cleanup)`);
               delete this.lobbies[gameCode];
               try { 
-                this.save().catch(e => console.warn("[LobbyManager] save after delayed lobby deletion failed:", e));
+                deleteLocalLobby(gameCode).catch(e => console.warn("[LobbyManager] deleteLocalLobby delayed failed:", e));
               } catch (e) { /* ignore */ }
               try { 
                 deleteSupabaseLobby(gameCode).catch(e => console.warn("[LobbyManager] deleteSupabaseLobby delayed failed:", e));

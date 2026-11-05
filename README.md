@@ -143,10 +143,14 @@ Expected response:
 {
   "status": "healthy",
   "timestamp": "2026-01-16T...",
-  "redis": "not connected",
   "uptime": 12345
 }
 ```
+
+The health response intentionally does not disclose the session-store backend or
+connection state. API JSON responses also carry baseline security headers
+(`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, a restrictive
+`Content-Security-Policy`, and HSTS in production).
 
 ## 🔐 Environment Variables
 
@@ -157,9 +161,22 @@ NODE_ENV=production
 PORT=8080
 CLIENT_ORIGINS=https://play.fivesdicegame.com
 SESSION_SECRET=your-secret-key
+REDIS_URL=redis://your-redis-host:6379
+TRUST_PROXY=1
 DISCORD_CLIENT_ID=your-id
 DISCORD_CLIENT_SECRET=your-secret
 ```
+
+`TRUST_PROXY` is the number of reverse proxies in front of the API. It defaults
+to `1` on detected hosting platforms and `0` elsewhere. Set it to `0` when the
+server is directly exposed; otherwise clients can spoof `X-Forwarded-For` and
+buy themselves fresh rate-limit buckets.
+
+`REDIS_URL` is required when `NODE_ENV=production`. If Redis is absent or cannot
+be reached, startup fails rather than silently using process-local sessions. For
+a single persistent instance that accepts sessions being lost on restart, the
+explicit `ALLOW_MEMORY_SESSIONS=1` opt-out allows the memory store. Do not use
+that opt-out with multiple instances or on serverless hosting.
 
 ### Durable accounts
 

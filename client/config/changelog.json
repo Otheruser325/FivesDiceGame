@@ -2,6 +2,19 @@
   "title": "Fives - Changelog",
   "entries": [
     {
+      "version": "1.3.2",
+      "date": "05/11/2026",
+      "tags": [
+        "Release",
+        "Fixes",
+        "Security"
+      ],
+      "changes": [
+        "Server stability improvements and fixes",
+        "Resolved a minor issue where ESC could not close the leaderboard/end-game sessions in online mode"
+      ]
+    },
+    {
       "version": "1.3.1",
       "date": "31/10/2026",
       "tags": [
